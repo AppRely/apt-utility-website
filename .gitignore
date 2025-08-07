@@ -1,0 +1,94 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Logs
+yarn-debug.log*
+yarn-error.log*
+npm-debug.log*
+pnpm-debug.log*
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Compiled output
+/dist
+/build
+/.next
+/out
+/.turbo
+/.vercel
+
+# Coverage directory
+/coverage
+
+# TypeScript cache
+*.tsbuildinfo
+
+# ESLint cache
+.eslintcache
+
+# Env files
+.env
+.env.*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing
+jest.*.json
+
+# Misc
+*.tgz
+
+# Optional npm cache directory
+.npm
+
+# Parcel-bundler cache (optional)
+.cache
+
+# Next.js build output
+.next/
+
+# Turbopack
+.turbo/
+
+# VSCode test
+.vscode-test/
+
+# SvelteKit, Astro etc (not used but harmless)
+/.svelte-kit
+/.astro
+
+# Storybook build
+/storybook-static
+
+# Firebase
+.firebase/
+
+# Local database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Mac zip files
+__MACOSX/

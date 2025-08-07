@@ -1,0 +1,71 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2022"
+    ],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/components/*": [
+        "src/components/*"
+      ],
+      "@/features/*": [
+        "src/features/*"
+      ],
+      "@/hooks/*": [
+        "src/hooks/*"
+      ],
+      "@/lib/*": [
+        "src/lib/*"
+      ],
+      "@/store/*": [
+        "src/store/*"
+      ],
+      "@/utils/*": [
+        "src/utils/*"
+      ],
+      "@/schemas/*": [
+        "src/schemas/*"
+      ],
+      "@/types/*": [
+        "src/types/*"
+      ],
+      "@/*": [
+        "src/*"
+      ]
+    },
+    "types": [
+      "@types/node",
+      "@types/react",
+      "@types/react-dom"
+    ],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "next-env.d.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
