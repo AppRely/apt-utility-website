@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <NuqsAdapter>
           <Providers>
-            <Navbar />
+            {/* <Navbar /> */}
             <main>{children}</main>
           </Providers>
         </NuqsAdapter>
