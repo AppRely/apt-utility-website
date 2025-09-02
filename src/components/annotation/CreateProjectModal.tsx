@@ -5,7 +5,8 @@ import { useToast } from "@/components/hooks/use-toast"
 import { Button } from "@/components/ui/Button"
 import { useState } from "react"
 import { z } from "zod"
-
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { createProject } from "@/lib/api/createProject"
 const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
 
 // ✅ Schema
@@ -42,6 +43,39 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
 
+  const queryClient = useQueryClient()
+
+const mutation = useMutation({
+  mutationFn: (formData: FormData) => createProject(formData),
+  onSuccess: (data) => {
+    toast({
+      title: "Project created successfully!",
+      variant: "default",
+      duration: 2000,
+      className: "text-green-600",
+    })
+
+    // reset form state
+    setErrors({})
+    setProjectName("")
+    setFileUpload(null)
+    setTrackingFile(null)
+    onClose()
+
+    // if you keep a "projects list" query, re-fetch it
+    queryClient.invalidateQueries({ queryKey: ["projects"] })
+  },
+  onError: (error: any) => {
+    toast({
+      title: "Error creating project",
+      description: error.message,
+      variant: "destructive",
+      duration: 2000,
+    })
+  },
+})
+
+
   // ✅ Handle submit
   const handleSubmit = async () => {
     const formData = { projectName, fileUpload, trackingFile }
@@ -56,37 +90,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       return
     }
 
-    try{
       const body = new FormData()
       body.append("project_name", projectName)
       if (fileUpload?.[0]) body.append("video_file", fileUpload[0])
       if (trackingFile?.[0]) body.append("trk_file", trackingFile[0])
-
-      const response = await fetch(`${API_BASE}/api/v1/videos/`, {
-        method: "POST",
-        body,
-      })
-      console.log("Response:", response)
-      if (!response.ok) {
-        throw new Error("Failed to create project")
-      }
-      const data = await response.json()
-
-      toast({
-        title: "Project created successfully!",
-        variant: "default",
-        duration: 2000,
-        className: "text-green-600",
-      })
-      setErrors({})
-      setProjectName("")
-      setFileUpload(null)
-      setTrackingFile(null)
-      onClose()
-    }
-    catch (error) {
-      console.error("Error uploading project:", error)
-    }
+      mutation.mutate(body)
     
   }
 
@@ -212,9 +220,10 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           <Button
             size={null}
             onClick={handleSubmit}
+            disabled={mutation.isPending}
             className="bg-[#3B46A0] hover:bg-[#3B46A0] border-[2px] text-white text-[22px] px-10 py-2 rounded-[7px] font-normal"
           >
-            Create
+            {mutation.isPending ? "Creating..." : "Create"}
           </Button>
           <Button
             variant="ghost"
