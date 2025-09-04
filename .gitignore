@@ -92,3 +92,7 @@ jest.*.json
 
 # Mac zip files
 __MACOSX/
+
+.cursor/
+.cursorrules
+
