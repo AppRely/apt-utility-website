@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/Button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Card, CardHeader, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import Sidebar from "@/components/dashboard/Sidebar"
-import MainContent from "@/components/dashboard/MainContent"
+import { Sidebar } from "@/components/dashboard/Sidebar"
+import { MainContent } from "@/components/dashboard/MainContent"
 export default function Dashboard() {
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">

@@ -3,19 +3,19 @@
 import { Card } from "@/components/ui/card"
 import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
-import { fetchFrames } from "@/lib/api/fetchFrames"
-import type { APIFRame } from "@/types/apiFrame"
+import { fetchFrames } from "@/services"
+import type { APIFrame } from "@/entities"
 
-type Props = {
-  selectedFrame: APIFRame | null
-  onSelect: (frame: APIFRame) => void
+interface FrameTimelineProps {
+  selectedFrame: APIFrame | null
+  onSelect: (frame: APIFrame) => void
   videoId: number
 }
 
-export default function FrameTimeline({ selectedFrame, onSelect, videoId }: Props) {
+export function FrameTimeline({ selectedFrame, onSelect, videoId }: FrameTimelineProps) {
   const { data: frames, isLoading, isError } = useQuery({
     queryKey: ["frames",2],
-    queryFn: () => fetchFrames(2),
+    queryFn: () => fetchFrames(1),
   })
 
   if (isLoading) return <div>Loading frames...</div>

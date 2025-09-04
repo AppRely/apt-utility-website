@@ -1,6 +1,6 @@
 "use client";
 
-import { Post } from './schema';
+import { Post } from '@/entities';
 
 export function PostsList({ posts }: { posts: Post[] }) {
   if (!posts?.length) return <p>No posts found.</p>;

@@ -7,10 +7,10 @@ import { Separator } from "@/components/ui/separator"
 import { Undo2, Redo2, Trash2, Play, Pause, SkipBack, SkipForward, Maximize2 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { fetchVideoStream } from "@/lib/api/fetchVideo"
-import type { Frame } from "@/types/frame"
+import { fetchVideoStream } from "@/services"
+import type { Frame } from "@/entities"
 
-export default function VideoPanel({ selectedFrame }: { selectedFrame: Frame }) {
+export function VideoPanel({ selectedFrame }: { selectedFrame: Frame }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -19,7 +19,7 @@ export default function VideoPanel({ selectedFrame }: { selectedFrame: Frame }) 
   // Fetch video stream from API
   const { data: videoUrl, isLoading, isError } = useQuery({
     queryKey: ["videoStream", 2],
-    queryFn: () => fetchVideoStream(2),
+    queryFn: () => fetchVideoStream(1),
   })
 
   // Handle play / pause toggle

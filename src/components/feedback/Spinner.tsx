@@ -1,4 +1,4 @@
-import { cn } from '@/utils';
+import { cn } from '@/shared/utils';
 
 export function Spinner({ className }: { className?: string }) {
   return (

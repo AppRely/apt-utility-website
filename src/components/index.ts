@@ -1,3 +1,5 @@
-export * from './ui/Button';
-export { default as Navbar } from './layout/Navbar';
-export * from './feedback/Spinner';
+export * from './ui';
+export * from './layout';
+export * from './feedback';
+export * from './annotation';
+export * from './dashboard';

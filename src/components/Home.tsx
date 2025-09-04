@@ -7,7 +7,7 @@ import { PostsList } from '@/features/posts';
 import { Button } from '@/components/ui/Button';
 import { useQueryState } from 'nuqs';
 
-export default function Home() {
+export function Home() {
   const count = useCounterStore((state) => state.count);
   const increment = useCounterStore((state) => state.increment);
 

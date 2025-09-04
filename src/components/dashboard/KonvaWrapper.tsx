@@ -8,6 +8,6 @@ const Konva = dynamic(() => import("@/components/dashboard/Konva"), {
   loading: () => <p>Loading canvas...</p>,
 });
 
-export default function KonvaWrapper() {
+export function KonvaWrapper() {
   return <Konva />;
 }

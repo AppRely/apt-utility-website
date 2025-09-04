@@ -4,9 +4,9 @@ import { useState } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/Button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import CreateProjectModal from "@/components/annotation/CreateProjectModal"
+import { CreateProjectModal } from "@/components/annotation/CreateProjectModal"
 
-export default function AnnotationLandingPage() {
+export function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false)
 
   return (

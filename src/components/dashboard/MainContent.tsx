@@ -4,9 +4,9 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import Image from "next/image"
 import { Button } from "@/components/ui/Button"
-import VideoPanel from "@/components/dashboard/VideoPanel"
-import FrameTimeline from "@/components/dashboard/FrameTimeLine"
-import type { Frame } from "@/types/frame"
+import { VideoPanel } from "@/components/dashboard/VideoPanel"
+import { FrameTimeline } from "@/components/dashboard/FrameTimeLine"
+import type { Frame } from "@/entities"
 
 const frames: Frame[] = [
   { id: 1, frame: "128 / 540", time: "00:04:16", fps: 30, img: "/images/frame1.jpg" },
@@ -16,7 +16,7 @@ const frames: Frame[] = [
   { id: 5, frame: "500 / 540", time: "00:15:00", fps: 30, img: "/images/frame5.jpg" },
 ]
 
-export default function AnnotationWorkspace() {
+export function MainContent() {
   const [selectedFrame, setSelectedFrame] = useState<Frame>(frames[0])
 
   return (

@@ -5,7 +5,7 @@ import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/Button"
 import Image from "next/image"
 
-export default function Sidebar() {
+export function Sidebar() {
   return (
     <Card className="border rounded-[7px] text-sm">
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">

@@ -1,13 +1,13 @@
 "use client"
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { useToast } from "@/components/hooks/use-toast"
+import { useToast } from "@/shared/hooks/use-toast"
 import { Button } from "@/components/ui/Button"
 import { useState } from "react"
 import { z } from "zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { createProject } from "@/lib/api/createProject"
-const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
+import { createProject } from "@/services"
+
 
 // ✅ Schema
 const projectSchema = z.object({
@@ -33,7 +33,7 @@ interface CreateProjectModalProps {
   onClose: () => void
 }
 
-export default function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
+export function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
   const [projectName, setProjectName] = useState("")
   const [fileUpload, setFileUpload] = useState<FileList | null>(null)
   const [trackingFile, setTrackingFile] = useState<FileList | null>(null)
