@@ -5,6 +5,7 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import Sidebar from "@/components/dashboard/Sidebar"
 import MainContent from "@/components/dashboard/MainContent"
+import { MainFrames } from "@/components/dashboard/MainFrames"
 export default function Dashboard() {
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
@@ -42,7 +43,8 @@ export default function Dashboard() {
       {/* Body */}
       <main className="flex flex-1 overflow-hidden pl-3 pt-3 pr-3 gap-3">
         <Sidebar />
-        <MainContent/>
+        {/* <MainContent/> */}
+        <MainFrames/>
       </main>
     </div>
   )
