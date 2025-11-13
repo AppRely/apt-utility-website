@@ -5,7 +5,7 @@ import JsonTrajectory from "@/components/dashboard/JsonTrajectory";
 export function MainFrames() {
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-hidden">
-      <Card className="flex items-center justify-between px-3 py-3 border rounded-[7px]">
+      {/* <Card className="flex items-center justify-between px-3 py-3 border rounded-[7px]">
         <p className="text-[13px] font-medium">Animal_annotation_recording_mp4</p>
         <div className="flex items-center gap-4">
           <span className="text-xs">1200×720</span>
@@ -14,7 +14,7 @@ export function MainFrames() {
             <Image src="/images/downArrow.svg" alt="Down Arrow" width={10} height={7} className="opacity-80" />
           </Button>
         </div>
-      </Card>
+      </Card> */}
       <JsonTrajectory/>
     </div>
   );
