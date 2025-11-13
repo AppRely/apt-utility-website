@@ -45,9 +45,7 @@ export default function FrameTimeline({ selectedFrame, onSelect, videoId }: Prop
         </div>
       </div>
 
-      {/* Frames container with horizontal scroll */}
       <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-        {/* Vertical line BEFORE first frame */}
         <Image src="/images/verticalLine.svg" alt="line" width={5} height={50} className="opacity-100 flex-shrink-0" />
 
         {frames?.map((frame) => (

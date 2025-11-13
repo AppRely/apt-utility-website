@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { createProject } from "@/lib/api/createProject"
 const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
 
-// ✅ Schema
+//Schema
 const projectSchema = z.object({
   projectName: z.string().min(3, "Project name must be at least 3 characters"),
   fileUpload: z
@@ -76,7 +76,7 @@ const mutation = useMutation({
 })
 
 
-  // ✅ Handle submit
+  // Handle submit
   const handleSubmit = async () => {
     const formData = { projectName, fileUpload, trackingFile }
     const result = projectSchema.safeParse(formData)
@@ -98,7 +98,7 @@ const mutation = useMutation({
     
   }
 
-  // ✅ Helper to clear error for a single field
+  //Helper to clear error for a single field
   const clearError = (field: string) => {
     if (errors[field]) {
       setErrors((prev) => {

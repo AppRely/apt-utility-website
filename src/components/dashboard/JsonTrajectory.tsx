@@ -102,48 +102,6 @@ export default function JsonTrajectory() {
     return result
   }
 
-  // 🟢 Load multi-track annotations from JSON (response.json)
-//   useEffect(() => {
-//     const loadAnnotations = async () => {
-//       try {
-//         const res = await fetch("/response.json")
-//         if (!res.ok) throw new Error("response.json not found")
-
-//         const data = await res.json()
-//         const annotations: Annotation[] = []
-
-//         // Each item in trk_data corresponds to one track
-//         data.trk_data.forEach((trackPair: any, trackIdx: number) => {
-//           const xCoords = trackPair[0][0] || []
-//           const yCoords = trackPair[1][0] || []
-//           const len = Math.min(xCoords.length, yCoords.length)
-
-//           for (let i = 0; i < len; i++) {
-//             const x = xCoords[i]
-//             const y = yCoords[i]
-//             if (x != null && y != null) {
-//               annotations.push({
-//                 frame: i, // frame index corresponds to position in array
-//                 x,
-//                 y,
-//                 track: trackIdx + 1
-//               })
-//             }
-//           }
-//         })
-
-//         setAnnotations(annotations)
-//         console.log("✅ Loaded JSON annotations:", annotations.length)
-//       } catch (err) {
-//         console.error("❌ Failed to load response.json:", err)
-//         setAnnotations([])
-//       }
-//     }
-
-//     loadAnnotations()
-//   }, [])
-
-    
     useEffect(() => {
     const loadAnnotations = async () => {
         try {
@@ -153,18 +111,15 @@ export default function JsonTrajectory() {
         const data = await res.json()
         const annotations: Annotation[] = []
 
-        // 🔧 define video’s original resolution (update these if needed)
         const originalWidth = videoWidth || 1920
       const originalHeight = videoHeight || 1080
 
-        // 🔧 define canvas size (from your <Stage width height>)
         const canvasWidth = 1000
         const canvasHeight = 320
 
         const scaleX = canvasWidth / originalWidth
         const scaleY = canvasHeight / originalHeight
 
-        // Each item in trk_data corresponds to one track
         data.trk_data.forEach((trackPair: any, trackIdx: number) => {
             const xCoords = trackPair[0][0] || []
             const yCoords = trackPair[1][0] || []
@@ -176,8 +131,8 @@ export default function JsonTrajectory() {
             if (x != null && y != null) {
                 annotations.push({
                 frame: i,
-                x: x * scaleX,  // 🧮 scaled X
-                y: y * scaleY,  // 🧮 scaled Y
+                x: x * scaleX,  
+                y: y * scaleY,  
                 track: trackIdx + 1
                 })
             }
@@ -185,9 +140,9 @@ export default function JsonTrajectory() {
         })
 
         setAnnotations(annotations)
-        console.log("✅ Loaded and scaled JSON annotations:", annotations.length)
+        console.log("Loaded and scaled JSON annotations:", annotations.length)
         } catch (err) {
-        console.error("❌ Failed to load response.json:", err)
+        console.error("Failed to load response.json:", err)
         setAnnotations([])
         }
     }
@@ -196,7 +151,7 @@ export default function JsonTrajectory() {
     }, [])
 
 
-  // 🟢 Video file handling
+  //Video file handling
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
@@ -215,7 +170,7 @@ export default function JsonTrajectory() {
         setDuration(vid.duration)
         setVideoWidth(vid.videoWidth)
         setVideoHeight(vid.videoHeight)
-        console.log(`🎥 Video resolution: ${vid.videoWidth}x${vid.videoHeight}`)
+        console.log(`Video resolution: ${vid.videoWidth}x${vid.videoHeight}`)
     }
 
 
@@ -240,7 +195,7 @@ export default function JsonTrajectory() {
     }
   }
 
-  // 🟢 Draw loop
+  //Draw loop
   useEffect(() => {
     if (!video || !layerRef.current) return
     video.play().catch(() => {})
@@ -251,7 +206,7 @@ export default function JsonTrajectory() {
     update()
   }, [video])
 
-  // 🟢 Video state tracking
+  //Video state tracking
   useEffect(() => {
     if (!video) return
     const vid = video
@@ -277,7 +232,7 @@ export default function JsonTrajectory() {
     else video.pause()
   }, [isPlaying])
 
-  // 🟢 Seek handler
+  //Seek handler
   const handleSeek = async (time: number) => {
     if (!video || !file) return
     const safeTime = Math.min(Math.max(time, 0), video.duration)
@@ -309,7 +264,7 @@ export default function JsonTrajectory() {
     lastExtractedChunk.current = chunk
   }
 
-  // 🟢 Frame scrolling (lazy load)
+  //Frame scrolling (lazy load)
   const handleScroll = async () => {
     if (!file || loading || !video) return
     const el = containerRef.current
@@ -363,7 +318,6 @@ export default function JsonTrajectory() {
   const rulerEnd = Math.min(rulerStart + 5, duration)
   const tickCount = 6
 
-  // === UI (unchanged) ===
   return (
     <div className="flex flex-col gap-2 w-full">
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
@@ -375,7 +329,7 @@ export default function JsonTrajectory() {
 
               {video && (
                 <>
-                  {/* 🟢 Multi-trajectory rendering */}
+                  {/*Multi-trajectory rendering */}
                   {tracks.map((track, idx) => {
                     const color = colors[idx % colors.length]
                     const trackPoints = annotations
