@@ -13,6 +13,8 @@ import { useState, useRef, useEffect } from "react"
 import { Stage, Layer, Image as KonvaImage, Text, Circle, Line } from "react-konva"
 import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast"
 import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg"
+import { useMutation } from "@tanstack/react-query";
+import { dummyApiCall } from "@/lib/api/dummy";
 
 type Frame = { index: number; src: string }
 type Annotation = { frame: number; x: number; y: number; track: number }
@@ -42,6 +44,12 @@ export default function JsonTrajectory() {
   const extractionAbort = useRef(false)
   const currentTaskType = useRef<"Initial" | "Scroll" | "Slider" | null>(null)
   const lastExtractedChunk = useRef(0)
+
+  const dummyMutation = useMutation({
+    mutationFn: dummyApiCall,
+    onSuccess: () => console.log("Dummy API called!"),
+    onError: (err) => console.error("Dummy API error:", err),
+  });
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
@@ -213,7 +221,11 @@ export default function JsonTrajectory() {
 
     const handleTimeUpdate = () => setCurrentTime(vid.currentTime)
     const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
+    // const handlePause = () => setIsPlaying(false)
+    const handlePause = () => {
+      setIsPlaying(false);
+      dummyMutation.mutate(); // call dummy API
+    };
 
     vid.addEventListener("timeupdate", handleTimeUpdate)
     vid.addEventListener("play", handlePlay)
@@ -224,7 +236,7 @@ export default function JsonTrajectory() {
       vid.removeEventListener("play", handlePlay)
       vid.removeEventListener("pause", handlePause)
     }
-  }, [video])
+  }, [video,dummyMutation])
 
   useEffect(() => {
     if (!video) return
@@ -480,6 +492,7 @@ export default function JsonTrajectory() {
                     setIsPlaying(false)
                     setSelectedFrameIndex(f.index)
                     setCurrentTime(f.index / fps)
+                    dummyMutation.mutate();
                   }}
                 />
               )) : loading ? (
