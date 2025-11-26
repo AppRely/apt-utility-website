@@ -14,7 +14,8 @@ import { Stage, Layer, Image as KonvaImage, Text, Circle, Line } from "react-kon
 import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast"
 import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg"
 import { useMutation } from "@tanstack/react-query";
-import { dummyApiCall } from "@/lib/api/dummy";
+import { getFrameData } from "@/lib/api/getFrameData";
+import { getFrameRangeData } from "@/lib/api/getFrameRangeData"
 
 type Frame = { index: number; src: string }
 type Annotation = { frame: number; x: number; y: number; track: number }
@@ -45,11 +46,19 @@ export default function JsonTrajectory() {
   const currentTaskType = useRef<"Initial" | "Scroll" | "Slider" | null>(null)
   const lastExtractedChunk = useRef(0)
 
-  const dummyMutation = useMutation({
-    mutationFn: dummyApiCall,
+  const frameDataMutation = useMutation({
+    mutationFn: (frameNumber: number) => getFrameData(frameNumber),
     onSuccess: () => console.log("Dummy API called!"),
     onError: (err) => console.error("Dummy API error:", err),
   });
+
+  const chunkMutation = useMutation({
+    mutationFn: ({ start, end }: { start: number; end: number }) =>
+      getFrameRangeData(start, end),
+    onSuccess: () => console.log("Chunk API success"),
+    onError: (err) => console.error("Chunk API error:", err),
+  });
+
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
@@ -82,7 +91,10 @@ export default function JsonTrajectory() {
     startSec: number,
     duration: number
   ) => {
-    const endSec = startSec + duration
+    const endSec = startSec + duration;
+    const startFrame = Math.round(startSec * fps);
+    const endFrame = Math.round(endSec * fps) - 1;
+
     extractionAbort.current = true
     if (ongoingExtraction.current) await ongoingExtraction.current
     extractionAbort.current = false
@@ -90,6 +102,8 @@ export default function JsonTrajectory() {
     currentTaskType.current = type
     setLoading(true)
     console.log(`[${type}] Start extraction → chunk=${chunk}, ${startSec}s → ${endSec}s`)
+    
+    chunkMutation.mutate({ start: startFrame, end: endFrame });
 
     const promise = (async () => {
       const result = await fn()
@@ -224,7 +238,7 @@ export default function JsonTrajectory() {
     // const handlePause = () => setIsPlaying(false)
     const handlePause = () => {
       setIsPlaying(false);
-      dummyMutation.mutate(); // call dummy API
+      frameDataMutation.mutate(video.currentTime ? Math.round(video.currentTime * fps) : 0); // call dummy API
     };
 
     vid.addEventListener("timeupdate", handleTimeUpdate)
@@ -236,7 +250,7 @@ export default function JsonTrajectory() {
       vid.removeEventListener("play", handlePlay)
       vid.removeEventListener("pause", handlePause)
     }
-  }, [video,dummyMutation])
+  }, [video,frameDataMutation])
 
   useEffect(() => {
     if (!video) return
@@ -487,12 +501,13 @@ export default function JsonTrajectory() {
                   className={`h-full rounded-lg shadow-md cursor-pointer ${selectedFrameIndex === f.index ? "border-4 border-green-700" : ""}`}
                   onClick={() => {
                     if (!video) return
+                    const frameNo = f.index;
                     video.currentTime = f.index / fps
                     video.pause()
                     setIsPlaying(false)
                     setSelectedFrameIndex(f.index)
                     setCurrentTime(f.index / fps)
-                    dummyMutation.mutate();
+                    frameDataMutation.mutate(frameNo);
                   }}
                 />
               )) : loading ? (
