@@ -5,8 +5,14 @@ import { Button } from "@/components/ui/Button"
 import { Slider } from "@/components/ui/slider"
 import { Separator } from "@/components/ui/separator"
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"
+import {
   Undo2, Redo2, Trash2,
-  Play, Pause, SkipBack, SkipForward, Maximize2
+  Play, Pause, SkipBack, SkipForward, Maximize2,Clock,ChevronRight
 } from "lucide-react"
 import Image from "next/image"
 import { useState, useRef, useEffect } from "react"
@@ -36,6 +42,7 @@ export default function JsonTrajectory() {
   const [videoWidth, setVideoWidth] = useState<number | null>(null)
   const [videoHeight, setVideoHeight] = useState<number | null>(null)
 
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   const layerRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -46,15 +53,16 @@ export default function JsonTrajectory() {
   const currentTaskType = useRef<"Initial" | "Scroll" | "Slider" | null>(null)
   const lastExtractedChunk = useRef(0)
 
+  const videoId = 1;
   const frameDataMutation = useMutation({
-    mutationFn: (frameNumber: number) => getFrameData(frameNumber),
+    mutationFn: ({ frameNumber }: { frameNumber: number }) => getFrameData(videoId, frameNumber),
     onSuccess: () => console.log("Dummy API called!"),
     onError: (err) => console.error("Dummy API error:", err),
   });
 
   const chunkMutation = useMutation({
     mutationFn: ({ start, end }: { start: number; end: number }) =>
-      getFrameRangeData(start, end),
+      getFrameRangeData(videoId, start, end),
     onSuccess: () => console.log("Chunk API success"),
     onError: (err) => console.error("Chunk API error:", err),
   });
@@ -65,6 +73,13 @@ export default function JsonTrajectory() {
     const seconds = Math.floor(time % 60)
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
+
+  useEffect(() => {
+    if (video) {
+      video.playbackRate = playbackRate;
+    }
+  }, [video, playbackRate]);
+
 
   const getVideoFPS = async (file: File): Promise<number> => {
     const { ffmpeg, fetchFile } = await loadFFmpeg()
@@ -102,7 +117,7 @@ export default function JsonTrajectory() {
     currentTaskType.current = type
     setLoading(true)
     console.log(`[${type}] Start extraction → chunk=${chunk}, ${startSec}s → ${endSec}s`)
-    
+
     chunkMutation.mutate({ start: startFrame, end: endFrame });
 
     const promise = (async () => {
@@ -238,7 +253,9 @@ export default function JsonTrajectory() {
     // const handlePause = () => setIsPlaying(false)
     const handlePause = () => {
       setIsPlaying(false);
-      frameDataMutation.mutate(video.currentTime ? Math.round(video.currentTime * fps) : 0); // call dummy API
+      frameDataMutation.mutate({
+        frameNumber: video.currentTime ? Math.round(video.currentTime * fps) : 0
+      }); 
     };
 
     vid.addEventListener("timeupdate", handleTimeUpdate)
@@ -449,6 +466,40 @@ export default function JsonTrajectory() {
             <span className="text-xs text-[#5A5A5A] p-2">
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex items-center justify-between text-sm"
+                  disabled={!video}
+                >
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <span className="mr-2">Playback speed</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {playbackRate}
+                    <ChevronRight className="w-3 h-3" />
+                  </div>
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end" className="w-32 bg-[#181818] text-white">
+                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
+                  <DropdownMenuItem
+                    key={speed}
+                    onClick={() => setPlaybackRate(speed)}
+                    className={`cursor-pointer py-1 text-sm ${
+                      speed === playbackRate ? "font-bold" : ""
+                    }`}
+                    disabled={!video}
+                  >
+                    {speed}x
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="icon" variant="ghost" onClick={handleFullscreen}><Maximize2 /></Button>
           </div>
         </div>
@@ -507,7 +558,7 @@ export default function JsonTrajectory() {
                     setIsPlaying(false)
                     setSelectedFrameIndex(f.index)
                     setCurrentTime(f.index / fps)
-                    frameDataMutation.mutate(frameNo);
+                    frameDataMutation.mutate({ frameNumber: frameNo });
                   }}
                 />
               )) : loading ? (
