@@ -1,27 +1,136 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Image from "next/image"
-import { Button } from "@/components/ui/Button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import CreateProjectModal from "@/components/annotation/CreateProjectModal"
+import { useState } from "react";
+import Image from "next/image";
+import { Button } from "@/components/ui/Button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 
 export default function AnnotationLandingPage() {
-  const [modalOpen, setModalOpen] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const projects = [
+    {
+      id: 1,
+      name: "Project A",
+      video: ".../projectA.mp4",
+      trk: ".../projectA.trk",
+      date: "26-11-2025",
+      status: "In Progress",
+    },
+    {
+      id: 2,
+      name: "Project B",
+      video: ".../projectB.mp4",
+      trk: ".../projectB.trk",
+      date: "27-11-2025",
+      status: "Completed",
+    },
+    {
+      id: 3,
+      name: "Project C",
+      video: ".../projectC.mp4",
+      trk: ".../projectC.trk",
+      date: "28-11-2025",
+      status: "In Progress",
+    },
+    {
+      id: 4,
+      name: "Project D",
+      video: ".../projectD.mp4",
+      trk: ".../projectD.trk",
+      date: "29-11-2025",
+      status: "Completed",
+    },
+  ];
+
+  const inProgress = projects.filter((p) => p.status === "In Progress");
+  const completed = projects.filter((p) => p.status === "Completed");
+
+  const getStatusBadge = (status: string) => {
+    if (status === "In Progress")
+      return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">In Progress</Badge>;
+
+    if (status === "Completed")
+      return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Completed</Badge>;
+
+    return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">Archived</Badge>;
+  };
+
+  // ✨ TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
+  const renderTable = (rows: any[], isCompleted: boolean) => (
+    <Table>
+      <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
+        <TableRow className="hover:bg-[#3B3B3B]">
+          <TableHead className="text-white text-center">Sr No.</TableHead>
+          <TableHead className="text-white text-center">Project Name</TableHead>
+          <TableHead className="text-white text-center">Video File</TableHead>
+          <TableHead className="text-white text-center">TRK File</TableHead>
+          <TableHead className="text-white text-center">Date</TableHead>
+          <TableHead className="text-white text-center">Status</TableHead>
+          <TableHead className="text-white">Action</TableHead>
+        </TableRow>
+      </TableHeader>
+
+      <TableBody>
+        {rows.map((p, index) => (
+          <TableRow key={p.id}>
+            <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
+            <TableCell>{p.name}</TableCell>
+            <TableCell>{p.video}</TableCell>
+            <TableCell>{p.trk}</TableCell>
+            <TableCell>{p.date}</TableCell>
+            <TableCell>{getStatusBadge(p.status)}</TableCell>
+
+            {/* ACTION BUTTONS */}
+            <TableCell className="flex gap-2">
+              {/* Hide "Mark as Complete" in Completed tab */}
+              {!isCompleted && (
+                <Button size="sm" className="bg-green-100 text-green-700 hover:bg-green-100">
+                  Mark as Complete
+                </Button>
+              )}
+
+              <Button size="sm" className="bg-amber-100 text-amber-700 hover:bg-amber-100">
+                Archived
+              </Button>
+
+              <Button size="sm" className="bg-purple-100 text-purple-700 hover:bg-purple-100">
+                Edit
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
-      {/* Header */}
+      {/* HEADER */}
       <header className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
         <div className="bg-[#D9D9D9] text-white text-[16px] font-medium px-8 py-[11px] leading-[21px]">
           Logo
         </div>
+
         <div className="flex items-center gap-2">
           <Avatar className="w-[34px] h-[34px]">
             <AvatarFallback className="bg-[#F3B56E] text-white text-[16px] font-medium leading-[12px]">
               M
             </AvatarFallback>
           </Avatar>
+
           <Image
             src="/images/downArrow.svg"
             alt="Down Arrow"
@@ -32,34 +141,62 @@ export default function AnnotationLandingPage() {
         </div>
       </header>
 
-      {/* Body */}
+      {/* LANDING CONTENT */}
       <main className="flex flex-1 flex-col items-center justify-center text-center">
+        <h1 className="text-[24px] font-bold text-black py-4">
+          APT TRACKING SYSTEM
+        </h1>
+
         <Image
           src="/images/landingPageIcon.svg"
           alt="Annotation Icon"
           width={125}
           height={125}
         />
+
         <p className="text-[#7B7B7B] text-[24px] font-normal pt-2 pb-3">
           To get started with your annotation project
         </p>
+
         <Button
           size={null}
           onClick={() => setModalOpen(true)}
-          className="bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]"
-        >
+          className="bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]">
           <Image
             src="/images/create.svg"
             alt="Create Icon"
             width={18}
             height={18}
           />
-          create a new Project
+          Create a new Project
         </Button>
+
+        {/* TABS + TABLE BOX */}
+        <section className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
+          <Tabs defaultValue="inprogress" className="w-full">
+            <TabsList className="grid grid-cols-2 w-1/3 mx-auto mb-4 bg-gray-100">
+              <TabsTrigger value="inprogress">In Progress</TabsTrigger>
+              <TabsTrigger value="completed">Completed</TabsTrigger>
+            </TabsList>
+
+            {/* IN PROGRESS TAB */}
+            <TabsContent value="inprogress">
+              {renderTable(inProgress, false)}
+            </TabsContent>
+
+            {/* COMPLETED TAB */}
+            <TabsContent value="completed">
+              {renderTable(completed, true)}
+            </TabsContent>
+          </Tabs>
+        </section>
       </main>
 
-      {/* Modal */}
-      <CreateProjectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      {/* MODAL */}
+      <CreateProjectModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+      />
     </div>
-  )
+  );
 }
