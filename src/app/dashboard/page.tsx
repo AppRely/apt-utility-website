@@ -10,7 +10,7 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
       {/* Header */}
-      <header className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
+      {/* <header className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
         <div className="bg-[#D9D9D9] text-white text-[16px] font-medium px-8 py-[11px] leading-[21px]">
           Logo
         </div>
@@ -38,7 +38,7 @@ export default function Dashboard() {
             />
           </div>
         </div>
-      </header>
+      </header> */}
 
       {/* Body */}
       <main className="flex flex-1 overflow-hidden pl-3 pt-3 pr-3 gap-3">
