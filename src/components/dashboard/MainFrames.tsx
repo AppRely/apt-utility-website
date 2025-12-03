@@ -2,6 +2,8 @@ import { Card } from "@/components/ui/card"
 import Image from "next/image"
 import { Button } from "@/components/ui/Button"
 import JsonTrajectory from "@/components/dashboard/JsonTrajectory";
+import DynamicVideo from "@/components/dashboard/DynamicVideo";
+import Annotation from "@/components/dashboard/Annotation";
 export function MainFrames() {
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-hidden">
@@ -15,7 +17,9 @@ export function MainFrames() {
           </Button>
         </div>
       </Card> */}
-      <JsonTrajectory/>
+      {/* <JsonTrajectory/> */}
+      <DynamicVideo/>
+      {/* <Annotation/> */}
     </div>
   );
 }
