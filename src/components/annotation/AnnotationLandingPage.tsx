@@ -14,58 +14,67 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { getProjectList } from "@/lib/api/getProjectList";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const router = useRouter();
+  
+  // Fetch project list
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["project-list"],
+    queryFn: getProjectList,
+  });
 
-  const projects = [
-    {
-      id: 1,
-      name: "Project A",
-      video: ".../projectA.mp4",
-      trk: ".../projectA.trk",
-      date: "26-11-2025",
-      status: "In Progress",
-    },
-    {
-      id: 2,
-      name: "Project B",
-      video: ".../projectB.mp4",
-      trk: ".../projectB.trk",
-      date: "27-11-2025",
-      status: "Completed",
-    },
-    {
-      id: 3,
-      name: "Project C",
-      video: ".../projectC.mp4",
-      trk: ".../projectC.trk",
-      date: "28-11-2025",
-      status: "In Progress",
-    },
-    {
-      id: 4,
-      name: "Project D",
-      video: ".../projectD.mp4",
-      trk: ".../projectD.trk",
-      date: "29-11-2025",
-      status: "Completed",
-    },
-  ];
+  // if (isLoading)
+  //   return (
+  //     <div className="flex justify-center items-center h-screen text-lg">
+  //       Loading projects...
+  //     </div>
+  //   );
 
-  const inProgress = projects.filter((p) => p.status === "In Progress");
-  const completed = projects.filter((p) => p.status === "Completed");
+  // if (isError)
+  //   return (
+  //     <div className="flex justify-center items-center h-screen text-red-500 text-lg">
+  //       Failed to load project list
+  //     </div>
+  //   );
+
+  // Format backend array
+  const projects = data || [];
+
+  // Filter using project_status
+  const inProgress = projects.filter(
+    (p: any) => p.project_status.toLowerCase() === "inprogress"
+  );
+
+  const completed = projects.filter(
+    (p: any) => p.project_status.toLowerCase() === "completed"
+  );
 
   const getStatusBadge = (status: string) => {
-    if (status === "In Progress")
-      return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">In Progress</Badge>;
+    if (status === "inprogress")
+      return (
+        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
+          In Progress
+        </Badge>
+      );
 
-    if (status === "Completed")
-      return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Completed</Badge>;
+    if (status === "completed")
+      return (
+        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+          Completed
+        </Badge>
+      );
 
-    return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">Archived</Badge>;
+    return (
+      <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">
+        Archived
+      </Badge>
+    );
   };
 
   // ✨ TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
@@ -85,28 +94,39 @@ export default function AnnotationLandingPage() {
 
       <TableBody>
         {rows.map((p, index) => (
-          <TableRow key={p.id}>
+          <TableRow key={p.project_id}>
             <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
-            <TableCell>{p.name}</TableCell>
-            <TableCell>{p.video}</TableCell>
-            <TableCell>{p.trk}</TableCell>
-            <TableCell>{p.date}</TableCell>
-            <TableCell>{getStatusBadge(p.status)}</TableCell>
+            <TableCell>{p.project_name}</TableCell>
+            <TableCell>{p.video_name}</TableCell>
+            <TableCell>{p.trk_file_name}</TableCell>
+            <TableCell>{p.created_at.split("T")[0]}</TableCell>
+            <TableCell>{getStatusBadge(p.project_status.toLowerCase())}</TableCell>
 
             {/* ACTION BUTTONS */}
             <TableCell className="flex gap-2">
               {/* Hide "Mark as Complete" in Completed tab */}
               {!isCompleted && (
-                <Button size="sm" className="bg-green-100 text-green-700 hover:bg-green-100">
+                <Button
+                  size="sm"
+                  className="bg-green-100 text-green-700 hover:bg-green-100">
                   Mark as Complete
                 </Button>
               )}
 
-              <Button size="sm" className="bg-amber-100 text-amber-700 hover:bg-amber-100">
+              <Button
+                size="sm"
+                className="bg-amber-100 text-amber-700 hover:bg-amber-100">
                 Archived
               </Button>
 
-              <Button size="sm" className="bg-purple-100 text-purple-700 hover:bg-purple-100">
+              <Button
+                size="sm"
+                className="bg-purple-100 text-purple-700 hover:bg-purple-100"
+                onClick={() => {
+                  sessionStorage.setItem("videoId", p.video_id);
+                  sessionStorage.setItem("videoPath", p.video_path);
+                  router.push("/dashboard"); // redirect to dashboard
+                }}>
                 Edit
               </Button>
             </TableCell>

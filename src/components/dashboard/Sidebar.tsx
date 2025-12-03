@@ -43,7 +43,7 @@ export default function Sidebar() {
         <Card className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3 mb-3">
           <div className="flex items-center pb-1">
             <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
-            <span className="font-semibold text-[13px] leading-[13px]">Object 1: Mouse</span>
+            <span className="font-semibold text-[13px] leading-[13px]">Object 1: Fly</span>
             <span className="ml-auto text-[#A2A2A2] font-medium text-[13px] leading-[13px]">ID 112</span>
           </div>
           <p className="text-[#5A5A5A] text-[13px]">Trajectory 1:</p>
@@ -54,7 +54,7 @@ export default function Sidebar() {
         <Card className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3">
           <div className="flex items-center pb-1">
             <span className="w-2 h-2 rounded-full bg-red-500 mr-2"></span>
-            <span className="font-semibold text-[13px] leading-[13px]">Object 1: Mouse</span>
+            <span className="font-semibold text-[13px] leading-[13px]">Object 1: Fly</span>
             <span className="ml-auto text-[#A2A2A2] font-medium text-[13px] leading-[13px]">ID 113</span>
           </div>
           <p className="text-[#5A5A5A] text-[13px]">Trajectory 2:</p>
