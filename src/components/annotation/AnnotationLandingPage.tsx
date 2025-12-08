@@ -125,6 +125,7 @@ export default function AnnotationLandingPage() {
                 onClick={() => {
                   sessionStorage.setItem("videoId", p.video_id);
                   sessionStorage.setItem("videoPath", p.video_path);
+                  sessionStorage.setItem("frameId","0");
                   router.push("/dashboard"); // redirect to dashboard
                 }}>
                 Edit
