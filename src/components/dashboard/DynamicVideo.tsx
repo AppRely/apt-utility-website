@@ -25,7 +25,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { Stage, Layer, Image as KonvaImage, Text, Circle } from "react-konva";
+import { Stage, Layer, Image as KonvaImage, Text, Circle, Line } from "react-konva";
 import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast";
 import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg";
 import { useMutation } from "@tanstack/react-query";
@@ -39,7 +39,8 @@ type Annotation = {
   frame_id: number;
   coordinates: [number, number][];
 };
-type LoadedRange = { start: number; end: number }; 
+type LoadedRange = { start: number; end: number };
+type TrajectoryMap = Map<number, Map<number, [number, number]>>;
 
 
 export default function DynamicVideo() {
@@ -59,50 +60,44 @@ export default function DynamicVideo() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [videoId, setVideoId] = useState<number | null>(null);
 
-  // ===== ADDED: ZOOM & PAN STATE =====
-  const [stageScale, setStageScale] = useState({ x: 1, y: 1 }); // Zoom level
-  const [stagePos, setStagePos] = useState({ x: 0, y: 0 }); // Pan position
-  const [isDragging, setIsDragging] = useState(false); // Is user dragging?
-  const [isPanMode, setIsPanMode] = useState(false); // Track if panning
-  // ===== END ADDED ZOOM & PAN STATE =====
+  // ===== TRAJECTORY STATE =====
+  const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
+  const [showTrajectory, setShowTrajectory] = useState(true);
+  const trajectoriesRef = useRef<TrajectoryMap>(new Map());
+  // ===== END TRAJECTORY STATE =====
 
-  
+  // ===== ZOOM & PAN STATE =====
+  const [stageScale, setStageScale] = useState({ x: 1, y: 1 });
+  const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isPanMode, setIsPanMode] = useState(false);
+  // ===== END ZOOM & PAN STATE =====
+
   // === Rolling window annotation config ===
-  const ANNO_WINDOW_SECONDS = 2; // 2s before + 2s after current frame 
-  const ANNO_THROTTLE_MS = 300;  
-
+  const ANNO_WINDOW_SECONDS = 2;
+  const ANNO_THROTTLE_MS = 300;
 
   const layerRef = useRef<any>(null);
-  // ===== ADDED: STAGE REF FOR ZOOM/PAN =====
   const stageRef = useRef<any>(null);
-  // ===== END ADDED STAGE REF =====
-  
-  // ===== ADDED: REF TO TRACK PREVIOUS MOUSE POSITION FOR DELTA PANNING =====
   const lastMousePosRef = useRef({ x: 0, y: 0 });
-  // ===== END ADDED PREVIOUS MOUSE POSITION REF =====
-  
   const containerRef = useRef<HTMLDivElement>(null);
-
 
   const ongoingExtraction = useRef<Promise<Frame[]> | null>(null);
   const extractionAbort = useRef(false);
   const currentTaskType = useRef<"Initial" | "Scroll" | "Slider" | null>(null);
   const lastExtractedChunk = useRef(0);
 
-
-  // cache of loaded annotation frame ranges to avoid duplicate loads
   const [loadedRanges, setLoadedRanges] = useState<LoadedRange[]>([]);
   const loadedRangesRef = useRef<LoadedRange[]>([]);
-  loadedRangesRef.current = loadedRanges; // keep ref in sync for non-state callbacks
-
+  loadedRangesRef.current = loadedRanges;
 
   const lastAnnoLoadTs = useRef<number>(0);
 
-  // ===== ADDED: ZOOM CONSTANTS =====
-  const MIN_ZOOM = 1;     // Minimum zoom: 50%
-  const MAX_ZOOM = 5;       // Maximum zoom: 500%
-  const ZOOM_SPEED = 1.1;   // Zoom speed multiplier
-  // ===== END ADDED ZOOM CONSTANTS =====
+  // ===== ZOOM CONSTANTS =====
+  const MIN_ZOOM = 1;
+  const MAX_ZOOM = 5;
+  const ZOOM_SPEED = 1.1;
+  // ===== END ZOOM CONSTANTS =====
 
   const OBJECT_COLORS = [
     "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
@@ -122,7 +117,57 @@ export default function DynamicVideo() {
   }, []);
 
 
-  // ===== ADDED: CURSOR STYLE FUNCTION =====
+  // ===== BUILD TRAJECTORY MAP FROM ANNOTATIONS =====
+  useEffect(() => {
+    const newMap: TrajectoryMap = new Map();
+
+    annotations.forEach((anno) => {
+      if (anno.coordinates.length === 0) return;
+
+      const firstPoint = anno.coordinates[0];
+
+      if (!newMap.has(anno.object_id)) {
+        newMap.set(anno.object_id, new Map());
+      }
+
+      newMap.get(anno.object_id)!.set(anno.frame_id, firstPoint);
+    });
+
+    trajectoriesRef.current = newMap;
+    setTrajectoryMap(newMap);
+  }, [annotations]);
+  // ===== END BUILD TRAJECTORY MAP =====
+
+
+  // ===== GET TRAJECTORY POINTS UP TO CURRENT FRAME FOR AN OBJECT =====
+  const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
+    const frameTrajectory = trajectoryMap.get(objectId);
+    if (!frameTrajectory || frameTrajectory.size < 2) return [];
+
+    const sortedFrames = Array.from(frameTrajectory.keys())
+      .sort((a, b) => a - b)
+      .filter(frameId => frameId <= upToFrame);
+
+    if (sortedFrames.length < 2) return [];
+
+    const points: number[] = [];
+    sortedFrames.forEach((frameId) => {
+      const [x, y] = frameTrajectory.get(frameId)!;
+      points.push(x, y);
+    });
+
+    return points;
+  }, [trajectoryMap]);
+  // ===== END GET TRAJECTORY POINTS UP TO CURRENT FRAME =====
+
+
+  // ===== GET ALL UNIQUE OBJECT IDS EVER =====
+  const getAllObjectIds = useCallback((): number[] => {
+    return Array.from(trajectoryMap.keys()).sort((a, b) => a - b);
+  }, [trajectoryMap]);
+  // ===== END GET ALL UNIQUE OBJECT IDS =====
+
+
   const setCursorStyle = useCallback((cursorStyle: string) => {
     if (stageRef.current) {
       const container = stageRef.current.container();
@@ -131,13 +176,11 @@ export default function DynamicVideo() {
       }
     }
   }, []);
-  // ===== END ADDED CURSOR STYLE FUNCTION =====
 
 
-  // ===== ADDED: WHEEL ZOOM HANDLER =====
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
-    
+
     if (!stageRef.current) return;
 
     const stage = stageRef.current;
@@ -149,21 +192,17 @@ export default function DynamicVideo() {
       y: (pointer.y - stage.y()) / oldScale,
     };
 
-    // Zoom direction (scroll down = zoom in)
     let direction = e.evt.deltaY > 0 ? 1 : -1;
     if (e.evt.ctrlKey) {
       direction = -direction;
     }
 
-    // Calculate new scale
-    const newScale = direction > 0 
-      ? oldScale * ZOOM_SPEED 
+    const newScale = direction > 0
+      ? oldScale * ZOOM_SPEED
       : oldScale / ZOOM_SPEED;
 
-    // Clamp scale between MIN_ZOOM and MAX_ZOOM
     const clampedScale = Math.min(Math.max(newScale, MIN_ZOOM), MAX_ZOOM);
 
-    // Calculate new position to zoom towards pointer
     const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
       y: pointer.y - mousePointTo.y * clampedScale,
@@ -172,59 +211,45 @@ export default function DynamicVideo() {
     setStageScale({ x: clampedScale, y: clampedScale });
     setStagePos(newPos);
   }, []);
-  // ===== END ADDED WHEEL ZOOM HANDLER =====
 
 
-  // ===== ADDED: MOUSE DOWN HANDLER FOR PANNING =====
   const handleMouseDown = (e: any) => {
-    // Left click (button 0) or Right click (button 2) - pan mode
     if (e.evt.button === 0 || e.evt.button === 2) {
-      // Only pan on stage itself, not on annotations
       if (e.target === e.target.getStage()) {
         setIsPanMode(true);
         setIsDragging(true);
-        // ===== MODIFIED: STORE INITIAL MOUSE POSITION FOR DELTA CALCULATION =====
         lastMousePosRef.current = {
           x: e.evt.clientX,
           y: e.evt.clientY,
         };
-        // ===== END MODIFIED =====
         setCursorStyle("grabbing");
       }
     }
   };
-  // ===== END ADDED MOUSE DOWN HANDLER =====
 
 
-  // ===== MODIFIED: MOUSE MOVE HANDLER WITH DELTA-BASED PANNING =====
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
 
-    // Update cursor based on pan mode
     if (isDragging && isPanMode) {
       setCursorStyle("grabbing");
-      
-      // ===== MODIFIED: CALCULATE DELTA MOVEMENT (CURRENT - PREVIOUS) =====
+
       const currentX = e.evt.clientX;
       const currentY = e.evt.clientY;
-      
+
       const deltaX = currentX - lastMousePosRef.current.x;
       const deltaY = currentY - lastMousePosRef.current.y;
-      
-      // Update position by adding delta (smooth movement like photo gallery)
+
       setStagePos((prevPos) => ({
         x: prevPos.x + deltaX,
         y: prevPos.y + deltaY,
       }));
-      
-      // Store current position as previous for next movement
+
       lastMousePosRef.current = {
         x: currentX,
         y: currentY,
       };
-      // ===== END MODIFIED =====
     } else {
-      // Show grab cursor when hovering over stage (pan available)
       if (e.target === e.target.getStage()) {
         setCursorStyle("grab");
       } else {
@@ -232,36 +257,27 @@ export default function DynamicVideo() {
       }
     }
   };
-  // ===== END MODIFIED MOUSE MOVE HANDLER =====
 
 
-  // ===== ADDED: MOUSE UP HANDLER FOR PANNING =====
   const handleMouseUp = () => {
     setIsDragging(false);
     setIsPanMode(false);
     setCursorStyle("grab");
   };
-  // ===== END ADDED MOUSE UP HANDLER =====
 
 
-  // ===== ADDED: MOUSE LEAVE HANDLER =====
   const handleMouseLeave = () => {
     setIsDragging(false);
     setIsPanMode(false);
     setCursorStyle("default");
   };
-  // ===== END ADDED MOUSE LEAVE HANDLER =====
 
 
-  // ===== ADDED: PREVENT RIGHT-CLICK CONTEXT MENU =====
   const handleContextMenu = (e: any) => {
     e.evt.preventDefault();
-    // Now right-click will only pan, not show context menu
   };
-  // ===== END ADDED PREVENT RIGHT-CLICK CONTEXT MENU =====
 
 
-  // ===== ADDED: TOUCH PINCH ZOOM HANDLER =====
   const handleTouchMove = useCallback((e: any) => {
     const touch1 = e.evt.touches[0];
     const touch2 = e.evt.touches[1];
@@ -293,7 +309,6 @@ export default function DynamicVideo() {
     const scale = oldScale * (dist / (stage as any).lastDist);
     const clampedScale = Math.min(Math.max(scale, MIN_ZOOM), MAX_ZOOM);
 
-    // Calculate center point between two fingers
     const centerX = (p1.x + p2.x) / 2;
     const centerY = (p1.y + p2.y) / 2;
 
@@ -311,44 +326,34 @@ export default function DynamicVideo() {
     setStagePos(newPos);
     (stage as any).lastDist = dist;
   }, []);
-  // ===== END ADDED TOUCH PINCH ZOOM HANDLER =====
 
 
-  // ===== ADDED: TOUCH END HANDLER =====
   const handleTouchEnd = () => {
     if (stageRef.current) {
       (stageRef.current as any).lastDist = 0;
     }
   };
-  // ===== END ADDED TOUCH END HANDLER =====
 
 
-  // ===== ADDED: ZOOM IN BUTTON HANDLER =====
   const handleZoomIn = () => {
     const newScale = Math.min(stageScale.x * ZOOM_SPEED, MAX_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
-  // ===== END ADDED ZOOM IN BUTTON HANDLER =====
 
 
-  // ===== ADDED: ZOOM OUT BUTTON HANDLER =====
   const handleZoomOut = () => {
     const newScale = Math.max(stageScale.x / ZOOM_SPEED, MIN_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
-  // ===== END ADDED ZOOM OUT BUTTON HANDLER =====
 
 
-  // ===== ADDED: RESET ZOOM HANDLER =====
   const handleResetZoom = () => {
     setStageScale({ x: 1, y: 1 });
     setStagePos({ x: 0, y: 0 });
     setCursorStyle("grab");
   };
-  // ===== END ADDED RESET ZOOM HANDLER =====
 
 
-  // chunkMutation used for annotation ranges only — we'll call it only on seek & playback
   const chunkMutation = useMutation({
     mutationFn: ({ start, end }: { start: number; end: number }) => {
       if (!videoId) return Promise.resolve(null);
@@ -357,8 +362,6 @@ export default function DynamicVideo() {
     onSuccess: (data) => {
       if (!data || !data.objects) return;
 
-
-      // convert api to flat Annotation[] and merge into current annotations
       const loadedAnnotations: Annotation[] = [];
       data.objects.forEach((obj: { frames: any[]; object_id: number }) => {
         obj.frames.forEach((f: any) => {
@@ -370,8 +373,6 @@ export default function DynamicVideo() {
         });
       });
 
-
-      // Merge annotations without duplicates (prefer existing if same object_id & frame_id exist)
       setAnnotations((prev) => {
         const key = (a: Annotation) => `${a.object_id}-${a.frame_id}`;
         const map = new Map<string, Annotation>();
@@ -380,12 +381,9 @@ export default function DynamicVideo() {
         return Array.from(map.values());
       });
 
-
-      // mark loaded range (use start_frame/end_frame from API if present; fallback to start/end from request)
       const start = typeof data.start_frame === "number" ? data.start_frame : 0;
       const end = typeof data.end_frame === "number" ? data.end_frame : start;
       setLoadedRanges((prev) => {
-        // merge overlapping ranges
         const merged = mergeAndInsertRange(prev, { start, end });
         return merged;
       });
@@ -393,7 +391,6 @@ export default function DynamicVideo() {
   });
 
 
-  // === helpers ===
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
@@ -439,10 +436,8 @@ export default function DynamicVideo() {
     if (ongoingExtraction.current) await ongoingExtraction.current;
     extractionAbort.current = false;
 
-
     currentTaskType.current = type;
     setLoading(true);
-
 
     const promise = (async () => {
       const result = await fn();
@@ -450,50 +445,40 @@ export default function DynamicVideo() {
       return result;
     })();
 
-
     ongoingExtraction.current = promise;
     const result = await promise;
     ongoingExtraction.current = null;
     currentTaskType.current = null;
     setLoading(false);
 
-
     return result;
   };
 
 
-  // === Load video & first frames (frame extraction unchanged) ===
   useEffect(() => {
     const loadVideoAndFrames = async () => {
       const videoPath = sessionStorage.getItem("videoPath");
       if (!videoPath) return;
-
 
       const res = await fetch(videoPath);
       const blob = await res.blob();
       const file = new File([blob], "video.mp4", { type: "video/mp4" });
       setFile(file);
 
-
-      const vid = document.createElement("video")
-      ;
+      const vid = document.createElement("video");
       vid.src = URL.createObjectURL(file);
       vid.crossOrigin = "anonymous";
       vid.loop = true;
       vid.muted = true;
-
 
       vid.onloadedmetadata = async () => {
         setDuration(vid.duration);
         setVideoWidth(vid.videoWidth);
         setVideoHeight(vid.videoHeight);
 
-
         const exactFps = await getVideoFPS(file);
         setFps(exactFps);
 
-
-        // Extract first 5 seconds frames (unchanged from old code)
         const firstBatch = await runCancelableExtraction(
           async () => {
             const raw = await extractFramesExact(file, exactFps, 0, Math.min(5, vid.duration));
@@ -507,10 +492,8 @@ export default function DynamicVideo() {
         setFrames(firstBatch);
       };
 
-
       setVideo(vid);
     };
-
 
     loadVideoAndFrames();
   }, []);
@@ -531,21 +514,16 @@ export default function DynamicVideo() {
     if (!video) return;
     const vid = video;
 
-
     const handleTimeUpdate = () => {
       setCurrentTime(vid.currentTime);
 
-
-      // Throttled rolling-window annotation load (only during playback)
       const now = performance.now();
       if (isPlaying && now - lastAnnoLoadTs.current > ANNO_THROTTLE_MS) {
         lastAnnoLoadTs.current = now;
         const frameNumber = Math.round(vid.currentTime * fps);
-        // Only call annotation loader while playing (and throttled)
         loadRollingAnnotationWindow(frameNumber);
       }
     };
-
 
     const handlePlay = () => {
       setIsPlaying(true);
@@ -557,18 +535,16 @@ export default function DynamicVideo() {
       sessionStorage.setItem("frameId", frameNumber.toString());
     };
 
-
     vid.addEventListener("timeupdate", handleTimeUpdate);
     vid.addEventListener("play", handlePlay);
     vid.addEventListener("pause", handlePause);
-
 
     return () => {
       vid.removeEventListener("timeupdate", handleTimeUpdate);
       vid.removeEventListener("play", handlePlay);
       vid.removeEventListener("pause", handlePause);
     };
-  }, [video,fps, isPlaying]);
+  }, [video, fps, isPlaying]);
 
 
   useEffect(() => {
@@ -577,36 +553,28 @@ export default function DynamicVideo() {
   }, [isPlaying]);
 
 
-  // === Rolling annotation loader ===
   const isRangeLoaded = (start: number, end: number) => {
-    // checks if [start,end] completely contained in any loaded range
     return loadedRangesRef.current.some(r => start >= r.start && end <= r.end);
   };
 
 
   const mergeAndInsertRange = (existing: LoadedRange[], newRange: LoadedRange) => {
-    // Merge overlapping/adjacent ranges and insert newRange
     if (existing.length === 0) return [newRange];
     const merged: LoadedRange[] = [];
     let inserted = false;
     const toInsert = { ...newRange };
 
-
-    // sort existing by start
     const sorted = [...existing].sort((a, b) => a.start - b.start);
     for (const r of sorted) {
       if (r.end + 1 < toInsert.start) {
-        // r completely before new range
         merged.push(r);
       } else if (toInsert.end + 1 < r.start) {
-        // r completely after new range
         if (!inserted) {
           merged.push(toInsert);
           inserted = true;
         }
         merged.push(r);
       } else {
-        // overlap -> merge
         toInsert.start = Math.min(toInsert.start, r.start);
         toInsert.end = Math.max(toInsert.end, r.end);
       }
@@ -618,21 +586,15 @@ export default function DynamicVideo() {
 
   const loadRollingAnnotationWindow = (frameNumber: number) => {
     if (!video) return;
-    // convert window in seconds to frames
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
     const totalFrames = Math.floor(video.duration * fps);
-
 
     const start = Math.max(0, frameNumber - windowFrames);
     const end = Math.min(totalFrames, frameNumber + windowFrames);
 
+    if (isRangeLoaded(start, end)) return;
 
-    if (isRangeLoaded(start, end)) return; // already loaded
-
-
-    // call API with start & end frame indices
     chunkMutation.mutate({ start, end });
-    // we don't push to loadedRanges here; loadedRanges will be updated in onSuccess using API returned start_frame/end_frame
   };
 
 
@@ -645,12 +607,10 @@ export default function DynamicVideo() {
     setSelectedFrameIndex(Math.round(safeTime * fps));
     if (!isPlaying) video.play();
 
-
     const chunk = Math.floor(safeTime / 5);
     const startSec = chunk * 5;
     if (startSec >= video.duration) return;
     const durationSec = Math.min(5, video.duration - startSec);
-
 
     const newFrames = await runCancelableExtraction(
       async () => {
@@ -668,8 +628,6 @@ export default function DynamicVideo() {
     setFrames(newFrames);
     lastExtractedChunk.current = chunk;
 
-
-    // Trigger rolling annotation load for the seeked frame
     const seekFrameNumber = Math.round(safeTime * fps);
     loadRollingAnnotationWindow(seekFrameNumber);
   };
@@ -680,13 +638,11 @@ export default function DynamicVideo() {
     const el = containerRef.current;
     if (!el) return;
 
-
     if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) {
       const nextChunk = lastExtractedChunk.current + 1;
       const startSec = nextChunk * 5;
       if (startSec >= video.duration) return;
       const durationSec = Math.min(5, video.duration - startSec);
-
 
       const newFrames = await runCancelableExtraction(
         async () => {
@@ -707,7 +663,10 @@ export default function DynamicVideo() {
   };
 
 
-  const handleSkip = (seconds: number) => { if (video) video.currentTime += seconds; };
+  const handleSkip = (seconds: number) => {
+    if (video) video.currentTime += seconds;
+  };
+
   const handleFullscreen = () => {
     const container = stageRef.current?.getStage?.()?.container() || stageRef.current?.container?.();
     if (container && container.requestFullscreen) container.requestFullscreen();
@@ -719,15 +678,19 @@ export default function DynamicVideo() {
   const rulerEnd = Math.min(rulerStart + 5, duration);
   const tickCount = 6;
 
+  // ===== GET ALL UNIQUE OBJECT IDS (PERSISTENT ACROSS ALL FRAMES) =====
+  const allObjectIds = getAllObjectIds();
+  // ===== END GET ALL UNIQUE OBJECT IDS =====
+
 
   return (
     <div className="flex flex-col gap-2 w-full">
       {/* Video Player */}
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
         <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
-          <Stage 
+          <Stage
             ref={stageRef}
-            width={650} 
+            width={650}
             height={650}
             scaleX={stageScale.x}
             scaleY={stageScale.y}
@@ -747,7 +710,28 @@ export default function DynamicVideo() {
               {/* ===== MODIFIED: ADD listening={false} to KonvaImage =====*/}
               {video && <KonvaImage image={video} width={650} height={650} listening={false} />}
               {/* ===== END MODIFIED =====*/}
-              
+
+              {/* ===== ADDED: DRAW ALL OBJECT TRAJECTORIES (PERSISTENT) ===== */}
+              {showTrajectory && allObjectIds.map((objectId) => {
+                const points = getTrajectoryPointsUpToCurrent(objectId, currentFrame);
+                if (points.length < 2) return null;
+
+                return (
+                  <Line
+                    key={`trajectory-${objectId}`}
+                    points={points.map((p, idx) => {
+                      return idx % 2 === 0 ? p * scaleX : p * scaleY;
+                    })}
+                    stroke={getObjectColor(objectId)}
+                    strokeWidth={2}
+                    opacity={0.6}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                );
+              })}
+              {/* ===== END ADDED TRAJECTORY LAYER ===== */}
+
               <Text text={`Frame: ${currentFrame}`} fontSize={18} fill="white" x={5} y={5} shadowColor="black" />
 
               {annotations.filter(a => a.frame_id === currentFrame).map(a => {
@@ -783,13 +767,20 @@ export default function DynamicVideo() {
               🤚 Panning...
             </div>
           )}
+
+          {/* ===== ADDED: TRAJECTORY INDICATOR WITH TOTAL OBJECTS COUNT ===== */}
+          <div className="absolute top-12 left-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-xs">
+            Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"} 
+          </div>
+          {/* ===== END ADDED TRAJECTORY INDICATOR ===== */}
+          {/* | Total Objects: {allObjectIds.length} */}
         </div>
 
 
         {/* Controls */}
         <Separator />
         <div className="flex flex-col pt-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button size="icon" variant="ghost"><Undo2 /></Button>
             <Button size="icon" variant="ghost"><Redo2 /></Button>
             <Button size="icon" variant="ghost"><Trash2 /></Button>
@@ -804,44 +795,56 @@ export default function DynamicVideo() {
               step={0.01}
               onValueChange={(val) => { setDragTime(val[0]); video?.pause(); }}
               onValueCommit={(val) => handleSeek(val[0])}
-              className="flex-1"
+              className="flex-1 min-w-[200px]"
             />
-            <span className="text-xs text-[#5A5A5A] p-2">
+            <span className="text-xs text-[#5A5A5A] p-2 whitespace-nowrap">
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
 
             {/* ZOOM BUTTONS */}
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={handleZoomOut} 
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleZoomOut}
               title="Zoom Out (- or Scroll)"
             >
               <ZoomOut className="w-4 h-4" />
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={handleResetZoom} 
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleResetZoom}
               title="Reset Zoom (1:1)"
             >
               <span className="text-xs font-bold">reset</span>
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={handleZoomIn} 
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleZoomIn}
               title="Zoom In (+ or Scroll)"
             >
               <ZoomIn className="w-4 h-4" />
             </Button>
+
+            {/* ===== ADDED: TRAJECTORY TOGGLE BUTTON ===== */}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowTrajectory(!showTrajectory)}
+              title="Toggle Trajectory Display"
+              className={showTrajectory ? "bg-green-900 bg-opacity-30" : ""}
+            >
+              <span className="text-xs font-bold">Track</span>
+            </Button>
+            {/* ===== END TRAJECTORY TOGGLE BUTTON ===== */}
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center justify-between text-sm" disabled={!video}>
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    <span className="mr-2">Playback speed</span>
+                    <span className="mr-2">Speed</span>
                   </div>
                   <div className="flex items-center gap-1">
                     {playbackRate}<ChevronRight className="w-3 h-3" />
@@ -849,11 +852,11 @@ export default function DynamicVideo() {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-32 bg-[#181818] text-white">
-                {[0.25,0.5,0.75,1,1.25,1.5,1.75,2].map(speed => (
+                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(speed => (
                   <DropdownMenuItem
                     key={speed}
                     onClick={() => setPlaybackRate(speed)}
-                    className={`cursor-pointer py-1 text-sm ${speed===playbackRate?"font-bold":""}`}
+                    className={`cursor-pointer py-1 text-sm ${speed === playbackRate ? "font-bold" : ""}`}
                     disabled={!video}>{speed}x</DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -865,7 +868,7 @@ export default function DynamicVideo() {
 
           {/* PAN & ZOOM HELP TEXT */}
           <div className="text-[11px] text-[#7A7A7A] mt-2 ml-2">
-            💡 Tip: <strong>Left Click + Drag</strong> or <strong>Right Click + Drag</strong> to pan • <strong>Scroll</strong> to zoom • <strong>Pinch</strong> on touch devices
+            💡 Tip: <strong>Left Click + Drag</strong> or <strong>Right Click + Drag</strong> to pan • <strong>Scroll</strong> to zoom • <strong>Pinch</strong> on touch devices • <strong>Path button</strong> to toggle trajectory
           </div>
         </div>
       </Card>
@@ -875,7 +878,7 @@ export default function DynamicVideo() {
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-3 pb-4">
         <div className="text-[13px] text-[#5A5A5A] font-medium pb-3 pl-2 pr-2 pt-1">
           Extracted Frames: {frames.length} | Time:{" "}
-          {frames.length>0 ? `${formatTime(frames[0].index/fps)} - ${formatTime(frames[frames.length-1].index/fps)}` : "0 - 0"} | FPS: {fps} | Total Frames: {video?Math.floor(video.duration*fps):0} | Current Frame: {currentFrame}
+          {frames.length > 0 ? `${formatTime(frames[0].index / fps)} - ${formatTime(frames[frames.length - 1].index / fps)}` : "0 - 0"} | FPS: {fps} | Total Frames: {video ? Math.floor(video.duration * fps) : 0} | Current Frame: {currentFrame}
         </div>
 
 
@@ -884,10 +887,10 @@ export default function DynamicVideo() {
           <div className="absolute top-0 left-0 right-0 h-[1px] bg-gray-500 ml-2 mr-2"></div>
           <div className="absolute top-0 left-0 right-0 flex justify-between">
             {Array.from({ length: tickCount }, (_, i) => {
-              const tickTime = rulerStart + ((rulerEnd-rulerStart)/(tickCount-1))*i;
+              const tickTime = rulerStart + ((rulerEnd - rulerStart) / (tickCount - 1)) * i;
               return (
                 <div key={i} className="flex flex-col items-center">
-                  <div className={`w-px ${i%2===0?"h-2 bg-gray-500":"h-1 bg-gray-500"}`}></div>
+                  <div className={`w-px ${i % 2 === 0 ? "h-2 bg-gray-500" : "h-1 bg-gray-500"}`}></div>
                   <span className="mt-1 text-[10px] text-gray-500">{formatTime(tickTime)}</span>
                 </div>
               );
@@ -901,24 +904,23 @@ export default function DynamicVideo() {
           <Image src="/images/verticalLine.svg" alt="line" width={6} height={60} className="opacity-100 flex-shrink-0 mr-2" />
           <div className="w-full max-w-[1200px]">
             <div ref={containerRef} onScroll={handleScroll} className="flex-1 flex space-x-4 overflow-x-auto border rounded-lg" style={{ height: 100 }}>
-              {frames.length>0 ? frames.map(f => (
+              {frames.length > 0 ? frames.map(f => (
                 <img key={f.index} src={f.src} alt={`frame-${f.index}`} loading="lazy"
-                  className={`h-full rounded-lg shadow-md cursor-pointer ${selectedFrameIndex===f.index?"border-4 border-green-700":""}`}
+                  className={`h-full rounded-lg shadow-md cursor-pointer ${selectedFrameIndex === f.index ? "border-4 border-green-700" : ""}`}
                   onClick={() => {
-                    if(!video) return;
+                    if (!video) return;
                     const frameNo = f.index;
-                    video.currentTime = f.index/fps;
+                    video.currentTime = f.index / fps;
                     video.pause();
                     setIsPlaying(false);
                     setSelectedFrameIndex(f.index);
-                    setCurrentTime(f.index/fps);
+                    setCurrentTime(f.index / fps);
                     sessionStorage.setItem("frameId", frameNo.toString());
-                    // Also trigger annotation load for clicked thumbnail
                     loadRollingAnnotationWindow(frameNo);
                   }}
                 />
               )) : loading ? <div className="flex items-center justify-center w-32 text-blue-500 font-medium">Processing…</div> : null}
-              {loading && frames.length>0 && <div className="flex items-center justify-center w-32 h-full text-blue-500 font-medium">Processing…</div>}
+              {loading && frames.length > 0 && <div className="flex items-center justify-center w-32 h-full text-blue-500 font-medium">Processing…</div>}
             </div>
           </div>
         </div>
