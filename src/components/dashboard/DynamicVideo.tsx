@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect,useCallback} from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/Button";
@@ -22,6 +22,8 @@ import {
   Maximize2,
   Clock,
   ChevronRight,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import {
   Stage,
@@ -68,12 +70,28 @@ export default function DynamicVideo() {
     { object_id: number; frame_id: number }[]
   >([]);
 
+  // ===== ADDED: ZOOM & PAN STATE =====
+  const [stageScale, setStageScale] = useState({ x: 1, y: 1 }); // Zoom level
+  const [stagePos, setStagePos] = useState({ x: 0, y: 0 }); // Pan position
+  const [isDragging, setIsDragging] = useState(false); // Is user dragging?
+  const [isPanMode, setIsPanMode] = useState(false); // Track if panning
+  // ===== END ADDED ZOOM & PAN STATE =====
+
+
   // === Rolling window annotation config ===
   const ANNO_WINDOW_SECONDS = 2; // 2s before + 2s after current frame
   const ANNO_THROTTLE_MS = 300;
 
   const layerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ===== ADDED: STAGE REF FOR ZOOM/PAN =====
+  const stageRef = useRef<any>(null);
+  // ===== END ADDED STAGE REF =====
+  
+  // ===== ADDED: REF TO TRACK PREVIOUS MOUSE POSITION FOR DELTA PANNING =====
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+  // ===== END ADDED PREVIOUS MOUSE POSITION REF =====
 
   const ongoingExtraction = useRef<Promise<Frame[]> | null>(null);
   const extractionAbort = useRef(false);
@@ -86,6 +104,13 @@ export default function DynamicVideo() {
   loadedRangesRef.current = loadedRanges; // keep ref in sync for non-state callbacks
 
   const lastAnnoLoadTs = useRef<number>(0);
+
+  
+  // ===== ADDED: ZOOM CONSTANTS =====
+  const MIN_ZOOM = 1;     // Minimum zoom: 50%
+  const MAX_ZOOM = 5;       // Maximum zoom: 500%
+  const ZOOM_SPEED = 1.1;   // Zoom speed multiplier
+  // ===== END ADDED ZOOM CONSTANTS =====
 
   const OBJECT_COLORS = [
     "#FF0000",
@@ -124,6 +149,232 @@ export default function DynamicVideo() {
       setVideoId(Number(storedId));
     }
   }, []);
+
+
+  // ===== ADDED: CURSOR STYLE FUNCTION =====
+  const setCursorStyle = useCallback((cursorStyle: string) => {
+    if (stageRef.current) {
+      const container = stageRef.current.container();
+      if (container) {
+        container.style.cursor = cursorStyle;
+      }
+    }
+  }, []);
+  // ===== END ADDED CURSOR STYLE FUNCTION =====
+
+
+  // ===== ADDED: WHEEL ZOOM HANDLER =====
+  const handleWheel = useCallback((e: any) => {
+    e.evt.preventDefault();
+    
+    if (!stageRef.current) return;
+
+    const stage = stageRef.current;
+    const oldScale = stage.scaleX();
+    const pointer = stage.getPointerPosition();
+
+    const mousePointTo = {
+      x: (pointer.x - stage.x()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale,
+    };
+
+    // Zoom direction (scroll down = zoom in)
+    let direction = e.evt.deltaY > 0 ? 1 : -1;
+    if (e.evt.ctrlKey) {
+      direction = -direction;
+    }
+
+    // Calculate new scale
+    const newScale = direction > 0 
+      ? oldScale * ZOOM_SPEED 
+      : oldScale / ZOOM_SPEED;
+
+    // Clamp scale between MIN_ZOOM and MAX_ZOOM
+    const clampedScale = Math.min(Math.max(newScale, MIN_ZOOM), MAX_ZOOM);
+
+    // Calculate new position to zoom towards pointer
+    const newPos = {
+      x: pointer.x - mousePointTo.x * clampedScale,
+      y: pointer.y - mousePointTo.y * clampedScale,
+    };
+
+    setStageScale({ x: clampedScale, y: clampedScale });
+    setStagePos(newPos);
+  }, []);
+  // ===== END ADDED WHEEL ZOOM HANDLER =====
+
+
+  // ===== ADDED: MOUSE DOWN HANDLER FOR PANNING =====
+  const handleMouseDown = (e: any) => {
+    // Left click (button 0) or Right click (button 2) - pan mode
+    if (e.evt.button === 0 || e.evt.button === 2) {
+      // Only pan on stage itself, not on annotations
+      if (e.target === e.target.getStage()) {
+        setIsPanMode(true);
+        setIsDragging(true);
+        // ===== MODIFIED: STORE INITIAL MOUSE POSITION FOR DELTA CALCULATION =====
+        lastMousePosRef.current = {
+          x: e.evt.clientX,
+          y: e.evt.clientY,
+        };
+        // ===== END MODIFIED =====
+        setCursorStyle("grabbing");
+      }
+    }
+  };
+  // ===== END ADDED MOUSE DOWN HANDLER =====
+
+
+  // ===== MODIFIED: MOUSE MOVE HANDLER WITH DELTA-BASED PANNING =====
+  const handleMouseMove = (e: any) => {
+    if (!stageRef.current) return;
+
+    // Update cursor based on pan mode
+    if (isDragging && isPanMode) {
+      setCursorStyle("grabbing");
+      
+      // ===== MODIFIED: CALCULATE DELTA MOVEMENT (CURRENT - PREVIOUS) =====
+      const currentX = e.evt.clientX;
+      const currentY = e.evt.clientY;
+      
+      const deltaX = currentX - lastMousePosRef.current.x;
+      const deltaY = currentY - lastMousePosRef.current.y;
+      
+      // Update position by adding delta (smooth movement like photo gallery)
+      setStagePos((prevPos) => ({
+        x: prevPos.x + deltaX,
+        y: prevPos.y + deltaY,
+      }));
+      
+      // Store current position as previous for next movement
+      lastMousePosRef.current = {
+        x: currentX,
+        y: currentY,
+      };
+      // ===== END MODIFIED =====
+    } else {
+      // Show grab cursor when hovering over stage (pan available)
+      if (e.target === e.target.getStage()) {
+        setCursorStyle("grab");
+      } else {
+        setCursorStyle("default");
+      }
+    }
+  };
+  // ===== END MODIFIED MOUSE MOVE HANDLER =====
+
+
+  // ===== ADDED: MOUSE UP HANDLER FOR PANNING =====
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsPanMode(false);
+    setCursorStyle("grab");
+  };
+  // ===== END ADDED MOUSE UP HANDLER =====
+
+
+  // ===== ADDED: MOUSE LEAVE HANDLER =====
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+    setIsPanMode(false);
+    setCursorStyle("default");
+  };
+  // ===== END ADDED MOUSE LEAVE HANDLER =====
+
+
+  // ===== ADDED: PREVENT RIGHT-CLICK CONTEXT MENU =====
+  const handleContextMenu = (e: any) => {
+    e.evt.preventDefault();
+    // Now right-click will only pan, not show context menu
+  };
+  // ===== END ADDED PREVENT RIGHT-CLICK CONTEXT MENU =====
+
+
+  // ===== ADDED: TOUCH PINCH ZOOM HANDLER =====
+  const handleTouchMove = useCallback((e: any) => {
+    const touch1 = e.evt.touches[0];
+    const touch2 = e.evt.touches[1];
+
+    if (!stageRef.current) return;
+
+    const stage = stageRef.current;
+
+    if (!touch1 || !touch2) return;
+
+    const rect = stage.container().getBoundingClientRect();
+    const p1 = {
+      x: touch1.clientX - rect.left,
+      y: touch1.clientY - rect.top,
+    };
+    const p2 = {
+      x: touch2.clientX - rect.left,
+      y: touch2.clientY - rect.top,
+    };
+
+    const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+    const oldScale = stage.scaleX();
+
+    if (!(stage as any).lastDist) {
+      (stage as any).lastDist = dist;
+      return;
+    }
+
+    const scale = oldScale * (dist / (stage as any).lastDist);
+    const clampedScale = Math.min(Math.max(scale, MIN_ZOOM), MAX_ZOOM);
+
+    // Calculate center point between two fingers
+    const centerX = (p1.x + p2.x) / 2;
+    const centerY = (p1.y + p2.y) / 2;
+
+    const mousePointTo = {
+      x: (centerX - stage.x()) / oldScale,
+      y: (centerY - stage.y()) / oldScale,
+    };
+
+    const newPos = {
+      x: centerX - mousePointTo.x * clampedScale,
+      y: centerY - mousePointTo.y * clampedScale,
+    };
+
+    setStageScale({ x: clampedScale, y: clampedScale });
+    setStagePos(newPos);
+    (stage as any).lastDist = dist;
+  }, []);
+  // ===== END ADDED TOUCH PINCH ZOOM HANDLER =====
+
+
+  // ===== ADDED: TOUCH END HANDLER =====
+  const handleTouchEnd = () => {
+    if (stageRef.current) {
+      (stageRef.current as any).lastDist = 0;
+    }
+  };
+  // ===== END ADDED TOUCH END HANDLER =====
+
+
+  // ===== ADDED: ZOOM IN BUTTON HANDLER =====
+  const handleZoomIn = () => {
+    const newScale = Math.min(stageScale.x * ZOOM_SPEED, MAX_ZOOM);
+    setStageScale({ x: newScale, y: newScale });
+  };
+  // ===== END ADDED ZOOM IN BUTTON HANDLER =====
+
+
+  // ===== ADDED: ZOOM OUT BUTTON HANDLER =====
+  const handleZoomOut = () => {
+    const newScale = Math.max(stageScale.x / ZOOM_SPEED, MIN_ZOOM);
+    setStageScale({ x: newScale, y: newScale });
+  };
+  // ===== END ADDED ZOOM OUT BUTTON HANDLER =====
+
+
+  // ===== ADDED: RESET ZOOM HANDLER =====
+  const handleResetZoom = () => {
+    setStageScale({ x: 1, y: 1 });
+    setStagePos({ x: 0, y: 0 });
+    setCursorStyle("grab");
+  };
+  // ===== END ADDED RESET ZOOM HANDLER =====
 
   // chunkMutation used for annotation ranges only — we'll call it only on seek & playback
   const chunkMutation = useMutation({
@@ -459,7 +710,7 @@ export default function DynamicVideo() {
     if (video) video.currentTime += seconds;
   };
   const handleFullscreen = () => {
-    const container = layerRef.current?.getStage()?.container();
+    const container = stageRef.current?.getStage?.()?.container() || stageRef.current?.container?.();
     if (container && container.requestFullscreen) container.requestFullscreen();
   };
 
@@ -473,9 +724,26 @@ export default function DynamicVideo() {
       {/* Video Player */}
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
         <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
-          <Stage width={650} height={650}>
+          <Stage 
+            ref={stageRef}
+            width={650} 
+            height={650}
+            scaleX={stageScale.x}
+            scaleY={stageScale.y}
+            x={stagePos.x}
+            y={stagePos.y}
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+            onContextMenu={handleContextMenu}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            draggable={false}
+          >
             <Layer ref={layerRef}>
-              {video && <KonvaImage image={video} width={650} height={650} />}
+              {video && <KonvaImage image={video} width={650} height={650} listening={false}/>}
 
               <Text
                 text={`Frame: ${currentFrame}`}
@@ -586,6 +854,17 @@ export default function DynamicVideo() {
                 })}
             </Layer>
           </Stage>
+          {/* ZOOM LEVEL DISPLAY */}
+          <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+            {(stageScale.x * 100).toFixed(0)}%
+          </div>
+
+          {/* PAN MODE INDICATOR */}
+          {isPanMode && (
+            <div className="absolute top-2 left-2 bg-blue-500 text-white px-3 py-1 rounded text-xs font-semibold">
+              🤚 Panning...
+            </div>
+          )}
         </div>
 
         {/* Controls */}
@@ -637,6 +916,32 @@ export default function DynamicVideo() {
               }}>
               Clear Selection
             </Button>
+
+            {/* ZOOM BUTTONS */}
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={handleZoomOut} 
+              title="Zoom Out (- or Scroll)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </Button>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={handleResetZoom} 
+              title="Reset Zoom (1:1)"
+            >
+              <span className="text-xs font-bold">reset</span>
+            </Button>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={handleZoomIn} 
+              title="Zoom In (+ or Scroll)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -670,6 +975,10 @@ export default function DynamicVideo() {
             <Button size="icon" variant="ghost" onClick={handleFullscreen}>
               <Maximize2 />
             </Button>
+          </div>
+          {/* PAN & ZOOM HELP TEXT */}
+          <div className="text-[11px] text-[#7A7A7A] mt-2 ml-2">
+            💡 Tip: <strong>Left Click + Drag</strong> or <strong>Right Click + Drag</strong> to pan • <strong>Scroll</strong> to zoom • <strong>Pinch</strong> on touch devices
           </div>
         </div>
       </Card>
