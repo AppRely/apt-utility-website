@@ -3,7 +3,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/Button"
 import JsonTrajectory from "@/components/dashboard/JsonTrajectory";
 import DynamicVideo from "@/components/dashboard/DynamicVideo";
-import Annotation from "@/components/dashboard/Annotation";
+// import Annotation from "@/components/dashboard/Annotation";
 export function MainFrames() {
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-hidden">

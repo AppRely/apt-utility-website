@@ -8,9 +8,40 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, useCallback } from 'react';
 import { getFrameData } from '@/lib/api/getFrameData'; 
 
+type SelectedObject = { object_id: number; frame_id: number };
+
 export default function Sidebar() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [selectedObjects, setSelectedObjects] = useState<SelectedObject[]>([]);
+
+  // useEffect(() => {
+  //   const stored = sessionStorage.getItem("selectedObjects");
+  //   if (stored) {
+  //     setSelectedObjects(JSON.parse(stored) as SelectedObject[]);
+  //   }
+  // }, []);
+
+  useEffect(() => {
+    const updateFromSession = () => {
+      const data = sessionStorage.getItem("selectedObjects");
+      if (data) {
+        try {
+          setSelectedObjects(JSON.parse(data));
+        } catch {}
+      } else {
+        setSelectedObjects([]);
+      }
+    };
+
+    // Initial load
+    updateFromSession();
+
+    // Poll every 200ms
+    const interval = setInterval(updateFromSession, 200);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Custom hook to detect sessionStorage changes
   const useSessionStorage = (key: string) => {
@@ -157,6 +188,21 @@ export default function Sidebar() {
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
           <span className="text-[#404040] text-[13px]">object_annotation.trk</span>
         </div>
+      </CardContent>
+
+      <Separator />
+
+      <CardContent className="p-3 pt-2 flex-shrink-0">
+        <div className="p-4 border-l w-64 bg-gray-50 h-full">
+      <h2 className="font-bold text-lg">Selected Objects</h2>
+      {selectedObjects.length === 0 && <p>No object selected</p>}
+      {selectedObjects.map((obj, i) => (
+        <div key={i} className="p-2 mt-2 border rounded bg-white shadow-sm">
+          <p><b>ID:</b> {obj.object_id}</p>
+          <p><b>Frame:</b> {obj.frame_id}</p>
+        </div>
+      ))}
+    </div>
       </CardContent>
 
       <Separator />
