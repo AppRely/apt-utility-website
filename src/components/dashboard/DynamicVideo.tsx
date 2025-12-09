@@ -33,6 +33,7 @@ import {
   Circle,
   Group,
   Rect,
+  Line,
 } from "react-konva";
 import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast";
 import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg";
@@ -47,6 +48,7 @@ type Annotation = {
   coordinates: [number, number][];
 };
 type LoadedRange = { start: number; end: number };
+type TrajectoryMap = Map<number, Map<number, [number, number]>>;
 
 export default function DynamicVideo() {
   const [file, setFile] = useState<File | null>(null);
@@ -76,6 +78,12 @@ export default function DynamicVideo() {
   const [isDragging, setIsDragging] = useState(false); // Is user dragging?
   const [isPanMode, setIsPanMode] = useState(false); // Track if panning
   // ===== END ADDED ZOOM & PAN STATE =====
+
+  // ===== TRAJECTORY STATE =====
+  const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
+  const [showTrajectory, setShowTrajectory] = useState(true);
+  const trajectoriesRef = useRef<TrajectoryMap>(new Map());
+  // ===== END TRAJECTORY STATE =====
 
 
   // === Rolling window annotation config ===
@@ -139,8 +147,8 @@ export default function DynamicVideo() {
 
   useEffect(() => {
     setSelectedObjects([]);
-                sessionStorage.removeItem("selectedObjects");
-                console.log("Selection cleared");
+    sessionStorage.removeItem("selectedObjects");
+    console.log("Selection cleared");
   }, []);
 
   useEffect(() => {
@@ -149,6 +157,55 @@ export default function DynamicVideo() {
       setVideoId(Number(storedId));
     }
   }, []);
+
+  useEffect(() => {
+    const newMap: TrajectoryMap = new Map();
+
+    annotations.forEach((anno) => {
+      if (anno.coordinates.length === 0) return;
+
+      const firstPoint = anno.coordinates[0];
+
+      if (!newMap.has(anno.object_id)) {
+        newMap.set(anno.object_id, new Map());
+      }
+
+      newMap.get(anno.object_id)!.set(anno.frame_id, firstPoint);
+    });
+
+    trajectoriesRef.current = newMap;
+    setTrajectoryMap(newMap);
+  }, [annotations]);
+  // ===== END BUILD TRAJECTORY MAP =====
+
+
+  // ===== GET TRAJECTORY POINTS UP TO CURRENT FRAME FOR AN OBJECT =====
+  const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
+    const frameTrajectory = trajectoryMap.get(objectId);
+    if (!frameTrajectory || frameTrajectory.size < 2) return [];
+
+    const sortedFrames = Array.from(frameTrajectory.keys())
+      .sort((a, b) => a - b)
+      .filter(frameId => frameId <= upToFrame);
+
+    if (sortedFrames.length < 2) return [];
+
+    const points: number[] = [];
+    sortedFrames.forEach((frameId) => {
+      const [x, y] = frameTrajectory.get(frameId)!;
+      points.push(x, y);
+    });
+
+    return points;
+  }, [trajectoryMap]);
+  // ===== END GET TRAJECTORY POINTS UP TO CURRENT FRAME =====
+
+
+  // ===== GET ALL UNIQUE OBJECT IDS EVER =====
+  const getAllObjectIds = useCallback((): number[] => {
+    return Array.from(trajectoryMap.keys()).sort((a, b) => a - b);
+  }, [trajectoryMap]);
+  // ===== END GET ALL UNIQUE OBJECT IDS =====
 
 
   // ===== ADDED: CURSOR STYLE FUNCTION =====
@@ -719,6 +776,8 @@ export default function DynamicVideo() {
   const rulerEnd = Math.min(rulerStart + 5, duration);
   const tickCount = 6;
 
+  const allObjectIds = getAllObjectIds();
+
   return (
     <div className="flex flex-col gap-2 w-full">
       {/* Video Player */}
@@ -744,7 +803,26 @@ export default function DynamicVideo() {
           >
             <Layer ref={layerRef}>
               {video && <KonvaImage image={video} width={650} height={650} listening={false}/>}
+              {/* ===== ADDED: DRAW ALL OBJECT TRAJECTORIES (PERSISTENT) ===== */}
+              {showTrajectory && allObjectIds.map((objectId) => {
+                const points = getTrajectoryPointsUpToCurrent(objectId, currentFrame);
+                if (points.length < 2) return null;
 
+                return (
+                  <Line
+                    key={`trajectory-${objectId}`}
+                    points={points.map((p, idx) => {
+                      return idx % 2 === 0 ? p * scaleX : p * scaleY;
+                    })}
+                    stroke={getObjectColor(objectId)}
+                    strokeWidth={2}
+                    opacity={0.6}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                );
+              })}
+              {/* ===== END ADDED TRAJECTORY LAYER ===== */}
               <Text
                 text={`Frame: ${currentFrame}`}
                 fontSize={18}
@@ -865,12 +943,20 @@ export default function DynamicVideo() {
               🤚 Panning...
             </div>
           )}
+
+
+          {/* ===== ADDED: TRAJECTORY INDICATOR WITH TOTAL OBJECTS COUNT ===== */}
+          <div className="absolute top-12 left-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-xs">
+            Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"} 
+          </div>
+          {/* ===== END ADDED TRAJECTORY INDICATOR ===== */}
+          {/* | Total Objects: {allObjectIds.length} */}
         </div>
 
         {/* Controls */}
         <Separator />
         <div className="flex flex-col pt-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button size="icon" variant="ghost">
               <Undo2 />
             </Button>
@@ -902,9 +988,9 @@ export default function DynamicVideo() {
                 video?.pause();
               }}
               onValueCommit={(val) => handleSeek(val[0])}
-              className="flex-1"
+              className="flex-1 min-w-[200px]"
             />
-            <span className="text-xs text-[#5A5A5A] p-2">
+            <span className="text-xs text-[#5A5A5A] p-2 whitespace-nowrap">
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
 
@@ -942,6 +1028,19 @@ export default function DynamicVideo() {
             >
               <ZoomIn className="w-4 h-4" />
             </Button>
+
+            {/* ===== ADDED: TRAJECTORY TOGGLE BUTTON ===== */}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowTrajectory(!showTrajectory)}
+              title="Toggle Trajectory Display"
+              className={showTrajectory ? "bg-green-900 bg-opacity-30" : ""}
+            >
+              <span className="text-xs font-bold">Track</span>
+            </Button>
+            {/* ===== END TRAJECTORY TOGGLE BUTTON ===== */}
+            
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -976,10 +1075,7 @@ export default function DynamicVideo() {
               <Maximize2 />
             </Button>
           </div>
-          {/* PAN & ZOOM HELP TEXT */}
-          <div className="text-[11px] text-[#7A7A7A] mt-2 ml-2">
-            💡 Tip: <strong>Left Click + Drag</strong> or <strong>Right Click + Drag</strong> to pan • <strong>Scroll</strong> to zoom • <strong>Pinch</strong> on touch devices
-          </div>
+          
         </div>
       </Card>
 
