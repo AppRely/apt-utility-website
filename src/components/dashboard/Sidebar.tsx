@@ -4,12 +4,13 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
-import { useQuery,useQueries} from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { useEffect, useState, useCallback } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { SelectedObject } from "@/types/selection";
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
+import { linkObjects } from "@/lib/api/linkObjects";
 
 type SelectedObjectProps = {
   selectedObjects: SelectedObject[];
@@ -56,17 +57,26 @@ export default function Sidebar({
 
   const videoId = useSessionStorage("videoId");
   const frameId = useSessionStorage("frameId");
-  const projectName= useSessionStorage("project_name");
-  const videoName= useSessionStorage("video_name");
-  const trkFileName= useSessionStorage("trk_file_name");
-  const totalFrames= useSessionStorage("totalFrames");
-
+  const projectName = useSessionStorage("project_name");
+  const videoName = useSessionStorage("video_name");
+  const trkFileName = useSessionStorage("trk_file_name");
+  const totalFrames = useSessionStorage("totalFrames");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["frameData", videoId, frameId],
     queryFn: () => getFrameData(Number(videoId!), Number(frameId!)),
     enabled: !!(videoId && frameId),
     staleTime: 0,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (payload: any) => linkObjects(Number(videoId), payload),
+    onSuccess: () => {
+      alert("Objects linked successfully!");
+    },
+    onError: (err: any) => {
+      alert("Failed to link objects: " + err.message);
+    },
   });
 
   // Reset expansions & log on frame change
@@ -177,15 +187,11 @@ export default function Sidebar({
       <CardContent className="p-3">
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
-          <span className="text-[#404040] text-[13px]">
-            {videoName}
-          </span>
+          <span className="text-[#404040] text-[13px]">{videoName}</span>
         </div>
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
-          <span className="text-[#404040] text-[13px]">
-            {trkFileName}
-          </span>
+          <span className="text-[#404040] text-[13px]">{trkFileName}</span>
         </div>
       </CardContent>
 
@@ -251,7 +257,28 @@ export default function Sidebar({
           <Image src="/images/break.svg" alt="Break" width={15} height={15} />{" "}
           Break
         </Button>
-        <Button className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A]">
+        <Button
+          className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A]"
+          disabled={selectedObjects.length !== 2}
+          onClick={() => {
+            if (selectedObjects.length !== 2) {
+              alert("Please select exactly 2 objects to link");
+              return;
+            }
+
+            const [obj1, obj2] = selectedObjects;
+
+            const payload = {
+              object_1_id: obj1.object_id,
+              object_1_start: obj1.start_frame,
+              object_1_end: obj1.end_frame,
+              object_2_id: obj2.object_id,
+              object_2_start: obj2.start_frame,
+              object_2_end: obj2.end_frame,
+            };
+
+            linkMutation.mutate(payload);
+          }}>
           <Image src="/images/link.svg" alt="Link" width={15} height={15} />{" "}
           Link
         </Button>
@@ -281,7 +308,6 @@ export default function Sidebar({
         </p>
         {renderObjectsSection()}
       </CardContent>
-
     </Card>
   );
 }
