@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect,useCallback} from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/Button";
@@ -38,9 +38,9 @@ import {
 import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast";
 import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg";
 import { useMutation } from "@tanstack/react-query";
-import { getFrameData } from "@/lib/api/getFrameData";
+import { getObjectData } from "@/lib/api/getObjectData";
 import { getFrameRangeData } from "@/lib/api/getFrameRangeData";
-
+import { SelectedObject } from "@/types/selection";
 type Frame = { index: number; src: string };
 type Annotation = {
   object_id: number;
@@ -50,7 +50,15 @@ type Annotation = {
 type LoadedRange = { start: number; end: number };
 type TrajectoryMap = Map<number, Map<number, [number, number]>>;
 
-export default function DynamicVideo() {
+type SelectedObjectProps = {
+  selectedObjects: SelectedObject[];
+  setSelectedObjects: React.Dispatch<React.SetStateAction<SelectedObject[]>>;
+};
+
+export default function DynamicVideo({
+  selectedObjects,
+  setSelectedObjects,
+}: SelectedObjectProps) {
   const [file, setFile] = useState<File | null>(null);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
@@ -68,9 +76,6 @@ export default function DynamicVideo() {
   const [playbackRate, setPlaybackRate] = useState(1);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [videoId, setVideoId] = useState<number | null>(null);
-  const [selectedObjects, setSelectedObjects] = useState<
-    { object_id: number; frame_id: number }[]
-  >([]);
 
   // ===== ADDED: ZOOM & PAN STATE =====
   const [stageScale, setStageScale] = useState({ x: 1, y: 1 }); // Zoom level
@@ -85,7 +90,6 @@ export default function DynamicVideo() {
   const trajectoriesRef = useRef<TrajectoryMap>(new Map());
   // ===== END TRAJECTORY STATE =====
 
-
   // === Rolling window annotation config ===
   const ANNO_WINDOW_SECONDS = 2; // 2s before + 2s after current frame
   const ANNO_THROTTLE_MS = 300;
@@ -96,7 +100,7 @@ export default function DynamicVideo() {
   // ===== ADDED: STAGE REF FOR ZOOM/PAN =====
   const stageRef = useRef<any>(null);
   // ===== END ADDED STAGE REF =====
-  
+
   // ===== ADDED: REF TO TRACK PREVIOUS MOUSE POSITION FOR DELTA PANNING =====
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   // ===== END ADDED PREVIOUS MOUSE POSITION REF =====
@@ -113,11 +117,10 @@ export default function DynamicVideo() {
 
   const lastAnnoLoadTs = useRef<number>(0);
 
-  
   // ===== ADDED: ZOOM CONSTANTS =====
-  const MIN_ZOOM = 1;     // Minimum zoom: 50%
-  const MAX_ZOOM = 5;       // Maximum zoom: 500%
-  const ZOOM_SPEED = 1.1;   // Zoom speed multiplier
+  const MIN_ZOOM = 1; // Minimum zoom: 50%
+  const MAX_ZOOM = 5; // Maximum zoom: 500%
+  const ZOOM_SPEED = 1.1; // Zoom speed multiplier
   // ===== END ADDED ZOOM CONSTANTS =====
 
   const OBJECT_COLORS = [
@@ -146,12 +149,6 @@ export default function DynamicVideo() {
     OBJECT_COLORS[id % OBJECT_COLORS.length];
 
   useEffect(() => {
-    setSelectedObjects([]);
-    sessionStorage.removeItem("selectedObjects");
-    console.log("Selection cleared");
-  }, []);
-
-  useEffect(() => {
     const storedId = sessionStorage.getItem("videoId");
     if (storedId) {
       setVideoId(Number(storedId));
@@ -178,35 +175,35 @@ export default function DynamicVideo() {
   }, [annotations]);
   // ===== END BUILD TRAJECTORY MAP =====
 
-
   // ===== GET TRAJECTORY POINTS UP TO CURRENT FRAME FOR AN OBJECT =====
-  const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
-    const frameTrajectory = trajectoryMap.get(objectId);
-    if (!frameTrajectory || frameTrajectory.size < 2) return [];
+  const getTrajectoryPointsUpToCurrent = useCallback(
+    (objectId: number, upToFrame: number): number[] => {
+      const frameTrajectory = trajectoryMap.get(objectId);
+      if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
-    const sortedFrames = Array.from(frameTrajectory.keys())
-      .sort((a, b) => a - b)
-      .filter(frameId => frameId <= upToFrame);
+      const sortedFrames = Array.from(frameTrajectory.keys())
+        .sort((a, b) => a - b)
+        .filter((frameId) => frameId <= upToFrame);
 
-    if (sortedFrames.length < 2) return [];
+      if (sortedFrames.length < 2) return [];
 
-    const points: number[] = [];
-    sortedFrames.forEach((frameId) => {
-      const [x, y] = frameTrajectory.get(frameId)!;
-      points.push(x, y);
-    });
+      const points: number[] = [];
+      sortedFrames.forEach((frameId) => {
+        const [x, y] = frameTrajectory.get(frameId)!;
+        points.push(x, y);
+      });
 
-    return points;
-  }, [trajectoryMap]);
+      return points;
+    },
+    [trajectoryMap]
+  );
   // ===== END GET TRAJECTORY POINTS UP TO CURRENT FRAME =====
-
 
   // ===== GET ALL UNIQUE OBJECT IDS EVER =====
   const getAllObjectIds = useCallback((): number[] => {
     return Array.from(trajectoryMap.keys()).sort((a, b) => a - b);
   }, [trajectoryMap]);
   // ===== END GET ALL UNIQUE OBJECT IDS =====
-
 
   // ===== ADDED: CURSOR STYLE FUNCTION =====
   const setCursorStyle = useCallback((cursorStyle: string) => {
@@ -219,11 +216,10 @@ export default function DynamicVideo() {
   }, []);
   // ===== END ADDED CURSOR STYLE FUNCTION =====
 
-
   // ===== ADDED: WHEEL ZOOM HANDLER =====
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
-    
+
     if (!stageRef.current) return;
 
     const stage = stageRef.current;
@@ -242,9 +238,8 @@ export default function DynamicVideo() {
     }
 
     // Calculate new scale
-    const newScale = direction > 0 
-      ? oldScale * ZOOM_SPEED 
-      : oldScale / ZOOM_SPEED;
+    const newScale =
+      direction > 0 ? oldScale * ZOOM_SPEED : oldScale / ZOOM_SPEED;
 
     // Clamp scale between MIN_ZOOM and MAX_ZOOM
     const clampedScale = Math.min(Math.max(newScale, MIN_ZOOM), MAX_ZOOM);
@@ -259,7 +254,6 @@ export default function DynamicVideo() {
     setStagePos(newPos);
   }, []);
   // ===== END ADDED WHEEL ZOOM HANDLER =====
-
 
   // ===== ADDED: MOUSE DOWN HANDLER FOR PANNING =====
   const handleMouseDown = (e: any) => {
@@ -281,7 +275,6 @@ export default function DynamicVideo() {
   };
   // ===== END ADDED MOUSE DOWN HANDLER =====
 
-
   // ===== MODIFIED: MOUSE MOVE HANDLER WITH DELTA-BASED PANNING =====
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
@@ -289,20 +282,20 @@ export default function DynamicVideo() {
     // Update cursor based on pan mode
     if (isDragging && isPanMode) {
       setCursorStyle("grabbing");
-      
+
       // ===== MODIFIED: CALCULATE DELTA MOVEMENT (CURRENT - PREVIOUS) =====
       const currentX = e.evt.clientX;
       const currentY = e.evt.clientY;
-      
+
       const deltaX = currentX - lastMousePosRef.current.x;
       const deltaY = currentY - lastMousePosRef.current.y;
-      
+
       // Update position by adding delta (smooth movement like photo gallery)
       setStagePos((prevPos) => ({
         x: prevPos.x + deltaX,
         y: prevPos.y + deltaY,
       }));
-      
+
       // Store current position as previous for next movement
       lastMousePosRef.current = {
         x: currentX,
@@ -320,7 +313,6 @@ export default function DynamicVideo() {
   };
   // ===== END MODIFIED MOUSE MOVE HANDLER =====
 
-
   // ===== ADDED: MOUSE UP HANDLER FOR PANNING =====
   const handleMouseUp = () => {
     setIsDragging(false);
@@ -328,7 +320,6 @@ export default function DynamicVideo() {
     setCursorStyle("grab");
   };
   // ===== END ADDED MOUSE UP HANDLER =====
-
 
   // ===== ADDED: MOUSE LEAVE HANDLER =====
   const handleMouseLeave = () => {
@@ -338,14 +329,12 @@ export default function DynamicVideo() {
   };
   // ===== END ADDED MOUSE LEAVE HANDLER =====
 
-
   // ===== ADDED: PREVENT RIGHT-CLICK CONTEXT MENU =====
   const handleContextMenu = (e: any) => {
     e.evt.preventDefault();
     // Now right-click will only pan, not show context menu
   };
   // ===== END ADDED PREVENT RIGHT-CLICK CONTEXT MENU =====
-
 
   // ===== ADDED: TOUCH PINCH ZOOM HANDLER =====
   const handleTouchMove = useCallback((e: any) => {
@@ -399,7 +388,6 @@ export default function DynamicVideo() {
   }, []);
   // ===== END ADDED TOUCH PINCH ZOOM HANDLER =====
 
-
   // ===== ADDED: TOUCH END HANDLER =====
   const handleTouchEnd = () => {
     if (stageRef.current) {
@@ -408,7 +396,6 @@ export default function DynamicVideo() {
   };
   // ===== END ADDED TOUCH END HANDLER =====
 
-
   // ===== ADDED: ZOOM IN BUTTON HANDLER =====
   const handleZoomIn = () => {
     const newScale = Math.min(stageScale.x * ZOOM_SPEED, MAX_ZOOM);
@@ -416,14 +403,12 @@ export default function DynamicVideo() {
   };
   // ===== END ADDED ZOOM IN BUTTON HANDLER =====
 
-
   // ===== ADDED: ZOOM OUT BUTTON HANDLER =====
   const handleZoomOut = () => {
     const newScale = Math.max(stageScale.x / ZOOM_SPEED, MIN_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
   // ===== END ADDED ZOOM OUT BUTTON HANDLER =====
-
 
   // ===== ADDED: RESET ZOOM HANDLER =====
   const handleResetZoom = () => {
@@ -472,6 +457,19 @@ export default function DynamicVideo() {
         return merged;
       });
     },
+  });
+
+  const projectId = Number(sessionStorage.getItem("projectId"));
+  const objectMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      objectId,
+      frameId,
+    }: {
+      projectId: number;
+      objectId: number;
+      frameId: number;
+    }) => getObjectData(projectId, objectId, frameId),
   });
 
   // === helpers ===
@@ -767,7 +765,9 @@ export default function DynamicVideo() {
     if (video) video.currentTime += seconds;
   };
   const handleFullscreen = () => {
-    const container = stageRef.current?.getStage?.()?.container() || stageRef.current?.container?.();
+    const container =
+      stageRef.current?.getStage?.()?.container() ||
+      stageRef.current?.container?.();
     if (container && container.requestFullscreen) container.requestFullscreen();
   };
 
@@ -783,9 +783,9 @@ export default function DynamicVideo() {
       {/* Video Player */}
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
         <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
-          <Stage 
+          <Stage
             ref={stageRef}
-            width={650} 
+            width={650}
             height={650}
             scaleX={stageScale.x}
             scaleY={stageScale.y}
@@ -799,29 +799,39 @@ export default function DynamicVideo() {
             onContextMenu={handleContextMenu}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
-            draggable={false}
-          >
+            draggable={false}>
             <Layer ref={layerRef}>
-              {video && <KonvaImage image={video} width={650} height={650} listening={false}/>}
+              {video && (
+                <KonvaImage
+                  image={video}
+                  width={650}
+                  height={650}
+                  listening={false}
+                />
+              )}
               {/* ===== ADDED: DRAW ALL OBJECT TRAJECTORIES (PERSISTENT) ===== */}
-              {showTrajectory && allObjectIds.map((objectId) => {
-                const points = getTrajectoryPointsUpToCurrent(objectId, currentFrame);
-                if (points.length < 2) return null;
+              {showTrajectory &&
+                allObjectIds.map((objectId) => {
+                  const points = getTrajectoryPointsUpToCurrent(
+                    objectId,
+                    currentFrame
+                  );
+                  if (points.length < 2) return null;
 
-                return (
-                  <Line
-                    key={`trajectory-${objectId}`}
-                    points={points.map((p, idx) => {
-                      return idx % 2 === 0 ? p * scaleX : p * scaleY;
-                    })}
-                    stroke={getObjectColor(objectId)}
-                    strokeWidth={2}
-                    opacity={0.6}
-                    lineCap="round"
-                    lineJoin="round"
-                  />
-                );
-              })}
+                  return (
+                    <Line
+                      key={`trajectory-${objectId}`}
+                      points={points.map((p, idx) => {
+                        return idx % 2 === 0 ? p * scaleX : p * scaleY;
+                      })}
+                      stroke={getObjectColor(objectId)}
+                      strokeWidth={2}
+                      opacity={0.6}
+                      lineCap="round"
+                      lineJoin="round"
+                    />
+                  );
+                })}
               {/* ===== END ADDED TRAJECTORY LAYER ===== */}
               <Text
                 text={`Frame: ${currentFrame}`}
@@ -868,27 +878,43 @@ export default function DynamicVideo() {
 
                         if (alreadySelected) return;
 
-                        if (selectedObjects.length < 2) {
-                          const newList = [
-                            ...selectedObjects,
-                            { object_id: a.object_id, frame_id: a.frame_id },
-                          ];
-                          setSelectedObjects(newList);
-                          console.log("Selected Objects:", newList);
-                          sessionStorage.setItem("selectedObjects", JSON.stringify(newList));
-
-                          if (newList.length === 1) {
-                            console.log("First Selected:", newList[0]);
-                          }
-                          if (newList.length === 2) {
-                            console.log("Second Selected:", newList[1]);
-                          }
-
+                        if (selectedObjects.length >= 2) {
+                          console.log("Only 2 selections allowed.");
                           return;
                         }
 
-                        console.log(
-                          "Only 2 selections allowed. Clear to select again."
+                        if (!projectId) {
+                          console.log("Project ID not available");
+                          return;
+                        }
+
+                        objectMutation.mutate(
+                          {
+                            projectId,
+                            objectId: a.object_id,
+                            frameId: a.frame_id,
+                          },
+                          {
+                            onSuccess: (meta) => {
+                              const newSelection = {
+                                object_id: a.object_id,
+                                frame_id: a.frame_id,
+                                start_frame: meta.start_frame,
+                                end_frame: meta.end_frame,
+                                is_inside: meta.is_inside,
+                              };
+
+                              setSelectedObjects((prev) => [
+                                ...prev,
+                                newSelection,
+                              ]);
+
+                              console.log(
+                                "Fetched meta via TanStack:",
+                                newSelection
+                              );
+                            },
+                          }
                         );
                       }}>
                       {/* POINTS (NOT bold when selected) */}
@@ -944,10 +970,9 @@ export default function DynamicVideo() {
             </div>
           )}
 
-
           {/* ===== ADDED: TRAJECTORY INDICATOR WITH TOTAL OBJECTS COUNT ===== */}
           <div className="absolute top-12 left-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-xs">
-            Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"} 
+            Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"}
           </div>
           {/* ===== END ADDED TRAJECTORY INDICATOR ===== */}
           {/* | Total Objects: {allObjectIds.length} */}
@@ -994,38 +1019,26 @@ export default function DynamicVideo() {
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
 
-            <Button
-              onClick={() => {
-                setSelectedObjects([]);
-                sessionStorage.removeItem("selectedObjects");
-                console.log("Selection cleared");
-              }}>
-              Clear Selection
-            </Button>
-
             {/* ZOOM BUTTONS */}
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={handleZoomOut} 
-              title="Zoom Out (- or Scroll)"
-            >
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleZoomOut}
+              title="Zoom Out (- or Scroll)">
               <ZoomOut className="w-4 h-4" />
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={handleResetZoom} 
-              title="Reset Zoom (1:1)"
-            >
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleResetZoom}
+              title="Reset Zoom (1:1)">
               <span className="text-xs font-bold">reset</span>
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={handleZoomIn} 
-              title="Zoom In (+ or Scroll)"
-            >
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleZoomIn}
+              title="Zoom In (+ or Scroll)">
               <ZoomIn className="w-4 h-4" />
             </Button>
 
@@ -1035,12 +1048,11 @@ export default function DynamicVideo() {
               variant="ghost"
               onClick={() => setShowTrajectory(!showTrajectory)}
               title="Toggle Trajectory Display"
-              className={showTrajectory ? "bg-green-900 bg-opacity-30" : ""}
-            >
+              className={showTrajectory ? "bg-green-900 bg-opacity-30" : ""}>
               <span className="text-xs font-bold">Track</span>
             </Button>
             {/* ===== END TRAJECTORY TOGGLE BUTTON ===== */}
-            
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -1075,7 +1087,6 @@ export default function DynamicVideo() {
               <Maximize2 />
             </Button>
           </div>
-          
         </div>
       </Card>
 

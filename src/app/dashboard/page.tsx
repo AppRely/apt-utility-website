@@ -41,11 +41,12 @@ export default function Dashboard() {
       </header> */}
 
       {/* Body */}
-      <main className="flex flex-1 overflow-hidden pl-3 pt-3 pr-3 gap-3">
-        <Sidebar />
+      {/* <main className="flex flex-1 overflow-hidden pl-3 pt-3 pr-3 gap-3">
+        <Sidebar /> */}
         {/* <MainContent/> */}
-        <MainFrames/>
-      </main>
+        {/* <MainFrames/>
+      </main> */}
+      <MainFrames/>
     </div>
   )
 }

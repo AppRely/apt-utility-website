@@ -123,10 +123,11 @@ export default function AnnotationLandingPage() {
                 size="sm"
                 className="bg-purple-100 text-purple-700 hover:bg-purple-100"
                 onClick={() => {
+                  sessionStorage.setItem("projectId", p.project_id);
                   sessionStorage.setItem("videoId", p.video_id);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("frameId","0");
-                  router.push("/dashboard"); // redirect to dashboard
+                  router.push("/dashboard"); 
                 }}>
                 Edit
               </Button>
