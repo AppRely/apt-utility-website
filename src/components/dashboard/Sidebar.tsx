@@ -56,6 +56,11 @@ export default function Sidebar({
 
   const videoId = useSessionStorage("videoId");
   const frameId = useSessionStorage("frameId");
+  const projectName= useSessionStorage("project_name");
+  const videoName= useSessionStorage("video_name");
+  const trkFileName= useSessionStorage("trk_file_name");
+  const totalFrames= useSessionStorage("totalFrames");
+
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["frameData", videoId, frameId],
@@ -173,13 +178,13 @@ export default function Sidebar({
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
           <span className="text-[#404040] text-[13px]">
-            object_annotation_recording.mp4
+            {videoName}
           </span>
         </div>
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
           <span className="text-[#404040] text-[13px]">
-            object_annotation.trk
+            {trkFileName}
           </span>
         </div>
       </CardContent>
@@ -256,14 +261,14 @@ export default function Sidebar({
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
-          Frame #{frameId || "N/A"}
+          Frame #{frameId}
         </p>
         <p className="text-[#5A5A5A] text-[13px] leading-[13px] font-medium pb-2">
-          Frame: {frameId || "N/A"} / 45012
+          Frame: {frameId} / {totalFrames}
         </p>
-        <p className="text-[#5A5A5A] text-[13px] leading-[13px] font-medium">
+        {/* <p className="text-[#5A5A5A] text-[13px] leading-[13px] font-medium">
           Time: 00:04:16 | FPS: 30
-        </p>
+        </p> */}
       </CardContent>
 
       <Separator />

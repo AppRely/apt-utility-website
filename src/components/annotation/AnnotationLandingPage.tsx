@@ -124,8 +124,11 @@ export default function AnnotationLandingPage() {
                 className="bg-purple-100 text-purple-700 hover:bg-purple-100"
                 onClick={() => {
                   sessionStorage.setItem("projectId", p.project_id);
+                  sessionStorage.setItem("project_name", p.project_name);
                   sessionStorage.setItem("videoId", p.video_id);
+                  sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
+                  sessionStorage.setItem("trk_file_name", p.trk_file_name);
                   sessionStorage.setItem("frameId","0");
                   router.push("/dashboard"); 
                 }}>

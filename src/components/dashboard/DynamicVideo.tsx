@@ -551,6 +551,8 @@ export default function DynamicVideo({
 
       vid.onloadedmetadata = async () => {
         setDuration(vid.duration);
+        const totalFrames = Math.floor(vid.duration * fps);
+        sessionStorage.setItem("totalFrames", totalFrames.toString());
         setVideoWidth(vid.videoWidth);
         setVideoHeight(vid.videoHeight);
 
