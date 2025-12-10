@@ -1,23 +1,14 @@
-const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
-
 export const linkObjects = async (
   videoId: number,
-  payload: {
-    object_1_id: number;
-    object_1_start: number;
-    object_1_end: number;
-    object_2_id: number;
-    object_2_start: number;
-    object_2_end: number;
-  }
+  formData: FormData   // <-- accept FormData
 ) => {
-  const res = await fetch(`${API_BASE}/videos/${videoId}/link-objects/`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}/api/v1/videos/${videoId}/link-objects/`,
+    {
+      method: "PUT",
+      body: formData, // <-- send FormData directly
+    }
+  );
 
   if (!res.ok) {
     throw new Error("Failed to link objects");

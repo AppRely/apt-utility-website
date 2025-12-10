@@ -69,15 +69,19 @@ export default function Sidebar({
     staleTime: 0,
   });
 
-  const linkMutation = useMutation({
-    mutationFn: (payload: any) => linkObjects(Number(videoId), payload),
-    onSuccess: () => {
-      alert("Objects linked successfully!");
-    },
-    onError: (err: any) => {
-      alert("Failed to link objects: " + err.message);
-    },
-  });
+
+const linkMutation = useMutation({
+  mutationFn: (formData: FormData) =>
+    linkObjects(Number(videoId), formData),
+  onSuccess: () => {
+    alert("Objects linked successfully!");
+  },
+  onError: (err: any) => {
+    alert("Failed to link objects: " + err.message);
+  },
+});
+
+
 
   // Reset expansions & log on frame change
   useEffect(() => {
@@ -268,16 +272,15 @@ export default function Sidebar({
 
             const [obj1, obj2] = selectedObjects;
 
-            const payload = {
-              object_1_id: obj1.object_id,
-              object_1_start: obj1.start_frame,
-              object_1_end: obj1.end_frame,
-              object_2_id: obj2.object_id,
-              object_2_start: obj2.start_frame,
-              object_2_end: obj2.end_frame,
-            };
+            const formData = new FormData();
+            formData.append("object_1_id", String(obj1.object_id));
+            formData.append("object_1_start", String(obj1.start_frame));
+            formData.append("object_1_end", String(obj1.end_frame));
 
-            linkMutation.mutate(payload);
+            formData.append("object_2_id", String(obj2.object_id));
+            formData.append("object_2_start", String(obj2.start_frame));
+            formData.append("object_2_end", String(obj2.end_frame));
+            linkMutation.mutate(formData);
           }}>
           <Image src="/images/link.svg" alt="Link" width={15} height={15} />{" "}
           Link
