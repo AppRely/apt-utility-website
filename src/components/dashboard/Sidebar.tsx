@@ -164,9 +164,11 @@ const linkMutation = useMutation({
 
               {isExpanded && (
                 <div className="mt-2 pt-2 border-t border-gray-200">
-                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                    object: {obj.object_id + 1} Coordinates
-                  </p>
+                  {/* <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
+                    object id: {obj.object_id} </p> */}
+                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">start frame : {obj.start_frame}</p> 
+                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">end frame : {obj.end_frame}</p>
+                  
                 </div>
               )}
             </Card>
