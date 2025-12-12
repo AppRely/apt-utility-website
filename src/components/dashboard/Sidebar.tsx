@@ -11,6 +11,8 @@ import { SelectedObject } from "@/types/selection";
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { linkObjects } from "@/lib/api/linkObjects";
+import { Toaster } from "@/components/ui/toaster";
+import { useToast } from "@/components/hooks/use-toast";
 import { addActivityLog } from "@/lib/api/addActivityLog";
 
 type SelectedObjectProps = {
@@ -24,11 +26,13 @@ export default function Sidebar({
 }: SelectedObjectProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [previousFrameId, setPreviousFrameId] = useState<number | null>(null);
+  const { toast } = useToast();
 
-  // Custom hook to detect sessionStorage changes
+  // ✅ CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
     const [value, setValue] = useState<string | null>(
-      sessionStorage.getItem(key)
+      typeof window !== "undefined" ? sessionStorage.getItem(key) : null
     );
 
     useEffect(() => {
@@ -39,13 +43,14 @@ export default function Sidebar({
 
       window.addEventListener("storage", handleStorageChange);
 
+      // ✅ IMPROVED POLLING - CHECK EVERY 200MS
       const interval = setInterval(() => {
         const newValue = sessionStorage.getItem(key);
         if (newValue !== value) {
           setValue(newValue);
           console.log(`${key} changed to:`, newValue);
         }
-      }, 100);
+      }, 200);
 
       return () => {
         window.removeEventListener("storage", handleStorageChange);
@@ -63,24 +68,68 @@ export default function Sidebar({
   const trkFileName = useSessionStorage("trk_file_name");
   const totalFrames = useSessionStorage("totalFrames");
 
-  const { data, isLoading, error } = useQuery({
+  // ✅ QUERY WITH PROPER CACHE INVALIDATION
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", videoId, frameId],
     queryFn: () => getFrameData(Number(videoId!), Number(frameId!)),
     enabled: !!(videoId && frameId),
     staleTime: 0,
+    gcTime: 0, // Disable caching
   });
 
   const linkMutation = useMutation({
     mutationFn: (formData: FormData) => linkObjects(Number(videoId), formData),
     onSuccess: () => {
-      alert("Objects linked successfully!");
+      toast({
+        title: "✅ Success",
+        description: "Objects linked successfully! Data updated.",
+        variant: "default",
+        duration: 3000,
+      });
+
+      setSelectedObjects([]);
+
+      // ✅ DISPATCH LINKING COMPLETE EVENT
+      const currentFrameId = Number(frameId);
+      if (currentFrameId) {
+        window.dispatchEvent(
+          new CustomEvent("linkingComplete", {
+            detail: { frameId: currentFrameId },
+          })
+        );
+      }
+
+      // ✅ REFETCH SIDEBAR DATA AFTER 500MS (AFTER MAIN COMPONENT PROCESSES)
+      setTimeout(() => {
+        console.log("🔄 Refetching sidebar data after linking...");
+        refetch();
+      }, 500);
     },
     onError: (err: any) => {
-      alert("Failed to link objects: " + err.message);
+      toast({
+        title: "❌ Error",
+        description: `Failed to link objects: ${err.message}`,
+        variant: "destructive",
+        duration: 3000,
+      });
     },
   });
 
-  const activityLogMutation = useMutation({
+  // ✅ LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
+  useEffect(() => {
+    const handleLinkingComplete = (event: any) => {
+      console.log("📡 Sidebar received linking complete event");
+      setTimeout(() => {
+        refetch();
+      }, 1000);
+    };
+
+    window.addEventListener("linkingComplete", handleLinkingComplete);
+
+    return () => {
+      window.removeEventListener("linkingComplete", handleLinkingComplete);
+    };
+  }, [refetch]);  const activityLogMutation = useMutation({
     mutationFn: (payload: any) => addActivityLog(payload),
     onSuccess: () => console.log("Activity logged!"),
     onError: (err: any) => console.error("Activity log failed:", err.message),
@@ -108,6 +157,7 @@ export default function Sidebar({
         data.objects?.[0]?.coordinates?.slice(0, 2)
       );
       setInitialLoadComplete(true);
+      setPreviousFrameId(Number(frameId));
     }
   }, [data, frameId]);
 
@@ -120,7 +170,7 @@ export default function Sidebar({
     });
   }, []);
 
-  // Fixed height container to prevent layout shift
+  // ✅ FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
     if (isLoading || !initialLoadComplete) {
       return (
@@ -161,7 +211,8 @@ export default function Sidebar({
             <Card
               key={obj.object_id || index}
               className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3 cursor-pointer hover:shadow-md transition-all min-h-[50px]"
-              onClick={() => toggleExpand(obj.object_id)}>
+              onClick={() => toggleExpand(obj.object_id)}
+            >
               <div className="flex items-center pb-1 justify-between">
                 <div className="flex items-center">
                   <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
@@ -177,8 +228,6 @@ export default function Sidebar({
 
               {isExpanded && (
                 <div className="mt-2 pt-2 border-t border-gray-200">
-                  {/* <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                    object id: {obj.object_id} </p> */}
                   <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
                     start frame : {obj.start_frame}
                   </p>
@@ -227,20 +276,32 @@ export default function Sidebar({
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => setSelectedObjects([])}
-              disabled={selectedObjects.length === 0}>
+              onClick={() => {
+                setSelectedObjects([]);
+                toast({
+                  title: "ℹ️ Cleared",
+                  description: "Selected objects cleared.",
+                  variant: "default",
+                  duration: 2000,
+                });
+              }}
+              disabled={selectedObjects.length === 0}
+            >
               Clear
             </Button>
           </div>
 
           {/* when empty */}
-          {selectedObjects.length === 0 && <p>No object selected</p>}
+          {selectedObjects.length === 0 && (
+            <p className="text-gray-500">No object selected</p>
+          )}
 
           {/* selected list */}
           {selectedObjects.map((obj, i) => (
             <div
               key={i}
-              className="p-2 mt-2 border bg-white shadow-sm border rounded-[7px] flex justify-between items-start">
+              className="p-2 mt-2 border bg-white shadow-sm border rounded-[7px] flex justify-between items-start"
+            >
               <div>
                 <p>
                   <b>Object {i + 1} Selected:</b>
@@ -257,12 +318,19 @@ export default function Sidebar({
 
               {/* Cross button */}
               <button
-                onClick={() =>
+                onClick={() => {
                   setSelectedObjects((prev) =>
                     prev.filter((o) => o.object_id !== obj.object_id)
-                  )
-                }
-                className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
+                  );
+                  toast({
+                    title: "🗑️ Removed",
+                    description: `Object ${obj.object_id} removed from selection.`,
+                    variant: "default",
+                    duration: 2000,
+                  });
+                }}
+                className="text-red-500 font-bold text-lg hover:text-red-700 ml-2"
+              >
                 ×
               </button>
             </div>
@@ -270,21 +338,26 @@ export default function Sidebar({
         </div>
       </CardContent>
 
-      <CardContent className="flex justify-center gap-2 p-3 pt-0 ">
+      <CardContent className="flex justify-center gap-2 p-3 pt-0">
         <Button className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE]">
-          <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />{" "}
+          <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
           Swap
         </Button>
         <Button className="bg-[#DD524C] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#DD524C]">
-          <Image src="/images/break.svg" alt="Break" width={15} height={15} />{" "}
+          <Image src="/images/break.svg" alt="Break" width={15} height={15} />
           Break
         </Button>
         <Button
-          className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A]"
-          disabled={selectedObjects.length !== 2}
+          className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={selectedObjects.length !== 2 || linkMutation.isPending}
           onClick={() => {
             if (selectedObjects.length !== 2) {
-              alert("Please select exactly 2 objects to link");
+              toast({
+                title: "⚠️ Invalid Selection",
+                description: "Please select exactly 2 objects to link.",
+                variant: "destructive",
+                duration: 3000,
+              });
               return;
             }
 
@@ -298,6 +371,7 @@ export default function Sidebar({
             formData.append("object_2_id", String(obj2.object_id));
             formData.append("object_2_start", String(obj2.start_frame));
             formData.append("object_2_end", String(obj2.end_frame));
+
             linkMutation.mutate(formData, {
               onSuccess: () => {
                 const formattedObjects = formatObjectsData(selectedObjects);
@@ -310,9 +384,10 @@ export default function Sidebar({
                 });
               },
             });
-          }}>
-          <Image src="/images/link.svg" alt="Link" width={15} height={15} />{" "}
-          Link
+          }}
+        >
+          <Image src="/images/link.svg" alt="Link" width={15} height={15} />
+          {linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
       </CardContent>
 
@@ -325,16 +400,11 @@ export default function Sidebar({
         <p className="text-[#5A5A5A] text-[13px] leading-[13px] font-medium pb-2">
           Frame: {frameId} / {totalFrames}
         </p>
-        {/* <p className="text-[#5A5A5A] text-[13px] leading-[13px] font-medium">
-          Time: 00:04:16 | FPS: 30
-        </p> */}
       </CardContent>
 
       <Separator />
 
       <CardContent className="p-3 flex-1 flex flex-col">
-        {" "}
-        {/* Flexible container for objects */}
         <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
           Objects ({data?.objects?.length || 0})
         </p>
