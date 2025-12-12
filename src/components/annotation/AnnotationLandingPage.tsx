@@ -16,13 +16,19 @@ import {
 } from "@/components/ui/table";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { getProjectList } from "@/lib/api/getProjectList";
+import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditVideoId, setAuditVideoId] = useState<number | null>(null);
+
   const router = useRouter();
-  
+
   // Fetch project list
   const { data, isLoading, isError } = useQuery({
     queryKey: ["project-list"],
@@ -100,7 +106,9 @@ export default function AnnotationLandingPage() {
             <TableCell>{p.video_name}</TableCell>
             <TableCell>{p.trk_file_name}</TableCell>
             <TableCell>{p.created_at.split("T")[0]}</TableCell>
-            <TableCell>{getStatusBadge(p.project_status.toLowerCase())}</TableCell>
+            <TableCell>
+              {getStatusBadge(p.project_status.toLowerCase())}
+            </TableCell>
 
             {/* ACTION BUTTONS */}
             <TableCell className="flex gap-2">
@@ -129,10 +137,19 @@ export default function AnnotationLandingPage() {
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);
-                  sessionStorage.setItem("frameId","0");
-                  router.push("/dashboard"); 
+                  sessionStorage.setItem("frameId", "0");
+                  router.push("/dashboard");
                 }}>
                 Edit
+              </Button>
+              <Button
+                size="sm"
+                className="bg-blue-100 text-blue-700 hover:bg-blue-200"
+                onClick={() => {
+                  setAuditOpen(true);
+                  setAuditVideoId(p.video_id);
+                }}>
+                Audit
               </Button>
             </TableCell>
           </TableRow>
@@ -222,6 +239,13 @@ export default function AnnotationLandingPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
       />
+      {auditOpen && (
+        <AuditModal
+          open={auditOpen}
+          onClose={() => setAuditOpen(false)}
+          videoId={Number(auditVideoId)}
+        />
+      )}
     </div>
   );
 }

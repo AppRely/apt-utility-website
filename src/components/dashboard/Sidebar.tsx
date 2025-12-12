@@ -11,6 +11,7 @@ import { SelectedObject } from "@/types/selection";
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { linkObjects } from "@/lib/api/linkObjects";
+import { addActivityLog } from "@/lib/api/addActivityLog";
 
 type SelectedObjectProps = {
   selectedObjects: SelectedObject[];
@@ -69,19 +70,31 @@ export default function Sidebar({
     staleTime: 0,
   });
 
+  const linkMutation = useMutation({
+    mutationFn: (formData: FormData) => linkObjects(Number(videoId), formData),
+    onSuccess: () => {
+      alert("Objects linked successfully!");
+    },
+    onError: (err: any) => {
+      alert("Failed to link objects: " + err.message);
+    },
+  });
 
-const linkMutation = useMutation({
-  mutationFn: (formData: FormData) =>
-    linkObjects(Number(videoId), formData),
-  onSuccess: () => {
-    alert("Objects linked successfully!");
-  },
-  onError: (err: any) => {
-    alert("Failed to link objects: " + err.message);
-  },
-});
+  const activityLogMutation = useMutation({
+    mutationFn: (payload: any) => addActivityLog(payload),
+    onSuccess: () => console.log("Activity logged!"),
+    onError: (err: any) => console.error("Activity log failed:", err.message),
+  });
 
-
+  const formatObjectsData = (selectedObjects: SelectedObject[]) => {
+    return {
+      objects: selectedObjects.map((obj) => ({
+        id: obj.object_id,
+        start_frame: obj.start_frame,
+        end_frame: obj.end_frame,
+      })),
+    };
+  };
 
   // Reset expansions & log on frame change
   useEffect(() => {
@@ -166,9 +179,12 @@ const linkMutation = useMutation({
                 <div className="mt-2 pt-2 border-t border-gray-200">
                   {/* <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
                     object id: {obj.object_id} </p> */}
-                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">start frame : {obj.start_frame}</p> 
-                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">end frame : {obj.end_frame}</p>
-                  
+                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
+                    start frame : {obj.start_frame}
+                  </p>
+                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
+                    end frame : {obj.end_frame}
+                  </p>
                 </div>
               )}
             </Card>
@@ -282,7 +298,18 @@ const linkMutation = useMutation({
             formData.append("object_2_id", String(obj2.object_id));
             formData.append("object_2_start", String(obj2.start_frame));
             formData.append("object_2_end", String(obj2.end_frame));
-            linkMutation.mutate(formData);
+            linkMutation.mutate(formData, {
+              onSuccess: () => {
+                const formattedObjects = formatObjectsData(selectedObjects);
+
+                activityLogMutation.mutate({
+                  project_id: Number(videoId),
+                  operation: "link",
+                  videoId: Number(videoId),
+                  ...formattedObjects,
+                });
+              },
+            });
           }}>
           <Image src="/images/link.svg" alt="Link" width={15} height={15} />{" "}
           Link
