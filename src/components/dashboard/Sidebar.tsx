@@ -29,7 +29,7 @@ export default function Sidebar({
   const [previousFrameId, setPreviousFrameId] = useState<number | null>(null);
   const { toast } = useToast();
 
-  // ✅ CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
+  // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
     const [value, setValue] = useState<string | null>(
       typeof window !== "undefined" ? sessionStorage.getItem(key) : null
@@ -43,7 +43,7 @@ export default function Sidebar({
 
       window.addEventListener("storage", handleStorageChange);
 
-      // ✅ IMPROVED POLLING - CHECK EVERY 200MS
+      // IMPROVED POLLING - CHECK EVERY 200MS
       const interval = setInterval(() => {
         const newValue = sessionStorage.getItem(key);
         if (newValue !== value) {
@@ -68,7 +68,7 @@ export default function Sidebar({
   const trkFileName = useSessionStorage("trk_file_name");
   const totalFrames = useSessionStorage("totalFrames");
 
-  // ✅ QUERY WITH PROPER CACHE INVALIDATION
+  // QUERY WITH PROPER CACHE INVALIDATION
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", videoId, frameId],
     queryFn: () => getFrameData(Number(videoId!), Number(frameId!)),
@@ -89,7 +89,7 @@ export default function Sidebar({
 
       setSelectedObjects([]);
 
-      // ✅ DISPATCH LINKING COMPLETE EVENT
+      // DISPATCH LINKING COMPLETE EVENT
       const currentFrameId = Number(frameId);
       if (currentFrameId) {
         window.dispatchEvent(
@@ -99,7 +99,7 @@ export default function Sidebar({
         );
       }
 
-      // ✅ REFETCH SIDEBAR DATA AFTER 500MS (AFTER MAIN COMPONENT PROCESSES)
+      // REFETCH SIDEBAR DATA AFTER 500MS (AFTER MAIN COMPONENT PROCESSES)
       setTimeout(() => {
         console.log("🔄 Refetching sidebar data after linking...");
         refetch();
@@ -115,7 +115,7 @@ export default function Sidebar({
     },
   });
 
-  // ✅ LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
+  // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
       console.log("📡 Sidebar received linking complete event");
@@ -170,7 +170,7 @@ export default function Sidebar({
     });
   }, []);
 
-  // ✅ FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
+  // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
     if (isLoading || !initialLoadComplete) {
       return (
