@@ -575,6 +575,8 @@ export default function DynamicVideo({
 
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
+      setIsPlaying(true);
+      video.play();
 
       console.log(
         `✅ Loaded annotations [${start}-${end}], trajectory now has ${persistentTrajectoryRef.current.length} points`
@@ -908,10 +910,10 @@ export default function DynamicVideo({
   useEffect(() => {
     if (!video) return;
     if (isPlaying) {
-      video.play().catch(() => {
-        // Autoplay prevented by browser
-        console.warn("⚠️ Autoplay prevented by browser policy");
-      });
+      // video.play().catch(() => {
+      //   // Autoplay prevented by browser
+      //   console.warn("⚠️ Autoplay prevented by browser policy");
+      // });
     } else {
       video.pause();
     }
@@ -929,8 +931,8 @@ export default function DynamicVideo({
 
     // ✅ Remember if was playing, then pause
     setWasPlayingBeforeSeek(isPlaying);
-    setIsPlaying(false);
-    video.pause();
+    setIsPlaying(true);
+    video.play();
 
     // ✅ Fetch annotations for the new position window
     const seekFrameNumber = Math.round(safeTime * fps);
