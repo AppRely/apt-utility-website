@@ -5,7 +5,7 @@ export const breakObjects = async (
   formData: FormData
 ) => {
   const res = await fetch(
-    `${API_BASE}/api/v1/videos/${videoId}/break-object/`,
+    `${API_BASE}/api/v1/videos/${videoId}/objects/break/`,
     {
       method: "POST",
       body: formData,
