@@ -1154,8 +1154,7 @@ export default function DynamicVideo({
 
                   const isSelected = selectedObjects.some(
                     (obj) =>
-                      obj.object_id === a.object_id &&
-                      obj.frame_id === a.frame_id
+                      obj.object_id === a.object_id 
                   );
 
                   const xs = a.coordinates.map((c) => c[0] * scaleX);
@@ -1175,8 +1174,7 @@ export default function DynamicVideo({
                       onClick={() => {
                         const alreadySelected = selectedObjects.find(
                           (obj) =>
-                            obj.object_id === a.object_id &&
-                            obj.frame_id === a.frame_id
+                            obj.object_id === a.object_id 
                         );
 
                         if (alreadySelected) {
