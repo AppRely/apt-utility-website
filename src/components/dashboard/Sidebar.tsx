@@ -11,6 +11,8 @@ import { SelectedObject } from "@/types/selection";
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { linkObjects } from "@/lib/api/linkObjects";
+import { swapObjects } from "@/lib/api/swapObjects";
+import { breakObjects } from "@/lib/api/breakObjects";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/hooks/use-toast";
 import { addActivityLog } from "@/lib/api/addActivityLog";
@@ -77,14 +79,33 @@ export default function Sidebar({
     gcTime: 0, // Disable caching
   });
 
+  const swapMutation = useMutation({
+    mutationFn: (formData: FormData) => swapObjects(Number(videoId), formData),
+    onSuccess: () => {
+      toast({
+        title: "Swap",
+        description: "Objects swapped successfully",
+        duration: 2000,
+        className: "text-green-600",
+      });
+
+      setSelectedObjects([]);
+      window.dispatchEvent(
+        new CustomEvent("linkingComplete", {
+          detail: { frameId: Number(frameId) },
+        })
+      );
+    },
+  });
+
   const linkMutation = useMutation({
     mutationFn: (formData: FormData) => linkObjects(Number(videoId), formData),
     onSuccess: () => {
       toast({
         title: "✅ Success",
-        description: "Objects linked successfully! Data updated.",
-        variant: "default",
-        duration: 3000,
+        description: "Objects linked successfully.",
+        duration: 2000,
+        className: "text-green-600",
       });
 
       setSelectedObjects([]);
@@ -115,6 +136,25 @@ export default function Sidebar({
     },
   });
 
+  const breakMutation = useMutation({
+    mutationFn: (formData: FormData) => breakObjects(Number(videoId), formData),
+    onSuccess: () => {
+      toast({
+        title: "Break",
+        description: "Object broken successfully",
+        duration: 2000,
+        className: "text-green-600",
+      });
+
+      setSelectedObjects([]);
+      window.dispatchEvent(
+        new CustomEvent("linkingComplete", {
+          detail: { frameId: Number(frameId) },
+        })
+      );
+    },
+  });
+
   // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
@@ -129,19 +169,22 @@ export default function Sidebar({
     return () => {
       window.removeEventListener("linkingComplete", handleLinkingComplete);
     };
-  }, [refetch]);  const activityLogMutation = useMutation({
+  }, [refetch]);
+  const activityLogMutation = useMutation({
     mutationFn: (payload: any) => addActivityLog(payload),
     onSuccess: () => console.log("Activity logged!"),
     onError: (err: any) => console.error("Activity log failed:", err.message),
   });
 
   const formatObjectsData = (selectedObjects: SelectedObject[]) => {
+    const formattedObjects = selectedObjects.map((obj) => ({
+      id: obj.object_id,
+      start_frame: obj.start_frame,
+      end_frame: obj.end_frame,
+    }));
+
     return {
-      objects: selectedObjects.map((obj) => ({
-        id: obj.object_id,
-        start_frame: obj.start_frame,
-        end_frame: obj.end_frame,
-      })),
+      objects: Array.isArray(formattedObjects) ? formattedObjects : [],
     };
   };
 
@@ -211,8 +254,7 @@ export default function Sidebar({
             <Card
               key={obj.object_id || index}
               className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3 cursor-pointer hover:shadow-md transition-all min-h-[50px]"
-              onClick={() => toggleExpand(obj.object_id)}
-            >
+              onClick={() => toggleExpand(obj.object_id)}>
               <div className="flex items-center pb-1 justify-between">
                 <div className="flex items-center">
                   <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
@@ -285,8 +327,7 @@ export default function Sidebar({
                   duration: 2000,
                 });
               }}
-              disabled={selectedObjects.length === 0}
-            >
+              disabled={selectedObjects.length === 0}>
               Clear
             </Button>
           </div>
@@ -300,8 +341,7 @@ export default function Sidebar({
           {selectedObjects.map((obj, i) => (
             <div
               key={i}
-              className="p-2 mt-2 border bg-white shadow-sm border rounded-[7px] flex justify-between items-start"
-            >
+              className="p-2 mt-2 border bg-white shadow-sm border rounded-[7px] flex justify-between items-start">
               <div>
                 <p>
                   <b>Object {i + 1} Selected:</b>
@@ -329,8 +369,7 @@ export default function Sidebar({
                     duration: 2000,
                   });
                 }}
-                className="text-red-500 font-bold text-lg hover:text-red-700 ml-2"
-              >
+                className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
                 ×
               </button>
             </div>
@@ -339,13 +378,81 @@ export default function Sidebar({
       </CardContent>
 
       <CardContent className="flex justify-center gap-2 p-3 pt-0">
-        <Button className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE]">
+        <Button
+          className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE]"
+          disabled={selectedObjects.length !== 2 || swapMutation.isPending}
+          onClick={() => {
+            if (selectedObjects.length !== 2) {
+              toast({
+                title: "⚠️ Invalid Selection",
+                description: "Please select exactly 2 objects to swap.",
+                variant: "destructive",
+                duration: 3000,
+              });
+              return;
+            }
+            const [obj1, obj2] = selectedObjects;
+
+            const formData = new FormData();
+            formData.append("object_1_id", String(obj1.object_id));
+            formData.append("object_1_start", String(obj1.start_frame));
+            formData.append("object_1_end", String(obj1.end_frame));
+
+            formData.append("object_2_id", String(obj2.object_id));
+            formData.append("object_2_start", String(obj2.start_frame));
+            formData.append("object_2_end", String(obj2.end_frame));
+
+            swapMutation.mutate(formData, {
+              onSuccess: () => {
+                const formattedObjects = formatObjectsData(selectedObjects);
+
+                activityLogMutation.mutate({
+                  project_id: Number(videoId),
+                  operation: "Swap",
+                  videoId: Number(videoId),
+                  ...formattedObjects,
+                });
+              },
+            });
+          }}>
           <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
-          Swap
+          {swapMutation.isPending ? "Swaping..." : "Swap"}
         </Button>
-        <Button className="bg-[#DD524C] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#DD524C]">
+        <Button
+          className="bg-[#DD524C] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#DD524C]"
+          disabled={selectedObjects.length !== 1 || breakMutation.isPending}
+          onClick={() => {
+            if (selectedObjects.length !== 1) {
+              toast({
+                title: "⚠️ Invalid Selection",
+                description: "Please select exactly 1 objects to break.",
+                variant: "destructive",
+                duration: 3000,
+              });
+              return;
+            }
+            const [obj] = selectedObjects;
+
+            const formData = new FormData();
+            formData.append("object_id", String(obj.object_id));
+            formData.append("frame_id", String(obj.frame_id));
+            formData.append("start_frame", String(obj.start_frame));
+            formData.append("end_frame", String(obj.end_frame));
+            breakMutation.mutate(formData, {
+              onSuccess: () => {
+                const formattedObjects = formatObjectsData(selectedObjects);
+
+                activityLogMutation.mutate({
+                  project_id: Number(videoId),
+                  operation: "Break",
+                  videoId: Number(videoId),
+                  ...formattedObjects,
+                });
+              },
+            });
+          }}>
           <Image src="/images/break.svg" alt="Break" width={15} height={15} />
-          Break
+          {breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
         <Button
           className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed"
@@ -384,8 +491,7 @@ export default function Sidebar({
                 });
               },
             });
-          }}
-        >
+          }}>
           <Image src="/images/link.svg" alt="Link" width={15} height={15} />
           {linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
