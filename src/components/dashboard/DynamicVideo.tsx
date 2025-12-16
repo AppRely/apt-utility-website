@@ -234,6 +234,31 @@ export default function DynamicVideo({
   const getObjectColor = (id: number) =>
     OBJECT_COLORS[id % OBJECT_COLORS.length];
 
+  // ✅ FIXED: Play/Pause video directly
+  const togglePlayPause = useCallback(() => {
+    if (!video) return;
+
+    if (video.paused) {
+      video.play()
+        .then(() => {
+          setIsPlaying(true);
+          console.log("▶️ Video playing");
+        })
+        .catch((error) => {
+          console.warn("⚠️ Autoplay prevented:", error);
+          toast({
+            title: "Click the play button to start video",
+            description: "Some browsers require user interaction",
+            variant: "default",
+          });
+        });
+    } else {
+      video.pause();
+      setIsPlaying(false);
+      console.log("⏸️ Video paused");
+    }
+  }, [video, toast]);
+
   // ✅ LOAD VIDEO ID FROM SESSION
   useEffect(() => {
     const storedId = sessionStorage.getItem("videoId");
@@ -241,6 +266,13 @@ export default function DynamicVideo({
       setVideoId(Number(storedId));
     }
   }, []);
+
+  useEffect(() => {
+  if (annotationsReady && video && video.paused) {
+    video.play();
+    // setWasPlayingBeforeSeek(false);
+  }
+}, [annotationsReady, video]);
 
   // ✅ BUILD TRAJECTORY MAP
   useEffect(() => {
@@ -575,12 +607,9 @@ export default function DynamicVideo({
 
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      setIsPlaying(true);
-      video.play();
-
-      console.log(
-        `✅ Loaded annotations [${start}-${end}], trajectory now has ${persistentTrajectoryRef.current.length} points`
-      );
+    
+      // ✅ FIXED: Don't auto-play after annotations load due to browser restrictions
+      console.log("✅ Annotations loaded, video ready");
     },
     onError: () => {
       setIsLoadingAnnotations(false);
@@ -744,6 +773,7 @@ export default function DynamicVideo({
         vid.src = apiUrl;
         vid.loop = true;
         vid.muted = true;
+        vid.playsInline = true; // ✅ Important for mobile compatibility
 
         vid.onloadedmetadata = async () => {
           console.log("✅ Video metadata loaded");
@@ -800,6 +830,7 @@ export default function DynamicVideo({
           });
         };
 
+        // ✅ FIXED: Set video state after it's fully loaded
         setVideo(vid);
         setVideoId(Number(videoId));
       } catch (error) {
@@ -824,16 +855,23 @@ export default function DynamicVideo({
     update();
   }, [video]);
 
-  // ✅ AUTO-PLAY WHEN ANNOTATIONS LOAD
-  useEffect(() => {
-    if (!video) return;
-
-    if (!isLoadingAnnotations && wasPlayingBeforeSeek) {
-      console.log("✅ Annotations ready, auto-playing...");
-      setIsPlaying(true);
-      setWasPlayingBeforeSeek(false);
-    }
-  }, [isLoadingAnnotations, wasPlayingBeforeSeek, video]);
+  // // ✅ FIXED: Remove problematic auto-play effect
+  // useEffect(() => {
+  //   if (!video || isLoadingAnnotations) return;
+    
+  //   // Just sync the playing state with video element
+  //   const syncPlayState = () => {
+  //     setIsPlaying(!video.paused);
+  //   };
+    
+  //   video.addEventListener("play", syncPlayState);
+  //   video.addEventListener("pause", syncPlayState);
+    
+  //   return () => {
+  //     video.removeEventListener("play", syncPlayState);
+  //     video.removeEventListener("pause", syncPlayState);
+  //   };
+  // }, [video, isLoadingAnnotations]);
 
   // ✅ VIDEO EVENT HANDLERS
   useEffect(() => {
@@ -879,17 +917,13 @@ export default function DynamicVideo({
     };
 
     const handlePlay = () => {
-      // ✅ Allow play even if annotations not ready (Show spinner instead)
       setIsPlaying(true);
-      if (!annotationsReady) {
-        console.warn(
-          "⚠️ Annotations still loading, but playing video..."
-        );
-      }
+      console.log("▶️ Video started playing");
     };
 
     const handlePause = () => {
       setIsPlaying(false);
+      console.log("⏸️ Video paused");
       if (!video) return;
       const frameNumber = Math.round(video.currentTime * fps);
       sessionStorage.setItem("frameId", frameNumber.toString());
@@ -906,18 +940,23 @@ export default function DynamicVideo({
     };
   }, [video, fps, isPlaying]);
 
-  // ✅ PLAYBACK CONTROL
+  // ✅ FIXED: Simplified playback control
   useEffect(() => {
     if (!video) return;
-    if (isPlaying) {
-      // video.play().catch(() => {
-      //   // Autoplay prevented by browser
-      //   console.warn("⚠️ Autoplay prevented by browser policy");
-      // });
-    } else {
-      video.pause();
-    }
-  }, [isPlaying, video]);
+    
+    // Just sync UI state with video state
+    const updatePlayState = () => {
+      setIsPlaying(!video.paused);
+    };
+    
+    video.addEventListener("play", updatePlayState);
+    video.addEventListener("pause", updatePlayState);
+    
+    return () => {
+      video.removeEventListener("play", updatePlayState);
+      video.removeEventListener("pause", updatePlayState);
+    };
+  }, [video]);
 
   // ✅ OPTIMIZED: SEEK HANDLER WITH SMART ANNOTATION FETCHING
   const handleSeek = async (time: number) => {
@@ -930,9 +969,13 @@ export default function DynamicVideo({
     setSelectedFrameIndex(Math.round(safeTime * fps));
 
     // ✅ Remember if was playing, then pause
-    setWasPlayingBeforeSeek(isPlaying);
-    setIsPlaying(true);
-    video.play();
+    const wasPlaying = !video.paused;
+    setWasPlayingBeforeSeek(wasPlaying);
+    
+    if (wasPlaying) {
+      video.pause();
+      setIsPlaying(false);
+    }
 
     // ✅ Fetch annotations for the new position window
     const seekFrameNumber = Math.round(safeTime * fps);
@@ -972,8 +1015,12 @@ export default function DynamicVideo({
   const handleSliderChange = (val: number[]) => {
     const time = val[0];
     setDragTime(time);
-    video?.pause();
-    setIsPlaying(false);
+    
+    // ✅ Pause video during slider drag
+    if (video && !video.paused) {
+      video.pause();
+      setIsPlaying(false);
+    }
 
     // ✅ Fetch annotations immediately on slider drag
     const seekFrameNumber = Math.round(time * fps);
@@ -1044,9 +1091,13 @@ export default function DynamicVideo({
     if (!video) return;
     
     // ✅ Remember if playing, then pause and seek
-    setWasPlayingBeforeSeek(isPlaying);
-    setIsPlaying(false);
-    video.pause();
+    const wasPlaying = !video.paused;
+    setWasPlayingBeforeSeek(wasPlaying);
+    
+    if (wasPlaying) {
+      video.pause();
+      setIsPlaying(false);
+    }
 
     const frameTime = frame.index / fps;
     video.currentTime = frameTime;
@@ -1324,12 +1375,12 @@ export default function DynamicVideo({
               <SkipBack />
             </Button>
 
+            {/* ✅ FIXED: Play/Pause Button */}
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => {
-                setIsPlaying(!isPlaying);
-              }}
+              onClick={togglePlayPause}
+              disabled={!video}
             >
               {isPlaying ? <Pause /> : <Play />}
             </Button>

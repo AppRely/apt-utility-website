@@ -16,6 +16,14 @@ import { breakObjects } from "@/lib/api/breakObjects";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/hooks/use-toast";
 import { addActivityLog } from "@/lib/api/addActivityLog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type SelectedObjectProps = {
   selectedObjects: SelectedObject[];
@@ -30,6 +38,11 @@ export default function Sidebar({
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [previousFrameId, setPreviousFrameId] = useState<number | null>(null);
   const { toast } = useToast();
+  
+  // State for dialog boxes
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [swapDialogOpen, setSwapDialogOpen] = useState(false);
+  const [breakDialogOpen, setBreakDialogOpen] = useState(false);
 
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
@@ -85,7 +98,7 @@ export default function Sidebar({
       toast({
         title: "Swap",
         description: "Objects swapped successfully",
-        duration: 2000,
+        duration: 3000,
         className: "text-green-600",
       });
 
@@ -104,7 +117,7 @@ export default function Sidebar({
       toast({
         title: "✅ Success",
         description: "Objects linked successfully.",
-        duration: 2000,
+        duration: 3000,
         className: "text-green-600",
       });
 
@@ -142,7 +155,7 @@ export default function Sidebar({
       toast({
         title: "Break",
         description: "Object broken successfully",
-        duration: 2000,
+        duration: 3000,
         className: "text-green-600",
       });
 
@@ -170,6 +183,7 @@ export default function Sidebar({
       window.removeEventListener("linkingComplete", handleLinkingComplete);
     };
   }, [refetch]);
+  
   const activityLogMutation = useMutation({
     mutationFn: (payload: any) => addActivityLog(payload),
     onSuccess: () => console.log("Activity logged!"),
@@ -213,76 +227,114 @@ export default function Sidebar({
     });
   }, []);
 
-  // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
-  const renderObjectsSection = () => {
-    if (isLoading || !initialLoadComplete) {
-      return (
-        <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-            <p className="text-[#5A5A5A] text-[13px]">Loading objects...</p>
-          </div>
-        </div>
-      );
+  // Handler functions for each operation
+  const handleLinkObjects = () => {
+    if (selectedObjects.length !== 2) {
+      toast({
+        title: "⚠️ Invalid Selection",
+        description: "Please select exactly 2 objects to link.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
     }
 
-    if (error) {
-      return (
-        <div className="h-[300px] flex items-center justify-center bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-600 text-[13px] text-center px-4">
-            Error: {(error as Error).message}
-          </p>
-        </div>
-      );
+    const [obj1, obj2] = selectedObjects;
+
+    const formData = new FormData();
+    formData.append("object_1_id", String(obj1.object_id));
+    formData.append("object_1_start", String(obj1.start_frame));
+    formData.append("object_1_end", String(obj1.end_frame));
+
+    formData.append("object_2_id", String(obj2.object_id));
+    formData.append("object_2_start", String(obj2.start_frame));
+    formData.append("object_2_end", String(obj2.end_frame));
+
+    linkMutation.mutate(formData, {
+      onSuccess: () => {
+        const formattedObjects = formatObjectsData(selectedObjects);
+        activityLogMutation.mutate({
+          project_id: Number(videoId),
+          operation: "link",
+          videoId: Number(videoId),
+          ...formattedObjects,
+        });
+      },
+    });
+    
+    setLinkDialogOpen(false);
+  };
+
+  const handleSwapObjects = () => {
+    if (selectedObjects.length !== 2) {
+      toast({
+        title: "⚠️ Invalid Selection",
+        description: "Please select exactly 2 objects to swap.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
     }
+    
+    const [obj1, obj2] = selectedObjects;
 
-    if (!data?.objects || data.objects.length === 0) {
-      return (
-        <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg">
-          <p className="text-[#5A5A5A] text-[13px]">
-            No objects found for frame {frameId}
-          </p>
-        </div>
-      );
+    const formData = new FormData();
+    formData.append("object_1_id", String(obj1.object_id));
+    formData.append("object_1_start", String(obj1.start_frame));
+    formData.append("object_1_end", String(obj1.end_frame));
+
+    formData.append("object_2_id", String(obj2.object_id));
+    formData.append("object_2_start", String(obj2.start_frame));
+    formData.append("object_2_end", String(obj2.end_frame));
+
+    swapMutation.mutate(formData, {
+      onSuccess: () => {
+        const formattedObjects = formatObjectsData(selectedObjects);
+        activityLogMutation.mutate({
+          project_id: Number(videoId),
+          operation: "Swap",
+          videoId: Number(videoId),
+          ...formattedObjects,
+        });
+      },
+    });
+    
+    setSwapDialogOpen(false);
+  };
+
+  const handleBreakObject = () => {
+    if (selectedObjects.length !== 1) {
+      toast({
+        title: "⚠️ Invalid Selection",
+        description: "Please select exactly 1 objects to break.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
     }
+    
+    const [obj] = selectedObjects;
 
-    return (
-      <div className="h-[350px] overflow-y-auto space-y-3 pr-2">
-        {data.objects.map((obj: any, index: number) => {
-          const isExpanded = expandedIds.has(obj.object_id);
-          return (
-            <Card
-              key={obj.object_id || index}
-              className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3 cursor-pointer hover:shadow-md transition-all min-h-[50px]"
-              onClick={() => toggleExpand(obj.object_id)}>
-              <div className="flex items-center pb-1 justify-between">
-                <div className="flex items-center">
-                  <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
-                  <span className="font-semibold text-[13px] leading-[13px]">
-                    Object {index + 1}: Fly
-                  </span>
-                </div>
-                <span className="text-[#A2A2A2] font-medium text-[13px] leading-[13px]">
-                  ID {obj.object_id}
-                  {isExpanded ? " ▼" : " ►"}
-                </span>
-              </div>
-
-              {isExpanded && (
-                <div className="mt-2 pt-2 border-t border-gray-200">
-                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                    start frame : {obj.start_frame}
-                  </p>
-                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                    end frame : {obj.end_frame}
-                  </p>
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-    );
+    const formData = new FormData();
+    formData.append("object_id", String(obj.object_id));
+    formData.append("video_id", String(videoId));
+    formData.append("break_frame", String(obj.frame_id));
+    formData.append("start_frame", String(obj.start_frame));
+    formData.append("end_frame", String(obj.end_frame));
+    
+    breakMutation.mutate(formData, {
+      onSuccess: () => {
+        const formattedObjects = formatObjectsData(selectedObjects);
+        activityLogMutation.mutate({
+          project_id: Number(videoId),
+          operation: "Break",
+          videoId: Number(videoId),
+          ...formattedObjects,
+        });
+      },
+    });
+    
+    setBreakDialogOpen(false);
   };
 
   return (
@@ -324,7 +376,7 @@ export default function Sidebar({
                   title: "ℹ️ Cleared",
                   description: "Selected objects cleared.",
                   variant: "default",
-                  duration: 2000,
+                  duration: 3000,
                 });
               }}
               disabled={selectedObjects.length === 0}>
@@ -366,7 +418,7 @@ export default function Sidebar({
                     title: "🗑️ Removed",
                     description: `Object ${obj.object_id} removed from selection.`,
                     variant: "default",
-                    duration: 2000,
+                    duration: 3000,
                   });
                 }}
                 className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
@@ -378,121 +430,29 @@ export default function Sidebar({
       </CardContent>
 
       <CardContent className="flex justify-center gap-2 p-3 pt-0">
+        {/* Swap Button */}
         <Button
           className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE]"
           disabled={selectedObjects.length !== 2 || swapMutation.isPending}
-          onClick={() => {
-            if (selectedObjects.length !== 2) {
-              toast({
-                title: "⚠️ Invalid Selection",
-                description: "Please select exactly 2 objects to swap.",
-                variant: "destructive",
-                duration: 3000,
-              });
-              return;
-            }
-            const [obj1, obj2] = selectedObjects;
-
-            const formData = new FormData();
-            formData.append("object_1_id", String(obj1.object_id));
-            formData.append("object_1_start", String(obj1.start_frame));
-            formData.append("object_1_end", String(obj1.end_frame));
-
-            formData.append("object_2_id", String(obj2.object_id));
-            formData.append("object_2_start", String(obj2.start_frame));
-            formData.append("object_2_end", String(obj2.end_frame));
-
-            swapMutation.mutate(formData, {
-              onSuccess: () => {
-                const formattedObjects = formatObjectsData(selectedObjects);
-
-                activityLogMutation.mutate({
-                  project_id: Number(videoId),
-                  operation: "Swap",
-                  videoId: Number(videoId),
-                  ...formattedObjects,
-                });
-              },
-            });
-          }}>
+          onClick={() => setSwapDialogOpen(true)}>
           <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
-          {swapMutation.isPending ? "Swaping..." : "Swap"}
+          {swapMutation.isPending ? "Swapping..." : "Swap"}
         </Button>
+
+        {/* Break Button */}
         <Button
           className="bg-[#DD524C] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#DD524C]"
           disabled={selectedObjects.length !== 1 || breakMutation.isPending}
-          onClick={() => {
-            if (selectedObjects.length !== 1) {
-              toast({
-                title: "⚠️ Invalid Selection",
-                description: "Please select exactly 1 objects to break.",
-                variant: "destructive",
-                duration: 3000,
-              });
-              return;
-            }
-            const [obj] = selectedObjects;
-
-            const formData = new FormData();
-            formData.append("object_id", String(obj.object_id));
-            formData.append("video_id", String(videoId));
-            formData.append("break_frame", String(obj.frame_id));
-            formData.append("start_frame", String(obj.start_frame));
-            formData.append("end_frame", String(obj.end_frame));
-            breakMutation.mutate(formData, {
-              onSuccess: () => {
-                const formattedObjects = formatObjectsData(selectedObjects);
-
-                activityLogMutation.mutate({
-                  project_id: Number(videoId),
-                  operation: "Break",
-                  videoId: Number(videoId),
-                  ...formattedObjects,
-                });
-              },
-            });
-          }}>
+          onClick={() => setBreakDialogOpen(true)}>
           <Image src="/images/break.svg" alt="Break" width={15} height={15} />
           {breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
+
+        {/* Link Button */}
         <Button
           className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={selectedObjects.length !== 2 || linkMutation.isPending}
-          onClick={() => {
-            if (selectedObjects.length !== 2) {
-              toast({
-                title: "⚠️ Invalid Selection",
-                description: "Please select exactly 2 objects to link.",
-                variant: "destructive",
-                duration: 3000,
-              });
-              return;
-            }
-
-            const [obj1, obj2] = selectedObjects;
-
-            const formData = new FormData();
-            formData.append("object_1_id", String(obj1.object_id));
-            formData.append("object_1_start", String(obj1.start_frame));
-            formData.append("object_1_end", String(obj1.end_frame));
-
-            formData.append("object_2_id", String(obj2.object_id));
-            formData.append("object_2_start", String(obj2.start_frame));
-            formData.append("object_2_end", String(obj2.end_frame));
-
-            linkMutation.mutate(formData, {
-              onSuccess: () => {
-                const formattedObjects = formatObjectsData(selectedObjects);
-
-                activityLogMutation.mutate({
-                  project_id: Number(videoId),
-                  operation: "link",
-                  videoId: Number(videoId),
-                  ...formattedObjects,
-                });
-              },
-            });
-          }}>
+          onClick={() => setLinkDialogOpen(true)}>
           <Image src="/images/link.svg" alt="Link" width={15} height={15} />
           {linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
@@ -504,19 +464,114 @@ export default function Sidebar({
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
           Frame #{frameId}
         </p>
-        <p className="text-[#5A5A5A] text-[13px] leading-[13px] font-medium pb-2">
-          Frame: {frameId} / {totalFrames}
-        </p>
       </CardContent>
 
       <Separator />
 
-      <CardContent className="p-3 flex-1 flex flex-col">
-        <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
-          Objects ({data?.objects?.length || 0})
-        </p>
-        {renderObjectsSection()}
-      </CardContent>
+      {/* Link Confirmation Dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Link Objects</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to link these {selectedObjects.length} objects?
+              {selectedObjects.length === 2 && (
+                <div className="mt-4 space-y-2">
+                  <p><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Frame {selectedObjects[0].frame_id})</p>
+                  <p><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Frame {selectedObjects[1].frame_id})</p>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setLinkDialogOpen(false)}
+              disabled={linkMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#5EC16A] hover:bg-[#4CAF50]"
+              onClick={handleLinkObjects}
+              disabled={linkMutation.isPending}
+            >
+              {linkMutation.isPending ? "Linking..." : "Confirm Link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Swap Confirmation Dialog */}
+      <Dialog open={swapDialogOpen} onOpenChange={setSwapDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Swap Objects</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to swap these {selectedObjects.length} objects?
+              {selectedObjects.length === 2 && (
+                <div className="mt-4 space-y-2">
+                  <p><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Frame {selectedObjects[0].frame_id})</p>
+                  <p><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Frame {selectedObjects[1].frame_id})</p>
+                  <p className="text-yellow-600 text-sm mt-2">This will swap the IDs and tracking data of the two objects.</p>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setSwapDialogOpen(false)}
+              disabled={swapMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#4B84EE] hover:bg-[#3B74DE]"
+              onClick={handleSwapObjects}
+              disabled={swapMutation.isPending}
+            >
+              {swapMutation.isPending ? "Swapping..." : "Confirm Swap"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Break Confirmation Dialog */}
+      <Dialog open={breakDialogOpen} onOpenChange={setBreakDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Break Object</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to break this object?
+              {selectedObjects.length === 1 && (
+                <div className="mt-4 space-y-2">
+                  <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
+                  <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
+                  <p><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</p>
+                  <p className="text-yellow-600 text-sm mt-2">Current ID will be deleted and a new ID will be assigned.</p>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setBreakDialogOpen(false)}
+              disabled={breakMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#DD524C] hover:bg-[#CC423C]"
+              onClick={handleBreakObject}
+              disabled={breakMutation.isPending}
+            >
+              {breakMutation.isPending ? "Breaking..." : "Confirm Break"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
