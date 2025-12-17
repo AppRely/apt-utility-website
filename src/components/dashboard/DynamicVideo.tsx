@@ -293,9 +293,14 @@ export default function DynamicVideo({
       const frameTrajectory = trajectoryMap.get(objectId);
       if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
+      // const twoMinFrames = 2 * 60 * fps; // 7200 frames at 30fps
+      const twoMinFrames = 30 * fps; // 7200 frames at 30fps
+      const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
+
       const sortedFrames = Array.from(frameTrajectory.keys())
         .sort((a, b) => a - b)
-        .filter((frameId) => frameId <= upToFrame);
+        // .filter((frameId) => frameId <= upToFrame);
+        .filter(frameId => frameId >= cutoffFrame && frameId <= upToFrame);
 
       if (sortedFrames.length < 2) return [];
 
@@ -307,7 +312,7 @@ export default function DynamicVideo({
 
       return points;
     },
-    [trajectoryMap]
+    [trajectoryMap, fps]
   );
 
   // ✅ GET ALL OBJECT IDS

@@ -16,6 +16,7 @@ import { breakObjects } from "@/lib/api/breakObjects";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/hooks/use-toast";
 import { addActivityLog } from "@/lib/api/addActivityLog";
+import { objectDelete } from "@/lib/api/objectDelete";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,7 @@ export default function Sidebar({
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
@@ -101,6 +103,7 @@ export default function Sidebar({
         duration: 3000,
         className: "text-green-600",
       });
+      setSwapDialogOpen(false);
 
       setSelectedObjects([]);
       window.dispatchEvent(
@@ -158,6 +161,27 @@ export default function Sidebar({
         duration: 3000,
         className: "text-green-600",
       });
+      setBreakDialogOpen(false);
+
+      setSelectedObjects([]);
+      window.dispatchEvent(
+        new CustomEvent("linkingComplete", {
+          detail: { frameId: Number(frameId) },
+        })
+      );
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (formData: FormData) => objectDelete(Number(videoId), formData),
+    onSuccess: () => {
+      toast({
+        title: "Delete",
+        description: "Object delete successfully",
+        duration: 3000,
+        className: "text-green-600",
+      });
+      setDeleteDialogOpen(false);
 
       setSelectedObjects([]);
       window.dispatchEvent(
@@ -187,7 +211,7 @@ export default function Sidebar({
   const activityLogMutation = useMutation({
     mutationFn: (payload: any) => addActivityLog(payload),
     onSuccess: () => console.log("Activity logged!"),
-    onError: (err: any) => console.error("Activity log failed:", err.message),
+    // onError: (err: any) => console.error("Activity log failed:", err.message),
   });
 
   const formatObjectsData = (selectedObjects: SelectedObject[]) => {
@@ -230,12 +254,14 @@ export default function Sidebar({
   // Handler functions for each operation
   const handleLinkObjects = () => {
     if (selectedObjects.length !== 2) {
+      setLinkDialogOpen(false);
       toast({
         title: "⚠️ Invalid Selection",
         description: "Please select exactly 2 objects to link.",
         variant: "destructive",
         duration: 3000,
       });
+
       return;
     }
 
@@ -261,8 +287,6 @@ export default function Sidebar({
         });
       },
     });
-    
-    setLinkDialogOpen(false);
   };
 
   const handleSwapObjects = () => {
@@ -298,8 +322,6 @@ export default function Sidebar({
         });
       },
     });
-    
-    setSwapDialogOpen(false);
   };
 
   const handleBreakObject = () => {
@@ -321,6 +343,7 @@ export default function Sidebar({
     formData.append("break_frame", String(obj.frame_id));
     formData.append("start_frame", String(obj.start_frame));
     formData.append("end_frame", String(obj.end_frame));
+
     
     breakMutation.mutate(formData, {
       onSuccess: () => {
@@ -333,9 +356,42 @@ export default function Sidebar({
         });
       },
     });
-    
-    setBreakDialogOpen(false);
   };
+
+  const handleDeleteObject = () => {
+  if (selectedObjects.length !== 1) {
+    toast({
+      title: "⚠️ Invalid Selection",
+      description: "Please select exactly 1 object to delete.", // Fixed message
+      variant: "destructive",
+      duration: 3000,
+    });
+    return;
+  }
+  console.log("deleting log start");
+  
+  const [obj] = selectedObjects;
+console.log(obj);
+  const formData = new FormData();
+  formData.append("object_id", String(obj.object_id));
+  // formData.append("video_id", String(videoId));
+  // formData.append("frame_id", String(obj.frame_id)); // Added missing frame_id
+  formData.append("start_frame", String(obj.start_frame));
+  formData.append("end_frame", String(obj.end_frame));
+  console.log(formData);
+  deleteMutation.mutate(formData, {
+    onSuccess: () => {
+      const formattedObjects = formatObjectsData(selectedObjects);
+      activityLogMutation.mutate({
+        project_id: Number(videoId),
+        operation: "Delete",
+        videoId: Number(videoId),
+        ...formattedObjects,
+      });
+    },
+  });
+};
+
 
   return (
     <Card className="border rounded-[7px] text-sm">
@@ -429,34 +485,51 @@ export default function Sidebar({
         </div>
       </CardContent>
 
-      <CardContent className="flex justify-center gap-2 p-3 pt-0">
-        {/* Swap Button */}
-        <Button
-          className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE]"
-          disabled={selectedObjects.length !== 2 || swapMutation.isPending}
-          onClick={() => setSwapDialogOpen(true)}>
-          <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
-          {swapMutation.isPending ? "Swapping..." : "Swap"}
-        </Button>
+      <CardContent className="flex flex-col gap-3 p-3 pt-0">
+        {/* First row: Swap + Break */}
+        <div className="flex justify-center gap-2 w-full">
+          {/* Swap Button */}
+          <Button
+            className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE] flex-1 max-w-xs"
+            disabled={selectedObjects.length !== 2 || swapMutation.isPending}
+            onClick={() => setSwapDialogOpen(true)}>
+            <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
+            {swapMutation.isPending ? "Swapping..." : "Swap"}
+          </Button>
 
-        {/* Break Button */}
-        <Button
-          className="bg-[#DD524C] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#DD524C]"
-          disabled={selectedObjects.length !== 1 || breakMutation.isPending}
-          onClick={() => setBreakDialogOpen(true)}>
-          <Image src="/images/break.svg" alt="Break" width={15} height={15} />
-          {breakMutation.isPending ? "Breaking..." : "Break"}
-        </Button>
+          {/* Break Button - ORANGE */}
+          <Button
+            className="bg-[#FF9500] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#F57C00] flex-1 max-w-xs"
+            disabled={selectedObjects.length !== 1 || breakMutation.isPending}
+            onClick={() => setBreakDialogOpen(true)}>
+            <Image src="/images/break.svg" alt="Break" width={15} height={15} />
+            {breakMutation.isPending ? "Breaking..." : "Break"}
+          </Button>
+        </div>
 
-        {/* Link Button */}
-        <Button
-          className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={selectedObjects.length !== 2 || linkMutation.isPending}
-          onClick={() => setLinkDialogOpen(true)}>
-          <Image src="/images/link.svg" alt="Link" width={15} height={15} />
-          {linkMutation.isPending ? "Linking..." : "Link"}
-        </Button>
+        {/* Second row: Link + Delete */}
+        <div className="flex justify-center gap-2 w-full">
+          {/* Link Button */}
+          <Button
+            className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed flex-1 max-w-xs"
+            disabled={selectedObjects.length !== 2 || linkMutation.isPending}
+            onClick={() => setLinkDialogOpen(true)}>
+            <Image src="/images/link.svg" alt="Link" width={15} height={15} />
+            {linkMutation.isPending ? "Linking..." : "Link"}
+          </Button>
+
+          {/* Delete Button - RED DANGER */}
+          <Button
+            className="bg-[#DD524C] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#CC423C] flex-1 max-w-xs"
+            disabled={selectedObjects.length !== 1 || deleteMutation.isPending}
+            variant="destructive"
+            onClick={() => setDeleteDialogOpen(true)}>
+            <Image src="/images/delete.png" alt="Delete" width={25} height={25} />
+            {deleteMutation.isPending ? "Deleting..." : "Delete"}
+          </Button>
+        </div>
       </CardContent>
+
 
       <Separator />
 
@@ -568,6 +641,42 @@ export default function Sidebar({
               disabled={breakMutation.isPending}
             >
               {breakMutation.isPending ? "Breaking..." : "Confirm Break"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Delete Object</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this object?
+              {selectedObjects.length === 1 && (
+                <div className="mt-4 space-y-2">
+                  {/* <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
+                  <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
+                  <p><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</p> */}
+                  <p className="text-yellow-600 text-sm mt-2">Current ID will be deleted.</p>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#DD524C] hover:bg-[#CC423C]"
+              onClick={handleDeleteObject}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Confirm Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
