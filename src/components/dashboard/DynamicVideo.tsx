@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/hooks/use-toast";
@@ -176,11 +177,11 @@ export default function DynamicVideo({
   const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
 
   // ✅ OPTIMIZED CONFIG
-  const ANNO_WINDOW_SECONDS = 10;
-  const ANNO_PREFETCH_THRESHOLD = 150;
+  const ANNO_WINDOW_SECONDS = 5;
+  const ANNO_PREFETCH_THRESHOLD = 80;
   const ANNO_THROTTLE_MS = 500;
   const INITIAL_FRAME_DURATION = 2; // ✅ Load only 2 seconds initially
-  const FRAME_CHUNK_DURATION = 5; // ✅ Duration for each frame chunk
+  const FRAME_CHUNK_DURATION = 2; // ✅ Duration for each frame chunk
 
   const layerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -207,6 +208,9 @@ export default function DynamicVideo({
   const ZOOM_SPEED = 1.1;
 
   const { toast } = useToast();
+  const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
+  const [frameInput, setFrameInput] = useState('');
+
 
   const OBJECT_COLORS = [
     "#FF0000",
@@ -294,7 +298,7 @@ export default function DynamicVideo({
       if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
       // const twoMinFrames = 2 * 60 * fps; // 7200 frames at 30fps
-      const twoMinFrames = 30 * fps; // 7200 frames at 30fps
+      const twoMinFrames = 60 * fps; 
       const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
 
       const sortedFrames = Array.from(frameTrajectory.keys())
@@ -537,10 +541,10 @@ export default function DynamicVideo({
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     };
 
-    window.addEventListener("linkingComplete", handleLinkingComplete);
+    window.addEventListener("operationComplete", handleLinkingComplete);
 
     return () => {
-      window.removeEventListener("linkingComplete", handleLinkingComplete);
+      window.removeEventListener("operationComplete", handleLinkingComplete);
     };
   }, [video, fps]);
 
@@ -656,6 +660,7 @@ export default function DynamicVideo({
     if (file instanceof HTMLVideoElement) {
       try {
         const fps = (file as any).frameRate || 30;
+        sessionStorage.setItem("fps",fps);
         return fps;
       } catch {
         return 30;
@@ -764,6 +769,7 @@ export default function DynamicVideo({
       const videoId = sessionStorage.getItem("videoId");
       const projectId = sessionStorage.getItem("projectId");
       
+      
       if (!videoId || !projectId) return;
 
       try {
@@ -771,7 +777,7 @@ export default function DynamicVideo({
         const startTime = performance.now();
 
         // ✅ Use direct API URL
-        const apiUrl = `${"http://localhost:8002"}/api/v1/videos/${videoId}/project-stream/`;
+        const apiUrl = `${API_BASE}/api/v1/videos/${videoId}/project-stream/`;
         
         const vid = document.createElement("video");
         vid.crossOrigin = "anonymous";
@@ -828,7 +834,7 @@ export default function DynamicVideo({
         };
 
         vid.onerror = () => {
-          console.error("❌ Video load error");
+          // console.error("❌ Video load error");
           toast({
             title: "Error loading video",
             variant: "destructive",
@@ -945,6 +951,10 @@ export default function DynamicVideo({
     };
   }, [video, fps, isPlaying]);
 
+  const controlsRef = useRef(null);
+
+
+
   // ✅ FIXED: Simplified playback control
   useEffect(() => {
     if (!video) return;
@@ -962,6 +972,8 @@ export default function DynamicVideo({
       video.removeEventListener("pause", updatePlayState);
     };
   }, [video]);
+
+  
 
   // ✅ OPTIMIZED: SEEK HANDLER WITH SMART ANNOTATION FETCHING
   const handleSeek = async (time: number) => {
@@ -1081,6 +1093,20 @@ export default function DynamicVideo({
     }
   };
 
+  const handleFrameStep = (direction: 1 | -1) => {
+  if (video) {
+    const currentFrame = Math.round(video.currentTime * fps);
+    const nextFrame = Math.min(Math.max(currentFrame + direction, 0), Math.floor(video.duration * fps));
+    const nextTime = nextFrame / fps;
+    
+    video.currentTime = nextTime;
+    setCurrentTime(nextTime);
+    setSelectedFrameIndex(nextFrame);
+
+    sessionStorage.setItem("frameId", nextFrame.toString());
+  }
+};
+
   // ✅ FULLSCREEN HANDLER
   const handleFullscreen = () => {
     const container =
@@ -1126,12 +1152,102 @@ export default function DynamicVideo({
     });
   };
 
+  // handle frame jump 
+  const handleFrameJump = async (targetFrame: number) => {
+  if (!video) return;
+
+  // Clamp frame to valid range
+  const totalFrames = Math.floor(video.duration * fps);
+  const safeFrame = Math.min(Math.max(targetFrame, 0), totalFrames);
+  const safeTime = safeFrame / fps;
+
+  // Remember if was playing, then pause
+  const wasPlaying = !video.paused;
+  setWasPlayingBeforeSeek(wasPlaying);
+
+  if (wasPlaying) {
+    video.pause();
+    setIsPlaying(false);
+  }
+
+  // Seek to frame
+  video.currentTime = safeTime;
+  setCurrentTime(safeTime);
+  setSelectedFrameIndex(safeFrame);
+  sessionStorage.setItem("frameId", safeFrame.toString());
+
+  // ✅ FETCH ANNOTATIONS (exact handleSeek logic)
+  const seekFrameNumber = safeFrame;
+  const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+  const windowStart = Math.max(0, seekFrameNumber);
+  const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
+
+  console.log(
+    `📍 Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
+  );
+  setIsLoadingAnnotations(true);
+  chunkMutation.mutate({ start: windowStart, end: windowEnd });
+  nextPrefetchFrameRef.current = null;
+
+  // ✅ Extract frames for the seeked position
+  const chunk = Math.floor(safeTime / FRAME_CHUNK_DURATION);
+  const startSec = chunk * FRAME_CHUNK_DURATION;
+  if (startSec >= video.duration) return;
+  const durationSec = Math.min(FRAME_CHUNK_DURATION, video.duration - startSec);
+
+  const newFrames = await runCancelableExtraction(
+    async () => {
+      return await extractFramesFromVideo(video, startSec, durationSec);
+    },
+    "Slider",
+    chunk,
+    startSec,
+    durationSec
+  );
+  setFrames(newFrames);
+  lastExtractedChunk.current = chunk;
+
+  setFrameInput(''); // Clear input
+};
+
+
+
   const currentFrame = Math.round(currentTime * fps);
   const rulerStart = lastExtractedChunk.current * FRAME_CHUNK_DURATION;
   const rulerEnd = Math.min(rulerStart + FRAME_CHUNK_DURATION, duration);
   const tickCount = 6;
 
   const allObjectIds = getAllObjectIds();
+
+  // Add this useEffect
+useEffect(() => {
+  const handleKeyDown = (e: KeyboardEvent) => {  // ✅ Native KeyboardEvent
+    if (!video || document.activeElement?.closest('.your-controls-class')) return;
+    
+    switch (e.code) {
+      case 'Space':
+        e.preventDefault();
+        togglePlayPause();
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        handleSkip(-10);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        handleSkip(10);
+        break;
+      case 'KeyF':
+        e.preventDefault();
+        handleFullscreen();
+        break;
+    }
+  };
+
+  window.addEventListener('keydown', handleKeyDown);
+  return () => window.removeEventListener('keydown', handleKeyDown);
+}, [video, playbackRate, togglePlayPause, handleSkip, handleFullscreen, setPlaybackRate]);
+
 
   return (
     <div className="flex flex-col gap-2 w-full">
@@ -1365,10 +1481,18 @@ export default function DynamicVideo({
         {/* ✅ PLAYBACK CONTROLS */}
         <div className="flex flex-col pt-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <Button size="icon" variant="ghost">
+            <Button 
+              size="icon" 
+              variant="ghost"
+              onClick={() => handleFrameStep(-1)}
+              title="Previous Frame">
               <Undo2 />
             </Button>
-            <Button size="icon" variant="ghost">
+            <Button 
+              size="icon" 
+              variant="ghost"
+              onClick={() => handleFrameStep(1)}
+              title="Next Frame">
               <Redo2 />
             </Button>
 
@@ -1376,7 +1500,7 @@ export default function DynamicVideo({
               size="icon"
               variant="ghost"
               onClick={() => handleSkip(-10)}
-            >
+              title="Rewind 10 seconds">
               <SkipBack />
             </Button>
 
@@ -1386,6 +1510,7 @@ export default function DynamicVideo({
               variant="ghost"
               onClick={togglePlayPause}
               disabled={!video}
+              title="play/pause"
             >
               {isPlaying ? <Pause /> : <Play />}
             </Button>
@@ -1394,6 +1519,7 @@ export default function DynamicVideo({
               size="icon"
               variant="ghost"
               onClick={() => handleSkip(10)}
+              title="Fast forward 10 seconds"
             >
               <SkipForward />
             </Button>
@@ -1450,6 +1576,37 @@ export default function DynamicVideo({
               <span className="font-bold">Track</span>
             </Button>
 
+            {/* ✅ FRAME JUMP */}
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                placeholder="Frame Jump"
+                min="0"
+                max={video?.duration ? Math.floor(video.duration * fps) : undefined}
+                className="w-30 h-8 text-sm"
+                value={frameInput}
+                onChange={(e) => setFrameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const frame = parseInt(e.currentTarget.value);
+                    if (!isNaN(frame)) handleFrameJump(frame);
+                  }
+                }}
+              />
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => {
+                  const frame = parseInt(frameInput);
+                  if (!isNaN(frame)) handleFrameJump(frame);
+                }}
+                title="Jump to Frame"
+                className="h-8 w-8"
+              >
+                <SkipForward className="w-3 h-3" />
+              </Button>
+            </div>
+
             {/* ✅ PLAYBACK SPEED DROPDOWN */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1468,7 +1625,7 @@ export default function DynamicVideo({
                 align="end"
                 className="w-32 bg-[#181818] text-white"
               >
-                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
+                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 4, 8, 16].map((speed) => (
                   <DropdownMenuItem
                     key={speed}
                     onClick={() => setPlaybackRate(speed)}

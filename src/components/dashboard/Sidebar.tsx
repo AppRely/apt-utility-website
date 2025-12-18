@@ -130,7 +130,7 @@ export default function Sidebar({
       const currentFrameId = Number(frameId);
       if (currentFrameId) {
         window.dispatchEvent(
-          new CustomEvent("linkingComplete", {
+          new CustomEvent("operationComplete", {
             detail: { frameId: currentFrameId },
           })
         );
@@ -165,7 +165,7 @@ export default function Sidebar({
 
       setSelectedObjects([]);
       window.dispatchEvent(
-        new CustomEvent("linkingComplete", {
+        new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
         })
       );
@@ -185,7 +185,7 @@ export default function Sidebar({
 
       setSelectedObjects([]);
       window.dispatchEvent(
-        new CustomEvent("linkingComplete", {
+        new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
         })
       );
@@ -201,10 +201,10 @@ export default function Sidebar({
       }, 1000);
     };
 
-    window.addEventListener("linkingComplete", handleLinkingComplete);
+    window.addEventListener("operationComplete", handleLinkingComplete);
 
     return () => {
-      window.removeEventListener("linkingComplete", handleLinkingComplete);
+      window.removeEventListener("operationComplete", handleLinkingComplete);
     };
   }, [refetch]);
   
@@ -254,7 +254,7 @@ export default function Sidebar({
   // Handler functions for each operation
   const handleLinkObjects = () => {
     if (selectedObjects.length !== 2) {
-      setLinkDialogOpen(false);
+      
       toast({
         title: "⚠️ Invalid Selection",
         description: "Please select exactly 2 objects to link.",
@@ -285,6 +285,7 @@ export default function Sidebar({
           videoId: Number(videoId),
           ...formattedObjects,
         });
+        setLinkDialogOpen(false);
       },
     });
   };
@@ -391,6 +392,118 @@ console.log(obj);
     },
   });
 };
+
+// FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
+  const renderObjectsSection = () => {
+    if (isLoading || !initialLoadComplete) {
+      return (
+        <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+            <p className="text-[#5A5A5A] text-[13px]">Loading objects...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="h-[300px] flex items-center justify-center bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-600 text-[13px] text-center px-4">
+            Error: {(error as Error).message}
+          </p>
+        </div>
+      );
+    }
+
+    if (!data?.objects || data.objects.length === 0) {
+      return (
+        <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg">
+          <p className="text-[#5A5A5A] text-[13px]">
+            No objects found for frame {frameId}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-[350px] overflow-y-auto space-y-3 pr-2">
+        {data.objects.map((obj: any, index: number) => {
+          const isExpanded = expandedIds.has(obj.object_id);
+          return (
+            <Card
+              key={obj.object_id || index}
+              className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3 cursor-pointer hover:shadow-md transition-all min-h-[50px]"
+              onClick={() => toggleExpand(obj.object_id)}
+            >
+              <div className="flex items-center pb-1 justify-between">
+                <div className="flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
+                  <span className="font-semibold text-[13px] leading-[13px]">
+                    Object {index + 1}: Fly
+                  </span>
+                </div>
+                <span className="text-[#A2A2A2] font-medium text-[13px] leading-[13px]">
+                  ID {obj.object_id}
+                  {isExpanded ? " ▼" : " ►"}
+                </span>
+              </div>
+
+              {isExpanded && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
+                    start frame : {obj.start_frame}
+                  </p>
+                  <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
+                    end frame : {obj.end_frame}
+                  </p>
+
+                  {/* ✅ COORDINATES (x,y format - ALL digits, no rounding) */}
+                  <div>
+                    <p className="text-[#5A5A5A] text-[13px] font-medium mb-1">coordinates:</p>
+                    <div className="max-h-32 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200">
+                      <div className="flex flex-col gap-1">
+                        {obj.coordinates?.map((point: [number, number], pointIndex: number) => {
+                          const [x, y] = point;
+                          return (
+                            <div key={pointIndex} className="text-[11px] text-[#5A5A5A]">
+                              <div>{pointIndex + 1}. x = {x}</div>
+                              <div className="ml-3">y = {y}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <p className="text-[#5A5A5A] text-[13px] font-medium mb-1">
+                      confidence:
+                    </p>
+                    <div className="max-h-32 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200">
+                      {obj.confidence && obj.confidence.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {obj.confidence.map((conf: number, confIndex: number) => (
+                            <span 
+                              key={confIndex}
+                              className="inline-block bg-white px-2 py-1 rounded text-[12px] border border-gray-300 w-full text-left"
+                            >
+                              {conf}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[#A2A2A2] text-[12px]">No confidence data</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
 
 
   return (
@@ -537,9 +650,19 @@ console.log(obj);
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
           Frame #{frameId}
         </p>
+        <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
+          fps : {sessionStorage.getItem("fps")}
+        </p>
       </CardContent>
 
       <Separator />
+
+      <CardContent className="p-3 flex-1 flex flex-col">
+        <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
+          Objects ({data?.objects?.length || 0})
+        </p>
+        {renderObjectsSection()}
+      </CardContent>
 
       {/* Link Confirmation Dialog */}
       <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
@@ -547,13 +670,16 @@ console.log(obj);
           <DialogHeader>
             <DialogTitle>Confirm Link Objects</DialogTitle>
             <DialogDescription>
-              Are you sure you want to link these {selectedObjects.length} objects?
+              <div className="space-y-2">
+              <span>Are you sure you want to link these {selectedObjects.length} objects?</span>
               {selectedObjects.length === 2 && (
-                <div className="mt-4 space-y-2">
-                  <p><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Frame {selectedObjects[0].frame_id})</p>
-                  <p><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Frame {selectedObjects[1].frame_id})</p>
+                <div className="mt-4 space-y-1">
+                  <span className="block"><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Current Range: {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame})</span>
+                  <span className="block"><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Current Range: {selectedObjects[1].start_frame} to {selectedObjects[1].end_frame})</span>
+                  <span className="text-yellow-600 text-sm mt-8">This will connect the two object IDs together.</span>
                 </div>
               )}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -581,14 +707,16 @@ console.log(obj);
           <DialogHeader>
             <DialogTitle>Confirm Swap Objects</DialogTitle>
             <DialogDescription>
-              Are you sure you want to swap these {selectedObjects.length} objects?
+              <div className="space-y-2">
+              <span>Are you sure you want to swap these {selectedObjects.length} objects?</span>
               {selectedObjects.length === 2 && (
-                <div className="mt-4 space-y-2">
-                  <p><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Frame {selectedObjects[0].frame_id})</p>
-                  <p><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Frame {selectedObjects[1].frame_id})</p>
-                  <p className="text-yellow-600 text-sm mt-2">This will swap the IDs and tracking data of the two objects.</p>
+                <div className="mt-4 space-y-1">
+                  <span className="block"><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Current Range: {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame})</span>
+                  <span className="block"><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Current Range: {selectedObjects[1].start_frame} to {selectedObjects[1].end_frame})</span>
+                  <span className="text-yellow-600 text-sm mt-8">This will swap the IDs and tracking data of the two objects.</span>
                 </div>
               )}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -616,15 +744,17 @@ console.log(obj);
           <DialogHeader>
             <DialogTitle>Confirm Break Object</DialogTitle>
             <DialogDescription>
-              Are you sure you want to break this object?
+              <div className="space-y-2">
+              <span>Are you sure you want to break this object?</span>
               {selectedObjects.length === 1 && (
-                <div className="mt-4 space-y-2">
-                  <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
-                  <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
-                  <p><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</p>
-                  <p className="text-yellow-600 text-sm mt-2">Current ID will be deleted and a new ID will be assigned.</p>
+                <div className="mt-4 space-y-1">
+                  <span className="block"><strong>Object:</strong> ID {selectedObjects[0].object_id}</span>
+                  <span className="block"><strong>At Frame:</strong> {selectedObjects[0].frame_id}</span>
+                  <span className="block"><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</span>
+                  <span className="text-yellow-600 text-sm mt-8">Current ID will be deleted and a new ID will be assigned.</span>
                 </div>
               )}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -652,15 +782,17 @@ console.log(obj);
           <DialogHeader>
             <DialogTitle>Confirm Delete Object</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this object?
+              <div className="space-y-2">
+              <span>Are you sure you want to delete this object?</span>
               {selectedObjects.length === 1 && (
-                <div className="mt-4 space-y-2">
-                  {/* <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
-                  <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
-                  <p><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</p> */}
-                  <p className="text-yellow-600 text-sm mt-2">Current ID will be deleted.</p>
+                <div className="mt-4 space-y-1">
+                  <span className="block"><strong>Object:</strong> ID {selectedObjects[0].object_id}</span>
+                  <span className="block"><strong>At Frame:</strong> {selectedObjects[0].frame_id}</span>
+                  <span className="block"><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</span>
+                  <span className="text-yellow-600 text-sm mt-8">Current ID will be deleted.</span>
                 </div>
               )}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
