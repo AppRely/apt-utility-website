@@ -97,15 +97,18 @@ export default function AuditModal({ open, onClose, videoId }: AuditModalProps) 
                       key={log.activity_id}
                       className="hover:bg-transparent"
                     >
-                      <TableCell className="text-center">{log.activity_id}</TableCell>
+                      <TableCell className="text-center">{log.activity_id || "-"}</TableCell>
 
-                      <TableCell className="text-center">{obj1.id}</TableCell>
-                      <TableCell className="text-center">{obj1.start_frame}</TableCell>
-                      <TableCell className="text-center">{obj1.end_frame}</TableCell>
+                      <TableCell className="text-center">{obj1?.id ?? "-"}</TableCell>
+                      <TableCell className="text-center">{obj1?.start_frame ?? "-"}</TableCell>
+                      <TableCell className="text-center">{obj1?.end_frame ?? "-"}</TableCell>
 
-                      <TableCell className="text-center">{obj2.id}</TableCell>
-                      <TableCell className="text-center">{obj2.start_frame}</TableCell>
-                      <TableCell className="text-center">{obj2.end_frame}</TableCell>
+                      <TableCell className="text-center">{obj2?.id ?? "-"}</TableCell>
+                      <TableCell className="text-center">{obj2?.start_frame ?? "-"}</TableCell>
+                      <TableCell className="text-center">{obj2?.end_frame ?? "-"}</TableCell>
+
+
+
 
                       <TableCell className="text-center capitalize">
                         {log.operation}

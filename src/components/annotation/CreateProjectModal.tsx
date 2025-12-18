@@ -93,7 +93,7 @@ const mutation = useMutation({
       const body = new FormData()
       body.append("project_name", projectName)
       if (fileUpload?.[0]) body.append("video_file", fileUpload[0])
-      if (trackingFile?.[0]) body.append("trk_file", trackingFile[0])
+      if (trackingFile?.[0]) body.append("tracking_file", trackingFile[0])
       mutation.mutate(body)
     
   }

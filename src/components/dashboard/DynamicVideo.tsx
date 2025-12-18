@@ -548,83 +548,206 @@ export default function DynamicVideo({
     };
   }, [video, fps]);
 
-  // ✅ OPTIMIZED: REQUEST DEDUPLICATION & CACHING FOR ANNOTATIONS
+  // // ✅ OPTIMIZED: REQUEST DEDUPLICATION & CACHING FOR ANNOTATIONS
+  // const chunkMutation = useMutation({
+  //   mutationFn: async ({ start, end }: { start: number; end: number }) => {
+  //     if (!videoId) return Promise.resolve(null);
+
+  //     const key = `${start}-${end}`;
+
+  //     // ✅ Check if already loading or cached
+  //     const cached = requestCacheRef.getCachedRange(start, end);
+  //     if (cached) {
+  //       console.log(`📦 Using cached/pending response for ${key}`);
+  //       return cached;
+  //     }
+
+  //     // ✅ Prevent duplicate requests
+  //     if (loadedRangesRef.current.has(key)) {
+  //       console.log(`⏭️  Range ${key} already loaded, skipping`);
+  //       return Promise.resolve(null);
+  //     }
+
+  //     console.log(`🔄 Fetching annotations for ${key}`);
+  //     const promise = getFrameRangeData(videoId, start, end);
+  //     return requestCacheRef.addActiveRequest(key, promise);
+  //   },
+  //   onSuccess: (data) => {
+  //     if (!data || !data.objects) return;
+
+  //     const loadedAnnotations: Annotation[] = [];
+  //     const newTrajectoryFrames: TrajectoryFrame[] = [];
+
+  //     data.objects.forEach(
+  //       (obj: { frames: any[]; object_id: number }) => {
+  //         obj.frames.forEach((f: any) => {
+  //           loadedAnnotations.push({
+  //             object_id: obj.object_id,
+  //             frame_id: f.frame_id,
+  //             coordinates: f.coordinates,
+  //           });
+
+  //           if (f.coordinates && f.coordinates.length > 0) {
+  //             newTrajectoryFrames.push({
+  //               frame_id: f.frame_id,
+  //               object_id: obj.object_id,
+  //               coordinate: f.coordinates[0],
+  //             });
+  //           }
+  //         });
+  //       }
+  //     );
+
+  //     setAnnotations(loadedAnnotations);
+
+  //     persistentTrajectoryRef.current = [
+  //       ...persistentTrajectoryRef.current,
+  //       ...newTrajectoryFrames,
+  //     ];
+  //     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
+
+  //     const start = typeof data.start_frame === "number" ? data.start_frame : 0;
+  //     const end = typeof data.end_frame === "number" ? data.end_frame : start;
+  //     currentAnnoWindowRef.current = { start, end };
+
+  //     // ✅ Mark this range as loaded
+  //     loadedRangesRef.current.add(`${start}-${end}`);
+  //     requestCacheRef.setCachedRange(start, end, data);
+
+  //     setIsLoadingAnnotations(false);
+  //     setAnnotationsReady(true);
+    
+  //     // ✅ FIXED: Don't auto-play after annotations load due to browser restrictions
+  //     console.log("✅ Annotations loaded, video ready");
+  //   },
+  //   onError: () => {
+  //     setIsLoadingAnnotations(false);
+  //     console.error("❌ Failed to load annotations");
+  //   },
+  // });
   const chunkMutation = useMutation({
-    mutationFn: async ({ start, end }: { start: number; end: number }) => {
-      if (!videoId) return Promise.resolve(null);
+  mutationFn: async ({ start, end }: { start: number; end: number }) => {
+    if (!videoId) return Promise.resolve(null);
 
-      const key = `${start}-${end}`;
+    const key = `${start}-${end}`;
 
-      // ✅ Check if already loading or cached
-      const cached = requestCacheRef.getCachedRange(start, end);
-      if (cached) {
-        console.log(`📦 Using cached/pending response for ${key}`);
-        return cached;
+    // ✅ Check cache first (returns the actual cached data)
+    const cached = requestCacheRef.getCachedRange(start, end);
+    if (cached) {
+      console.log(`📦 Using cached response for ${key}`);
+      return cached;  // ✅ Return cached data, not null
+    }
+
+    // ✅ Check active requests
+    const activeRequest = requestCacheRef.active.get(key);
+    if (activeRequest) {
+      console.log(`⏳ Request already in flight for ${key}`);
+      return activeRequest;  // ✅ Return the promise
+    }
+
+    // ✅ Check if already loaded in our tracking
+    if (loadedRangesRef.current.has(key)) {
+      // If we have it in loadedRanges, try to get from cache
+      const cachedData = requestCacheRef.cached.get(key);
+      if (cachedData) {
+        console.log(`📦 Range ${key} already loaded, returning from cache`);
+        return cachedData;
       }
+      // If not in cache but marked as loaded, we still need to fetch
+      console.log(`🔄 Range ${key} marked loaded but not in cache, refetching`);
+    }
 
-      // ✅ Prevent duplicate requests
-      if (loadedRangesRef.current.has(key)) {
-        console.log(`⏭️  Range ${key} already loaded, skipping`);
-        return Promise.resolve(null);
+    console.log(`🔄 Fetching annotations for ${key}`);
+    const promise = getFrameRangeData(videoId, start, end);
+    
+    // ✅ Store in active requests
+    const finalPromise = requestCacheRef.addActiveRequest(key, promise);
+    
+    // ✅ Also cache the result when it completes
+    finalPromise.then(data => {
+      if (data) {
+        requestCacheRef.cached.set(key, data);
       }
+    }).catch(() => {
+      // Remove from active on error
+      requestCacheRef.active.delete(key);
+    });
 
-      console.log(`🔄 Fetching annotations for ${key}`);
-      const promise = getFrameRangeData(videoId, start, end);
-      return requestCacheRef.addActiveRequest(key, promise);
-    },
-    onSuccess: (data) => {
-      if (!data || !data.objects) return;
+    return finalPromise;
+  },
+  onSuccess: (data, variables) => {
+    // ✅ Always process data if available
+    if (!data) {
+      console.log("⚠️ No data returned from mutation");
+      return;
+    }
 
-      const loadedAnnotations: Annotation[] = [];
-      const newTrajectoryFrames: TrajectoryFrame[] = [];
+    const { start, end } = variables;
+    const key = `${start}-${end}`;
+    
+    // ✅ Mark as loaded
+    loadedRangesRef.current.add(key);
+    
+    // ✅ Process annotations as before
+    const loadedAnnotations: Annotation[] = [];
+    const newTrajectoryFrames: TrajectoryFrame[] = [];
 
-      data.objects.forEach(
-        (obj: { frames: any[]; object_id: number }) => {
-          obj.frames.forEach((f: any) => {
-            loadedAnnotations.push({
-              object_id: obj.object_id,
-              frame_id: f.frame_id,
-              coordinates: f.coordinates,
-            });
+    data.objects?.forEach((obj: { frames: any[]; object_id: number }) => {
+      obj.frames.forEach((f: any) => {
+        loadedAnnotations.push({
+          object_id: obj.object_id,
+          frame_id: f.frame_id,
+          coordinates: f.coordinates,
+        });
 
-            if (f.coordinates && f.coordinates.length > 0) {
-              newTrajectoryFrames.push({
-                frame_id: f.frame_id,
-                object_id: obj.object_id,
-                coordinate: f.coordinates[0],
-              });
-            }
+        if (f.coordinates && f.coordinates.length > 0) {
+          newTrajectoryFrames.push({
+            frame_id: f.frame_id,
+            object_id: obj.object_id,
+            coordinate: f.coordinates[0],
           });
         }
+      });
+    });
+
+    // ✅ Update state even if data came from cache
+    setAnnotations(prev => {
+      // Merge new annotations, avoid duplicates
+      const existingIds = new Set(prev.map(a => `${a.object_id}-${a.frame_id}`));
+      const newOnes = loadedAnnotations.filter(
+        a => !existingIds.has(`${a.object_id}-${a.frame_id}`)
       );
+      return [...prev, ...newOnes];
+    });
 
-      setAnnotations(loadedAnnotations);
+    // ✅ Update trajectory
+    persistentTrajectoryRef.current = [
+      ...persistentTrajectoryRef.current,
+      ...newTrajectoryFrames,
+    ];
+    setTrajectoryPointCount(persistentTrajectoryRef.current.length);
 
-      persistentTrajectoryRef.current = [
-        ...persistentTrajectoryRef.current,
-        ...newTrajectoryFrames,
-      ];
-      setTrajectoryPointCount(persistentTrajectoryRef.current.length);
+    const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
+    const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
+    currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
 
-      const start = typeof data.start_frame === "number" ? data.start_frame : 0;
-      const end = typeof data.end_frame === "number" ? data.end_frame : start;
-      currentAnnoWindowRef.current = { start, end };
-
-      // ✅ Mark this range as loaded
-      loadedRangesRef.current.add(`${start}-${end}`);
-      requestCacheRef.setCachedRange(start, end, data);
-
-      setIsLoadingAnnotations(false);
-      setAnnotationsReady(true);
+    setIsLoadingAnnotations(false);
+    setAnnotationsReady(true);
     
-      // ✅ FIXED: Don't auto-play after annotations load due to browser restrictions
-      console.log("✅ Annotations loaded, video ready");
-    },
-    onError: () => {
-      setIsLoadingAnnotations(false);
-      console.error("❌ Failed to load annotations");
-    },
-  });
+    console.log(`✅ Annotations loaded for ${key} (${loadedAnnotations.length} new)`);
+  },
+  onError: (error, variables) => {
+    const { start, end } = variables;
+    const key = `${start}-${end}`;
+    
+    // ✅ Remove from active on error
+    loadedRangesRef.current.delete(key);
+    requestCacheRef.active.delete(key);
+    
+    setIsLoadingAnnotations(false);
+    console.error(`❌ Failed to load annotations for ${key}:`, error);
+  }
+});
 
   const projectId = Number(sessionStorage.getItem("projectId"));
   const objectMutation = useMutation({

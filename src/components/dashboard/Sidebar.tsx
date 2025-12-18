@@ -283,7 +283,7 @@ export default function Sidebar({
           project_id: Number(videoId),
           operation: "link",
           videoId: Number(videoId),
-          ...formattedObjects,
+          objects_data: formattedObjects,
         });
         setLinkDialogOpen(false);
       },
@@ -319,7 +319,7 @@ export default function Sidebar({
           project_id: Number(videoId),
           operation: "Swap",
           videoId: Number(videoId),
-          ...formattedObjects,
+          objects_data: formattedObjects,
         });
       },
     });
@@ -353,7 +353,7 @@ export default function Sidebar({
           project_id: Number(videoId),
           operation: "Break",
           videoId: Number(videoId),
-          ...formattedObjects,
+          objects_data: formattedObjects,
         });
       },
     });
@@ -387,7 +387,7 @@ console.log(obj);
         project_id: Number(videoId),
         operation: "Delete",
         videoId: Number(videoId),
-        ...formattedObjects,
+        objects_data: formattedObjects,
       });
     },
   });
