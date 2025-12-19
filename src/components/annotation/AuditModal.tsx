@@ -106,10 +106,6 @@ export default function AuditModal({ open, onClose, videoId }: AuditModalProps) 
                       <TableCell className="text-center">{obj2?.id ?? "-"}</TableCell>
                       <TableCell className="text-center">{obj2?.start_frame ?? "-"}</TableCell>
                       <TableCell className="text-center">{obj2?.end_frame ?? "-"}</TableCell>
-
-
-
-
                       <TableCell className="text-center capitalize">
                         {log.operation}
                       </TableCell>

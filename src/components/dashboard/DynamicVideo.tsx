@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
@@ -38,8 +37,6 @@ import {
   Rect,
   Line,
 } from "react-konva";
-import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast";
-import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg";
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { getFrameRangeData } from "@/lib/api/getFrameRangeData";
@@ -65,7 +62,7 @@ type SelectedObjectProps = {
   setSelectedObjects: React.Dispatch<React.SetStateAction<SelectedObject[]>>;
 };
 
-// ✅ REQUEST DEDUPLICATION & CACHING
+// REQUEST DEDUPLICATION & CACHING
 const requestCacheRef = {
   active: new Map<string, Promise<any>>(),
   cached: new Map<string, any>(),
@@ -83,25 +80,23 @@ const requestCacheRef = {
   },
 };
 
-// ✅ VIDEO BLOB CACHE (Prevent duplicate downloads)
+// VIDEO BLOB CACHE (Prevent duplicate downloads)
 const videoBlobCache = new Map<number, Promise<Blob>>();
 let videoFetchController: AbortController | null = null;
 
 async function fetchVideoBlob(videoId: number, apiUrl: string): Promise<Blob> {
-  // ✅ Check if already cached
+  // Check if already cached
   if (videoBlobCache.has(videoId)) {
-    console.log(`📦 Using cached blob for video ${videoId}`);
     return videoBlobCache.get(videoId)!;
   }
 
-  // ✅ Cancel previous fetch if any
+  // Cancel previous fetch if any
   if (videoFetchController) {
     videoFetchController.abort();
   }
 
   videoFetchController = new AbortController();
 
-  console.log(`⏳ Fetching video blob for ${videoId}...`);
   const startTime = performance.now();
 
   const promise = (async () => {
@@ -116,20 +111,17 @@ async function fetchVideoBlob(videoId: number, apiUrl: string): Promise<Blob> {
 
       const blob = await res.blob();
       const endTime = performance.now();
-      console.log(
-        `✅ Video blob fetched in ${((endTime - startTime) / 1000).toFixed(2)}s`
-      );
 
       return blob;
     } catch (err: any) {
       if (err.name === "AbortError") {
-        console.log(`❌ Video fetch cancelled`);
+        console.log(`Video fetch cancelled`);
       }
       throw err;
     }
   })();
 
-  // ✅ Cache the promise (not the blob)
+  // Cache the promise (not the blob)
   videoBlobCache.set(videoId, promise);
 
   return promise;
@@ -160,7 +152,7 @@ export default function DynamicVideo({
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
 
-  // ✅ Track if video was playing before seek
+  // Track if video was playing before seek
   const [wasPlayingBeforeSeek, setWasPlayingBeforeSeek] = useState(false);
 
   const [stageScale, setStageScale] = useState({ x: 1, y: 1 });
@@ -176,12 +168,12 @@ export default function DynamicVideo({
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
 
-  // ✅ OPTIMIZED CONFIG
+  // OPTIMIZED CONFIG
   const ANNO_WINDOW_SECONDS = 5;
   const ANNO_PREFETCH_THRESHOLD = 80;
   const ANNO_THROTTLE_MS = 500;
-  const INITIAL_FRAME_DURATION = 2; // ✅ Load only 2 seconds initially
-  const FRAME_CHUNK_DURATION = 2; // ✅ Duration for each frame chunk
+  const INITIAL_FRAME_DURATION = 2; // Load only 2 seconds initially
+  const FRAME_CHUNK_DURATION = 2; // Duration for each frame chunk
 
   const layerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -199,7 +191,7 @@ export default function DynamicVideo({
   const lastAnnoLoadTs = useRef<number>(0);
   const nextPrefetchFrameRef = useRef<number | null>(null);
 
-  // ✅ DEDUPLICATION TRACKING
+  // DEDUPLICATION TRACKING
   const loadedRangesRef = useRef<Set<string>>(new Set());
   const pendingAnnoRequestRef = useRef<string | null>(null);
 
@@ -238,7 +230,7 @@ export default function DynamicVideo({
   const getObjectColor = (id: number) =>
     OBJECT_COLORS[id % OBJECT_COLORS.length];
 
-  // ✅ FIXED: Play/Pause video directly
+  // FIXED: Play/Pause video directly
   const togglePlayPause = useCallback(() => {
     if (!video) return;
 
@@ -246,10 +238,9 @@ export default function DynamicVideo({
       video.play()
         .then(() => {
           setIsPlaying(true);
-          console.log("▶️ Video playing");
         })
         .catch((error) => {
-          console.warn("⚠️ Autoplay prevented:", error);
+          console.warn("Autoplay prevented:", error);
           toast({
             title: "Click the play button to start video",
             description: "Some browsers require user interaction",
@@ -259,11 +250,10 @@ export default function DynamicVideo({
     } else {
       video.pause();
       setIsPlaying(false);
-      console.log("⏸️ Video paused");
     }
   }, [video, toast]);
 
-  // ✅ LOAD VIDEO ID FROM SESSION
+  // LOAD VIDEO ID FROM SESSION
   useEffect(() => {
     const storedId = sessionStorage.getItem("videoId");
     if (storedId) {
@@ -278,7 +268,7 @@ export default function DynamicVideo({
   }
 }, [annotationsReady, video]);
 
-  // ✅ BUILD TRAJECTORY MAP
+  // BUILD TRAJECTORY MAP
   useEffect(() => {
     const newMap: TrajectoryMap = new Map();
     persistentTrajectoryRef.current.forEach((traj) => {
@@ -291,7 +281,7 @@ export default function DynamicVideo({
     setTrajectoryMap(newMap);
   }, [persistentTrajectoryRef.current.length]);
 
-  // ✅ GET TRAJECTORY POINTS UP TO CURRENT FRAME
+  // GET TRAJECTORY POINTS UP TO CURRENT FRAME
   const getTrajectoryPointsUpToCurrent = useCallback(
     (objectId: number, upToFrame: number): number[] => {
       const frameTrajectory = trajectoryMap.get(objectId);
@@ -319,12 +309,12 @@ export default function DynamicVideo({
     [trajectoryMap, fps]
   );
 
-  // ✅ GET ALL OBJECT IDS
+  // GET ALL OBJECT IDS
   const getAllObjectIds = useCallback((): number[] => {
     return Array.from(trajectoryMap.keys()).sort((a, b) => a - b);
   }, [trajectoryMap]);
 
-  // ✅ SET CURSOR STYLE
+  // SET CURSOR STYLE
   const setCursorStyle = useCallback((cursorStyle: string) => {
     if (stageRef.current) {
       const container = stageRef.current.container();
@@ -334,7 +324,7 @@ export default function DynamicVideo({
     }
   }, []);
 
-  // ✅ ZOOM WHEEL HANDLER
+  // ZOOM WHEEL HANDLER
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -368,7 +358,7 @@ export default function DynamicVideo({
     setStagePos(newPos);
   }, []);
 
-  // ✅ MOUSE DOWN HANDLER
+  // MOUSE DOWN HANDLER
   const handleMouseDown = (e: any) => {
     if (e.evt.button === 0 || e.evt.button === 2) {
       if (e.target === e.target.getStage()) {
@@ -383,7 +373,7 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ MOUSE MOVE HANDLER
+  // MOUSE MOVE HANDLER
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
 
@@ -414,26 +404,26 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ MOUSE UP HANDLER
+  //   MOUSE UP HANDLER
   const handleMouseUp = () => {
     setIsDragging(false);
     setIsPanMode(false);
     setCursorStyle("grab");
   };
 
-  // ✅ MOUSE LEAVE HANDLER
+  //   MOUSE LEAVE HANDLER
   const handleMouseLeave = () => {
     setIsDragging(false);
     setIsPanMode(false);
     setCursorStyle("default");
   };
 
-  // ✅ CONTEXT MENU HANDLER
+  //   CONTEXT MENU HANDLER
   const handleContextMenu = (e: any) => {
     e.evt.preventDefault();
   };
 
-  // ✅ TOUCH MOVE HANDLER FOR PINCH ZOOM
+  //   TOUCH MOVE HANDLER FOR PINCH ZOOM
   const handleTouchMove = useCallback((e: any) => {
     const touch1 = e.evt.touches[0];
     const touch2 = e.evt.touches[1];
@@ -485,37 +475,36 @@ export default function DynamicVideo({
     (stage as any).lastDist = dist;
   }, []);
 
-  // ✅ TOUCH END HANDLER
+  //   TOUCH END HANDLER
   const handleTouchEnd = () => {
     if (stageRef.current) {
       (stageRef.current as any).lastDist = 0;
     }
   };
 
-  // ✅ ZOOM IN
+  //   ZOOM IN
   const handleZoomIn = () => {
     const newScale = Math.min(stageScale.x * ZOOM_SPEED, MAX_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
 
-  // ✅ ZOOM OUT
+  //   ZOOM OUT
   const handleZoomOut = () => {
     const newScale = Math.max(stageScale.x / ZOOM_SPEED, MIN_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
 
-  // ✅ RESET ZOOM
+  //   RESET ZOOM
   const handleResetZoom = () => {
     setStageScale({ x: 1, y: 1 });
     setStagePos({ x: 0, y: 0 });
     setCursorStyle("grab");
   };
 
-  // ✅ LISTENING FOR LINKING COMPLETION & REFETCH DATA
+  //   LISTENING FOR LINKING COMPLETION & REFETCH DATA
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
       const { frameId } = event.detail;
-      console.log("🔗 Linking complete! Refetching data for frame:", frameId);
 
       if (!video) return;
 
@@ -535,9 +524,6 @@ export default function DynamicVideo({
       const windowStart = Math.max(0, frameId);
       const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
 
-      console.log(
-        `📍 Refetching annotations for window: ${windowStart}-${windowEnd}`
-      );
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     };
 
@@ -548,122 +534,41 @@ export default function DynamicVideo({
     };
   }, [video, fps]);
 
-  // // ✅ OPTIMIZED: REQUEST DEDUPLICATION & CACHING FOR ANNOTATIONS
-  // const chunkMutation = useMutation({
-  //   mutationFn: async ({ start, end }: { start: number; end: number }) => {
-  //     if (!videoId) return Promise.resolve(null);
 
-  //     const key = `${start}-${end}`;
-
-  //     // ✅ Check if already loading or cached
-  //     const cached = requestCacheRef.getCachedRange(start, end);
-  //     if (cached) {
-  //       console.log(`📦 Using cached/pending response for ${key}`);
-  //       return cached;
-  //     }
-
-  //     // ✅ Prevent duplicate requests
-  //     if (loadedRangesRef.current.has(key)) {
-  //       console.log(`⏭️  Range ${key} already loaded, skipping`);
-  //       return Promise.resolve(null);
-  //     }
-
-  //     console.log(`🔄 Fetching annotations for ${key}`);
-  //     const promise = getFrameRangeData(videoId, start, end);
-  //     return requestCacheRef.addActiveRequest(key, promise);
-  //   },
-  //   onSuccess: (data) => {
-  //     if (!data || !data.objects) return;
-
-  //     const loadedAnnotations: Annotation[] = [];
-  //     const newTrajectoryFrames: TrajectoryFrame[] = [];
-
-  //     data.objects.forEach(
-  //       (obj: { frames: any[]; object_id: number }) => {
-  //         obj.frames.forEach((f: any) => {
-  //           loadedAnnotations.push({
-  //             object_id: obj.object_id,
-  //             frame_id: f.frame_id,
-  //             coordinates: f.coordinates,
-  //           });
-
-  //           if (f.coordinates && f.coordinates.length > 0) {
-  //             newTrajectoryFrames.push({
-  //               frame_id: f.frame_id,
-  //               object_id: obj.object_id,
-  //               coordinate: f.coordinates[0],
-  //             });
-  //           }
-  //         });
-  //       }
-  //     );
-
-  //     setAnnotations(loadedAnnotations);
-
-  //     persistentTrajectoryRef.current = [
-  //       ...persistentTrajectoryRef.current,
-  //       ...newTrajectoryFrames,
-  //     ];
-  //     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
-
-  //     const start = typeof data.start_frame === "number" ? data.start_frame : 0;
-  //     const end = typeof data.end_frame === "number" ? data.end_frame : start;
-  //     currentAnnoWindowRef.current = { start, end };
-
-  //     // ✅ Mark this range as loaded
-  //     loadedRangesRef.current.add(`${start}-${end}`);
-  //     requestCacheRef.setCachedRange(start, end, data);
-
-  //     setIsLoadingAnnotations(false);
-  //     setAnnotationsReady(true);
-    
-  //     // ✅ FIXED: Don't auto-play after annotations load due to browser restrictions
-  //     console.log("✅ Annotations loaded, video ready");
-  //   },
-  //   onError: () => {
-  //     setIsLoadingAnnotations(false);
-  //     console.error("❌ Failed to load annotations");
-  //   },
-  // });
   const chunkMutation = useMutation({
   mutationFn: async ({ start, end }: { start: number; end: number }) => {
     if (!videoId) return Promise.resolve(null);
 
     const key = `${start}-${end}`;
 
-    // ✅ Check cache first (returns the actual cached data)
+    //   Check cache first (returns the actual cached data)
     const cached = requestCacheRef.getCachedRange(start, end);
     if (cached) {
-      console.log(`📦 Using cached response for ${key}`);
-      return cached;  // ✅ Return cached data, not null
+      return cached;  //   Return cached data, not null
     }
 
-    // ✅ Check active requests
+    //   Check active requests
     const activeRequest = requestCacheRef.active.get(key);
     if (activeRequest) {
-      console.log(`⏳ Request already in flight for ${key}`);
-      return activeRequest;  // ✅ Return the promise
+      return activeRequest;  //   Return the promise
     }
 
-    // ✅ Check if already loaded in our tracking
+    //   Check if already loaded in our tracking
     if (loadedRangesRef.current.has(key)) {
       // If we have it in loadedRanges, try to get from cache
       const cachedData = requestCacheRef.cached.get(key);
       if (cachedData) {
-        console.log(`📦 Range ${key} already loaded, returning from cache`);
         return cachedData;
       }
-      // If not in cache but marked as loaded, we still need to fetch
-      console.log(`🔄 Range ${key} marked loaded but not in cache, refetching`);
+      
     }
 
-    console.log(`🔄 Fetching annotations for ${key}`);
     const promise = getFrameRangeData(videoId, start, end);
     
-    // ✅ Store in active requests
+    //   Store in active requests
     const finalPromise = requestCacheRef.addActiveRequest(key, promise);
     
-    // ✅ Also cache the result when it completes
+    //   Also cache the result when it completes
     finalPromise.then(data => {
       if (data) {
         requestCacheRef.cached.set(key, data);
@@ -676,19 +581,19 @@ export default function DynamicVideo({
     return finalPromise;
   },
   onSuccess: (data, variables) => {
-    // ✅ Always process data if available
+    //   Always process data if available
     if (!data) {
-      console.log("⚠️ No data returned from mutation");
+      console.log("No data returned from mutation");
       return;
     }
 
     const { start, end } = variables;
     const key = `${start}-${end}`;
     
-    // ✅ Mark as loaded
+    //   Mark as loaded
     loadedRangesRef.current.add(key);
     
-    // ✅ Process annotations as before
+    //   Process annotations as before
     const loadedAnnotations: Annotation[] = [];
     const newTrajectoryFrames: TrajectoryFrame[] = [];
 
@@ -710,7 +615,7 @@ export default function DynamicVideo({
       });
     });
 
-    // ✅ Update state even if data came from cache
+    //   Update state even if data came from cache
     setAnnotations(prev => {
       // Merge new annotations, avoid duplicates
       const existingIds = new Set(prev.map(a => `${a.object_id}-${a.frame_id}`));
@@ -720,7 +625,7 @@ export default function DynamicVideo({
       return [...prev, ...newOnes];
     });
 
-    // ✅ Update trajectory
+    //   Update trajectory
     persistentTrajectoryRef.current = [
       ...persistentTrajectoryRef.current,
       ...newTrajectoryFrames,
@@ -734,13 +639,12 @@ export default function DynamicVideo({
     setIsLoadingAnnotations(false);
     setAnnotationsReady(true);
     
-    console.log(`✅ Annotations loaded for ${key} (${loadedAnnotations.length} new)`);
   },
   onError: (error, variables) => {
     const { start, end } = variables;
     const key = `${start}-${end}`;
     
-    // ✅ Remove from active on error
+    //   Remove from active on error
     loadedRangesRef.current.delete(key);
     requestCacheRef.active.delete(key);
     
@@ -762,14 +666,14 @@ export default function DynamicVideo({
     }) => getObjectData(projectId, objectId, frameId),
   });
 
-  // ✅ FORMAT TIME HELPER
+  //   FORMAT TIME HELPER
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
-  // ✅ SET PLAYBACK RATE
+  //   SET PLAYBACK RATE
   useEffect(() => {
     if (video) video.playbackRate = playbackRate;
   }, [video, playbackRate]);
@@ -777,9 +681,9 @@ export default function DynamicVideo({
   const scaleX = videoWidth ? 650 / videoWidth : 1;
   const scaleY = videoHeight ? 650 / videoHeight : 1;
 
-  // ✅ OPTIMIZED: SKIP FFmpeg FPS DETECTION (Use default 30 FPS)
+  //   OPTIMIZED: SKIP FFmpeg FPS DETECTION (Use default 30 FPS)
   const getVideoFPS = async (file: File | HTMLVideoElement): Promise<number> => {
-    // ✅ If HTMLVideoElement, try to get FPS from it
+    //   If HTMLVideoElement, try to get FPS from it
     if (file instanceof HTMLVideoElement) {
       try {
         const fps = (file as any).frameRate || 30;
@@ -790,11 +694,11 @@ export default function DynamicVideo({
       }
     }
 
-    // ✅ For File, use default 30 FPS (Fastest - no overhead)
+    //   For File, use default 30 FPS (Fastest - no overhead)
     return 30;
   };
 
-  // ✅ CANCELABLE EXTRACTION WITH EARLY ABORT
+  //   CANCELABLE EXTRACTION WITH EARLY ABORT
   const runCancelableExtraction = async (
     fn: () => Promise<Frame[]>,
     type: "Initial" | "Scroll" | "Slider",
@@ -804,9 +708,6 @@ export default function DynamicVideo({
   ) => {
     extractionAbort.current = true;
     if (ongoingExtraction.current) {
-      console.log(
-        `⏸️  Aborting ongoing ${currentTaskType.current} extraction`
-      );
       await ongoingExtraction.current;
     }
     extractionAbort.current = false;
@@ -817,7 +718,7 @@ export default function DynamicVideo({
     const promise = (async () => {
       const result = await fn();
       if (extractionAbort.current) {
-        console.log(`❌ Extraction aborted: ${type}`);
+        console.log(`Extraction aborted: ${type}`);
         return [];
       }
       return result;
@@ -832,25 +733,25 @@ export default function DynamicVideo({
     return result;
   };
 
-  // ✅ EXTRACT FRAMES FROM VIDEO
+  //   EXTRACT FRAMES FROM VIDEO
   const extractFramesFromVideo = async (
     videoElement: HTMLVideoElement,
     startSec: number,
     durationSec: number
   ): Promise<Frame[]> => {
     try {
-      // ✅ Create a video element for frame extraction
+      //   Create a video element for frame extraction
       const tempVideo = document.createElement('video');
       tempVideo.src = videoElement.src;
       tempVideo.crossOrigin = 'anonymous';
       
-      // ✅ Wait for video to load
+      //   Wait for video to load
       await new Promise((resolve, reject) => {
         tempVideo.onloadedmetadata = resolve;
         tempVideo.onerror = reject;
       });
 
-      // ✅ Create canvas for frame capture
+      //   Create canvas for frame capture
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) return [];
@@ -861,7 +762,7 @@ export default function DynamicVideo({
       const frames: Frame[] = [];
       const frameInterval = 1 / fps;
 
-      // ✅ Extract frames at FPS rate
+      //   Extract frames at FPS rate
       for (let i = 0; i < durationSec * fps; i++) {
         const currentSec = startSec + (i * frameInterval);
         tempVideo.currentTime = currentSec;
@@ -886,7 +787,7 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
+  //   OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
   useEffect(() => {
     const loadVideoAndFrames = async () => {
       const videoId = sessionStorage.getItem("videoId");
@@ -896,10 +797,9 @@ export default function DynamicVideo({
       if (!videoId || !projectId) return;
 
       try {
-        console.log("⏳ Starting optimized video load...");
         const startTime = performance.now();
 
-        // ✅ Use direct API URL
+        //   Use direct API URL
         const apiUrl = `${API_BASE}/api/v1/videos/${videoId}/project-stream/`;
         
         const vid = document.createElement("video");
@@ -907,26 +807,20 @@ export default function DynamicVideo({
         vid.src = apiUrl;
         vid.loop = true;
         vid.muted = true;
-        vid.playsInline = true; // ✅ Important for mobile compatibility
+        vid.playsInline = true; //   Important for mobile compatibility
 
         vid.onloadedmetadata = async () => {
-          console.log("✅ Video metadata loaded");
           setDuration(vid.duration);
 
-          // ✅ Get FPS (Optimized - no FFmpeg)
+          //   Get FPS (Optimized - no FFmpeg)
           const exactFps = await getVideoFPS(vid);
           setFps(exactFps);
           setVideoWidth(vid.videoWidth);
           setVideoHeight(vid.videoHeight);
 
-          console.log(
-            `✅ Video: ${vid.videoWidth}x${vid.videoHeight}, ${vid.duration}s @ ${exactFps}fps`
-          );
-
-          // ✅ STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
+          //   STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
           const firstBatch = await runCancelableExtraction(
             async () => {
-              console.log("🎬 Extracting initial frames (2 sec)...");
               return await extractFramesFromVideo(vid, 0, INITIAL_FRAME_DURATION);
             },
             "Initial",
@@ -935,36 +829,27 @@ export default function DynamicVideo({
             INITIAL_FRAME_DURATION
           );
           setFrames(firstBatch);
-          console.log(`✅ Initial frames loaded: ${firstBatch.length} frames`);
 
-          // ✅ STEP 2: Fetch initial annotations (Non-blocking)
+          //   STEP 2: Fetch initial annotations (Non-blocking)
           const initialStart = 0;
           const initialEnd = Math.min(
             Math.round(ANNO_WINDOW_SECONDS * exactFps),
             Math.floor(vid.duration * exactFps)
           );
-
-          console.log(
-            `🔄 Fetching initial annotations: ${initialStart}-${initialEnd}`
-          );
           setIsLoadingAnnotations(true);
           chunkMutation.mutate({ start: initialStart, end: initialEnd });
 
           const endTime = performance.now();
-          console.log(
-            `⏱️  Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`
-          );
         };
 
         vid.onerror = () => {
-          // console.error("❌ Video load error");
           toast({
             title: "Error loading video",
             variant: "destructive",
           });
         };
 
-        // ✅ FIXED: Set video state after it's fully loaded
+        //   FIXED: Set video state after it's fully loaded
         setVideo(vid);
         setVideoId(Number(videoId));
       } catch (error) {
@@ -979,7 +864,7 @@ export default function DynamicVideo({
     loadVideoAndFrames();
   }, []);
 
-  // ✅ CONTINUOUS CANVAS RENDERING
+  //   CONTINUOUS CANVAS RENDERING
   useEffect(() => {
     if (!video || !layerRef.current) return;
     const update = () => {
@@ -989,7 +874,7 @@ export default function DynamicVideo({
     update();
   }, [video]);
 
-  // // ✅ FIXED: Remove problematic auto-play effect
+  // //   FIXED: Remove problematic auto-play effect
   // useEffect(() => {
   //   if (!video || isLoadingAnnotations) return;
     
@@ -1007,7 +892,7 @@ export default function DynamicVideo({
   //   };
   // }, [video, isLoadingAnnotations]);
 
-  // ✅ VIDEO EVENT HANDLERS
+  //   VIDEO EVENT HANDLERS
   useEffect(() => {
     if (!video) return;
     const vid = video;
@@ -1015,7 +900,7 @@ export default function DynamicVideo({
     const handleTimeUpdate = () => {
       setCurrentTime(vid.currentTime);
 
-      // ✅ PREFETCH NEXT ANNOTATION WINDOW (Only when playing)
+      //   PREFETCH NEXT ANNOTATION WINDOW (Only when playing)
       const now = performance.now();
       if (isPlaying && now - lastAnnoLoadTs.current > ANNO_THROTTLE_MS) {
         const frameNumber = Math.round(vid.currentTime * fps);
@@ -1036,12 +921,9 @@ export default function DynamicVideo({
             const nextStart = frameNumber;
             const nextEnd = Math.min(frameNumber + windowSize, totalFrames);
 
-            // ✅ Check if already loading
+            //   Check if already loading
             const key = `${nextStart}-${nextEnd}`;
             if (!loadedRangesRef.current.has(key)) {
-              console.log(
-                `🔄 Progressive prefetch: frames ${nextStart}-${nextEnd}`
-              );
               chunkMutation.mutate({ start: nextStart, end: nextEnd });
               lastAnnoLoadTs.current = now;
             }
@@ -1052,12 +934,10 @@ export default function DynamicVideo({
 
     const handlePlay = () => {
       setIsPlaying(true);
-      console.log("▶️ Video started playing");
     };
 
     const handlePause = () => {
       setIsPlaying(false);
-      console.log("⏸️ Video paused");
       if (!video) return;
       const frameNumber = Math.round(video.currentTime * fps);
       sessionStorage.setItem("frameId", frameNumber.toString());
@@ -1078,7 +958,7 @@ export default function DynamicVideo({
 
 
 
-  // ✅ FIXED: Simplified playback control
+  //   FIXED: Simplified playback control
   useEffect(() => {
     if (!video) return;
     
@@ -1098,7 +978,7 @@ export default function DynamicVideo({
 
   
 
-  // ✅ OPTIMIZED: SEEK HANDLER WITH SMART ANNOTATION FETCHING
+  //   OPTIMIZED: SEEK HANDLER WITH SMART ANNOTATION FETCHING
   const handleSeek = async (time: number) => {
     if (!video) return;
 
@@ -1108,7 +988,7 @@ export default function DynamicVideo({
     setDragTime(null);
     setSelectedFrameIndex(Math.round(safeTime * fps));
 
-    // ✅ Remember if was playing, then pause
+    //   Remember if was playing, then pause
     const wasPlaying = !video.paused;
     setWasPlayingBeforeSeek(wasPlaying);
     
@@ -1117,7 +997,7 @@ export default function DynamicVideo({
       setIsPlaying(false);
     }
 
-    // ✅ Fetch annotations for the new position window
+    //   Fetch annotations for the new position window
     const seekFrameNumber = Math.round(safeTime * fps);
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
     const totalFrames = Math.floor(video.duration * fps);
@@ -1125,14 +1005,11 @@ export default function DynamicVideo({
     const windowStart = Math.max(0, seekFrameNumber);
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
-    console.log(
-      `📍 Seek to ${formatTime(safeTime)}: loading frames ${windowStart}-${windowEnd}`
-    );
     setIsLoadingAnnotations(true);
     chunkMutation.mutate({ start: windowStart, end: windowEnd });
     nextPrefetchFrameRef.current = null;
 
-    // ✅ Extract frames for the seeked position
+    //   Extract frames for the seeked position
     const chunk = Math.floor(safeTime / FRAME_CHUNK_DURATION);
     const startSec = chunk * FRAME_CHUNK_DURATION;
     if (startSec >= video.duration) return;
@@ -1151,18 +1028,18 @@ export default function DynamicVideo({
     lastExtractedChunk.current = chunk;
   };
 
-  // ✅ SLIDER DRAG HANDLER
+  //   SLIDER DRAG HANDLER
   const handleSliderChange = (val: number[]) => {
     const time = val[0];
     setDragTime(time);
     
-    // ✅ Pause video during slider drag
+    //   Pause video during slider drag
     if (video && !video.paused) {
       video.pause();
       setIsPlaying(false);
     }
 
-    // ✅ Fetch annotations immediately on slider drag
+    //   Fetch annotations immediately on slider drag
     const seekFrameNumber = Math.round(time * fps);
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
     const totalFrames = Math.floor(video?.duration ? video.duration * fps : 0);
@@ -1172,15 +1049,12 @@ export default function DynamicVideo({
 
     const key = `${windowStart}-${windowEnd}`;
     if (!loadedRangesRef.current.has(key)) {
-      console.log(
-        `🎚️  Slider drag: fetching annotations for ${windowStart}-${windowEnd}`
-      );
       setIsLoadingAnnotations(true);
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     }
   };
 
-  // ✅ SCROLL HANDLER FOR FRAME STRIP
+  //   SCROLL HANDLER FOR FRAME STRIP
   const handleScroll = async () => {
     if (loading || !video) return;
     const el = containerRef.current;
@@ -1206,7 +1080,7 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ SKIP HANDLER
+  //   SKIP HANDLER
   const handleSkip = (seconds: number) => {
     if (video) {
       video.currentTime = Math.min(
@@ -1230,7 +1104,7 @@ export default function DynamicVideo({
   }
 };
 
-  // ✅ FULLSCREEN HANDLER
+  //   FULLSCREEN HANDLER
   const handleFullscreen = () => {
     const container =
       stageRef.current?.getStage?.()?.container() ||
@@ -1240,11 +1114,11 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ HANDLE FRAME CLICK
+  //   HANDLE FRAME CLICK
   const handleFrameClick = async (frame: Frame) => {
     if (!video) return;
     
-    // ✅ Remember if playing, then pause and seek
+    //   Remember if playing, then pause and seek
     const wasPlaying = !video.paused;
     setWasPlayingBeforeSeek(wasPlaying);
     
@@ -1259,7 +1133,7 @@ export default function DynamicVideo({
     setSelectedFrameIndex(frame.index);
     sessionStorage.setItem("frameId", frame.index.toString());
 
-    // ✅ Fetch annotations for clicked frame
+    //   Fetch annotations for clicked frame
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
     const totalFrames = Math.floor(video.duration * fps);
     const windowStart = Math.max(0, frame.index);
@@ -1299,20 +1173,17 @@ export default function DynamicVideo({
   setSelectedFrameIndex(safeFrame);
   sessionStorage.setItem("frameId", safeFrame.toString());
 
-  // ✅ FETCH ANNOTATIONS (exact handleSeek logic)
+  //   FETCH ANNOTATIONS (exact handleSeek logic)
   const seekFrameNumber = safeFrame;
   const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
   const windowStart = Math.max(0, seekFrameNumber);
   const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
-  console.log(
-    `📍 Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
-  );
   setIsLoadingAnnotations(true);
   chunkMutation.mutate({ start: windowStart, end: windowEnd });
   nextPrefetchFrameRef.current = null;
 
-  // ✅ Extract frames for the seeked position
+  //   Extract frames for the seeked position
   const chunk = Math.floor(safeTime / FRAME_CHUNK_DURATION);
   const startSec = chunk * FRAME_CHUNK_DURATION;
   if (startSec >= video.duration) return;
@@ -1344,7 +1215,7 @@ export default function DynamicVideo({
 
   // Add this useEffect
 useEffect(() => {
-  const handleKeyDown = (e: KeyboardEvent) => {  // ✅ Native KeyboardEvent
+  const handleKeyDown = (e: KeyboardEvent) => {  //   Native KeyboardEvent
     if (!video || document.activeElement?.closest('.your-controls-class')) return;
     
     switch (e.code) {
@@ -1375,7 +1246,7 @@ useEffect(() => {
   return (
     <div className="flex flex-col gap-2 w-full">
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
-        {/* ✅ VIDEO CANVAS AREA */}
+        {/*   VIDEO CANVAS AREA */}
         <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
           {isLoadingAnnotations && (
             <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
@@ -1417,7 +1288,7 @@ useEffect(() => {
                 />
               )}
 
-              {/* ✅ TRAJECTORY LINES */}
+              {/*   TRAJECTORY LINES */}
               {showTrajectory &&
                 allObjectIds.map((objectId) => {
                   const points = getTrajectoryPointsUpToCurrent(
@@ -1441,7 +1312,7 @@ useEffect(() => {
                   );
                 })}
 
-              {/* ✅ ANNOTATIONS FOR CURRENT FRAME */}
+              {/*   ANNOTATIONS FOR CURRENT FRAME */}
               {annotations
                 .filter((a) => a.frame_id === currentFrame)
                 .map((a) => {
@@ -1483,11 +1354,9 @@ useEffect(() => {
                         }
 
                         if (selectedObjects.length >= 2) {
-                          console.log(
-                            "⚠️ Maximum 2 selections allowed"
-                          );
+                          
                           toast({
-                            title: "⚠️ Maximum 2 selections allowed.",
+                            title: "Maximum 2 selections allowed.",
                             description: "",
                             variant: "default",
                             duration: 1000,
@@ -1496,7 +1365,6 @@ useEffect(() => {
                         }
 
                         if (!projectId) {
-                          console.log("Project ID not available");
                           return;
                         }
 
@@ -1522,16 +1390,11 @@ useEffect(() => {
                               ]);
 
                               toast({
-                                title: "✅ Object selected",
+                                title: "  Object selected",
                                 description: `Object ID: ${a.object_id}`,
                                 variant: "default",
                                 duration: 1000,
                               });
-
-                              console.log(
-                                "✅ Object selected:",
-                                newSelection
-                              );
                             },
                           }
                         );
@@ -1576,22 +1439,22 @@ useEffect(() => {
             </Layer>
           </Stage>
 
-          {/* ✅ ZOOM LEVEL INDICATOR */}
+          {/*   ZOOM LEVEL INDICATOR */}
           <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
             {(stageScale.x * 100).toFixed(0)}%
           </div>
 
-          {/* ✅ FRAME NUMBER DISPLAY */}
+          {/*   FRAME NUMBER DISPLAY */}
           <div className="absolute top-2 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
             Frame: {currentFrame}
           </div>
 
-          {/* ✅ TRAJECTORY STATUS */}
+          {/*   TRAJECTORY STATUS */}
           <div className="absolute top-8 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
             Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"}
           </div>
 
-          {/* ✅ PAN MODE INDICATOR */}
+          {/*   PAN MODE INDICATOR */}
           {isPanMode && (
             <div className="absolute top-14 left-2 bg-blue-500 text-white px-3 py-1 rounded text-xs font-semibold">
               🤚 Panning...
@@ -1601,7 +1464,7 @@ useEffect(() => {
 
         <Separator />
 
-        {/* ✅ PLAYBACK CONTROLS */}
+        {/*   PLAYBACK CONTROLS */}
         <div className="flex flex-col pt-1">
           <div className="flex items-center gap-2 flex-wrap">
             <Button 
@@ -1627,7 +1490,7 @@ useEffect(() => {
               <SkipBack />
             </Button>
 
-            {/* ✅ FIXED: Play/Pause Button */}
+            {/*   FIXED: Play/Pause Button */}
             <Button
               size="icon"
               variant="ghost"
@@ -1647,7 +1510,7 @@ useEffect(() => {
               <SkipForward />
             </Button>
 
-            {/* ✅ TIMELINE SLIDER */}
+            {/*   TIMELINE SLIDER */}
             <Slider
               value={[dragTime ?? currentTime]}
               max={duration || 100}
@@ -1661,7 +1524,7 @@ useEffect(() => {
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
 
-            {/* ✅ ZOOM CONTROLS */}
+            {/*   ZOOM CONTROLS */}
             <Button
               size="icon"
               variant="ghost"
@@ -1689,7 +1552,7 @@ useEffect(() => {
               <ZoomIn className="w-2 h-4" />
             </Button>
 
-            {/* ✅ TRAJECTORY TOGGLE */}
+            {/*   TRAJECTORY TOGGLE */}
             <Button
               size="icon"
               variant="ghost"
@@ -1699,7 +1562,7 @@ useEffect(() => {
               <span className="font-bold">Track</span>
             </Button>
 
-            {/* ✅ FRAME JUMP */}
+            {/*   FRAME JUMP */}
             <div className="flex items-center gap-1">
               <Input
                 type="number"
@@ -1730,7 +1593,7 @@ useEffect(() => {
               </Button>
             </div>
 
-            {/* ✅ PLAYBACK SPEED DROPDOWN */}
+            {/*   PLAYBACK SPEED DROPDOWN */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center justify-between text-sm">
@@ -1762,7 +1625,7 @@ useEffect(() => {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* ✅ FULLSCREEN */}
+            {/*   FULLSCREEN */}
             <Button size="icon" variant="ghost" onClick={handleFullscreen}>
               <Maximize2 />
             </Button>
@@ -1770,9 +1633,9 @@ useEffect(() => {
         </div>
       </Card>
 
-      {/* ✅ FRAME STRIP SECTION */}
+      {/*   FRAME STRIP SECTION */}
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-3 pb-4">
-        {/* ✅ STATS BAR */}
+        {/*   STATS BAR */}
         <div className="text-[13px] text-[#5A5A5A] font-medium pb-3 pl-2 pr-2 pt-1">
           Frames: {frames.length} | Time:{" "}
           {frames.length > 0
@@ -1783,7 +1646,7 @@ useEffect(() => {
           {currentFrame}
         </div>
 
-        {/* ✅ RULER */}
+        {/*   RULER */}
         <div className="relative w-full h-5 mb-3">
           <div className="absolute top-0 left-0 right-0 h-[1px] bg-gray-500 ml-2 mr-2"></div>
           <div className="absolute top-0 left-0 right-0 flex justify-between">
@@ -1809,7 +1672,7 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* ✅ FRAME STRIP */}
+        {/*   FRAME STRIP */}
         <div className="flex items-center pl-2 pr-1">
           <Image
             src="/images/verticalLine.svg"
