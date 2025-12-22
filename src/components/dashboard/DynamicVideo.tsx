@@ -9,20 +9,10 @@ import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/hooks/use-toast";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import {
-  Undo2,
-  Redo2,
-  Trash2,
   Play,
   Pause,
   SkipBack,
   SkipForward,
-  Maximize2,
   Clock,
   ChevronRight,
   ZoomIn,
@@ -298,7 +288,7 @@ export default function DynamicVideo({
       if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
       // const twoMinFrames = 2 * 60 * fps; // 7200 frames at 30fps
-      const twoMinFrames = 60 * fps; 
+      const twoMinFrames = 30 * fps; 
       const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
 
       const sortedFrames = Array.from(frameTrajectory.keys())
@@ -414,26 +404,24 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ MOUSE UP HANDLER
+  // MOUSE UP HANDLER
   const handleMouseUp = () => {
     setIsDragging(false);
     setIsPanMode(false);
     setCursorStyle("grab");
   };
 
-  // ✅ MOUSE LEAVE HANDLER
+  
   const handleMouseLeave = () => {
     setIsDragging(false);
     setIsPanMode(false);
     setCursorStyle("default");
   };
 
-  // ✅ CONTEXT MENU HANDLER
   const handleContextMenu = (e: any) => {
     e.evt.preventDefault();
   };
 
-  // ✅ TOUCH MOVE HANDLER FOR PINCH ZOOM
   const handleTouchMove = useCallback((e: any) => {
     const touch1 = e.evt.touches[0];
     const touch2 = e.evt.touches[1];
@@ -485,37 +473,31 @@ export default function DynamicVideo({
     (stage as any).lastDist = dist;
   }, []);
 
-  // ✅ TOUCH END HANDLER
   const handleTouchEnd = () => {
     if (stageRef.current) {
       (stageRef.current as any).lastDist = 0;
     }
   };
 
-  // ✅ ZOOM IN
   const handleZoomIn = () => {
     const newScale = Math.min(stageScale.x * ZOOM_SPEED, MAX_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
 
-  // ✅ ZOOM OUT
   const handleZoomOut = () => {
     const newScale = Math.max(stageScale.x / ZOOM_SPEED, MIN_ZOOM);
     setStageScale({ x: newScale, y: newScale });
   };
 
-  // ✅ RESET ZOOM
   const handleResetZoom = () => {
     setStageScale({ x: 1, y: 1 });
     setStagePos({ x: 0, y: 0 });
     setCursorStyle("grab");
   };
 
-  // ✅ LISTENING FOR LINKING COMPLETION & REFETCH DATA
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
       const { frameId } = event.detail;
-      console.log("🔗 Linking complete! Refetching data for frame:", frameId);
 
       if (!video) return;
 
@@ -535,9 +517,6 @@ export default function DynamicVideo({
       const windowStart = Math.max(0, frameId);
       const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
 
-      console.log(
-        `📍 Refetching annotations for window: ${windowStart}-${windowEnd}`
-      );
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     };
 
@@ -553,66 +532,20 @@ export default function DynamicVideo({
   mutationFn: async ({ start, end }: { start: number; end: number }) => {
     if (!videoId) return Promise.resolve(null);
 
-    const key = `${start}-${end}`;
-
-    // ✅ Check cache first (returns the actual cached data)
-    const cached = requestCacheRef.getCachedRange(start, end);
-    if (cached) {
-      console.log(`📦 Using cached response for ${key}`);
-      return cached;  // ✅ Return cached data, not null
-    }
-
-    // ✅ Check active requests
-    const activeRequest = requestCacheRef.active.get(key);
-    if (activeRequest) {
-      console.log(`⏳ Request already in flight for ${key}`);
-      return activeRequest;  // ✅ Return the promise
-    }
-
-    // ✅ Check if already loaded in our tracking
-    if (loadedRangesRef.current.has(key)) {
-      // If we have it in loadedRanges, try to get from cache
-      const cachedData = requestCacheRef.cached.get(key);
-      if (cachedData) {
-        console.log(`📦 Range ${key} already loaded, returning from cache`);
-        return cachedData;
-      }
-      // If not in cache but marked as loaded, we still need to fetch
-      console.log(`🔄 Range ${key} marked loaded but not in cache, refetching`);
-    }
-
-    console.log(`🔄 Fetching annotations for ${key}`);
-    const promise = getFrameRangeData(videoId, start, end);
-    
-    // ✅ Store in active requests
-    const finalPromise = requestCacheRef.addActiveRequest(key, promise);
-    
-    // ✅ Also cache the result when it completes
-    finalPromise.then(data => {
-      if (data) {
-        requestCacheRef.cached.set(key, data);
-      }
-    }).catch(() => {
-      // Remove from active on error
-      requestCacheRef.active.delete(key);
-    });
-
-    return finalPromise;
+    console.log(`🔄 Fetching annotations (no cache) for ${start}-${end}`);
+    return getFrameRangeData(videoId, start, end);
   },
+
   onSuccess: (data, variables) => {
-    // ✅ Always process data if available
     if (!data) {
       console.log("⚠️ No data returned from mutation");
       return;
     }
+
     console.log(data);
     const { start, end } = variables;
     const key = `${start}-${end}`;
-    
-    // ✅ Mark as loaded
-    loadedRangesRef.current.add(key);
-    
-    // ✅ Process annotations as before
+
     const loadedAnnotations: Annotation[] = [];
     const newTrajectoryFrames: TrajectoryFrame[] = [];
 
@@ -632,46 +565,47 @@ export default function DynamicVideo({
           });
         }
       });
-    
     });
 
-    // ✅ Update state even if data came from cache
-    setAnnotations(prev => {
-      // Merge new annotations, avoid duplicates
-      const existingIds = new Set(prev.map(a => `${a.object_id}-${a.frame_id}`));
+    // ✅ merge annotations, still avoid duplicates per (object_id, frame_id)
+    setAnnotations((prev) => {
+      const existingIds = new Set(
+        prev.map((a) => `${a.object_id}-${a.frame_id}`)
+      );
       const newOnes = loadedAnnotations.filter(
-        a => !existingIds.has(`${a.object_id}-${a.frame_id}`)
+        (a) => !existingIds.has(`${a.object_id}-${a.frame_id}`)
       );
       return [...prev, ...newOnes];
     });
 
-    // ✅ Update trajectory
+    // ✅ update trajectory list
     persistentTrajectoryRef.current = [
       ...persistentTrajectoryRef.current,
       ...newTrajectoryFrames,
     ];
     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
 
-    const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
-    const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
+    const startFrame =
+      typeof data.start_frame === "number" ? data.start_frame : start;
+    const endFrame =
+      typeof data.end_frame === "number" ? data.end_frame : end;
     currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
 
     setIsLoadingAnnotations(false);
     setAnnotationsReady(true);
-    
-    console.log(`✅ Annotations loaded for ${key} (${loadedAnnotations.length} new)`);
+
+    console.log(
+      `✅ Annotations loaded for ${key} (${loadedAnnotations.length} new)`
+    );
   },
+
   onError: (error, variables) => {
     const { start, end } = variables;
     const key = `${start}-${end}`;
-    
-    // ✅ Remove from active on error
-    loadedRangesRef.current.delete(key);
-    requestCacheRef.active.delete(key);
-    
+
     setIsLoadingAnnotations(false);
-    console.error(`❌ Failed to load annotations for ${key}:`, error);
-  }
+    console.error(`Failed to load annotations for ${key}:`, error);
+  },
 });
 
   const projectId = Number(sessionStorage.getItem("projectId"));
@@ -742,7 +676,7 @@ export default function DynamicVideo({
     const promise = (async () => {
       const result = await fn();
       if (extractionAbort.current) {
-        console.log(`❌ Extraction aborted: ${type}`);
+        console.log(`Extraction aborted: ${type}`);
         return [];
       }
       return result;
@@ -786,7 +720,7 @@ export default function DynamicVideo({
       const frames: Frame[] = [];
       const frameInterval = 1 / fps;
 
-      // ✅ Extract frames at FPS rate
+      // Extract frames at FPS rate
       for (let i = 0; i < durationSec * fps; i++) {
         const currentSec = startSec + (i * frameInterval);
         tempVideo.currentTime = currentSec;
@@ -811,7 +745,7 @@ export default function DynamicVideo({
     }
   };
 
-  // ✅ OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
+  //OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
   useEffect(() => {
     const loadVideoAndFrames = async () => {
       const videoId = sessionStorage.getItem("videoId");
@@ -823,8 +757,8 @@ export default function DynamicVideo({
       try {
         console.log("⏳ Starting optimized video load...");
         const startTime = performance.now();
-
-        // ✅ Use direct API URL
+      
+        //Use direct API URL
         const apiUrl = `${API_BASE}/api/v1/videos/${videoId}/project-stream/`;
         
         const vid = document.createElement("video");
@@ -838,17 +772,15 @@ export default function DynamicVideo({
           console.log("✅ Video metadata loaded");
           setDuration(vid.duration);
 
-          // ✅ Get FPS (Optimized - no FFmpeg)
+          // Get FPS (Optimized - no FFmpeg)
           const exactFps = await getVideoFPS(vid);
           setFps(exactFps);
           setVideoWidth(vid.videoWidth);
           setVideoHeight(vid.videoHeight);
 
-          console.log(
-            `✅ Video: ${vid.videoWidth}x${vid.videoHeight}, ${vid.duration}s @ ${exactFps}fps`
-          );
+          
 
-          // ✅ STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
+          // STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
           const firstBatch = await runCancelableExtraction(
             async () => {
               console.log("🎬 Extracting initial frames (2 sec)...");
@@ -862,7 +794,7 @@ export default function DynamicVideo({
           setFrames(firstBatch);
           console.log(`✅ Initial frames loaded: ${firstBatch.length} frames`);
 
-          // ✅ STEP 2: Fetch initial annotations (Non-blocking)
+          //STEP 2: Fetch initial annotations (Non-blocking)
           const initialStart = 0;
           const initialEnd = Math.min(
             Math.round(ANNO_WINDOW_SECONDS * exactFps),
@@ -882,7 +814,7 @@ export default function DynamicVideo({
         };
 
         vid.onerror = () => {
-          // console.error("❌ Video load error");
+          // console.error("Video load error");
           toast({
             title: "Error loading video",
             variant: "destructive",
@@ -893,7 +825,7 @@ export default function DynamicVideo({
         setVideo(vid);
         setVideoId(Number(videoId));
       } catch (error) {
-        console.error("❌ Failed to load video:", error);
+        console.error("Failed to load video:", error);
         toast({
           title: "Failed to load video",
           variant: "destructive",
@@ -985,7 +917,7 @@ export default function DynamicVideo({
 
 
 
-  // ✅ FIXED: Simplified playback control
+  // FIXED: Simplified playback control
   useEffect(() => {
     if (!video) return;
     
@@ -1005,7 +937,7 @@ export default function DynamicVideo({
 
   
 
-  // ✅ OPTIMIZED: SEEK HANDLER WITH SMART ANNOTATION FETCHING
+  //  OPTIMIZED: SEEK HANDLER WITH SMART ANNOTATION FETCHING
   const handleSeek = async (time: number) => {
     if (!video) return;
 
@@ -1015,7 +947,7 @@ export default function DynamicVideo({
     setDragTime(null);
     setSelectedFrameIndex(Math.round(safeTime * fps));
 
-    // ✅ Remember if was playing, then pause
+    //  Remember if was playing, then pause
     const wasPlaying = !video.paused;
     setWasPlayingBeforeSeek(wasPlaying);
     
@@ -1023,6 +955,9 @@ export default function DynamicVideo({
       video.pause();
       setIsPlaying(false);
     }
+
+    setAnnotationsReady(false);
+    setIsLoadingAnnotations(true);
 
     // ✅ Fetch annotations for the new position window
     const seekFrameNumber = Math.round(safeTime * fps);
@@ -1032,9 +967,6 @@ export default function DynamicVideo({
     const windowStart = Math.max(0, seekFrameNumber);
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
-    console.log(
-      `📍 Seek to ${formatTime(safeTime)}: loading frames ${windowStart}-${windowEnd}`
-    );
     setIsLoadingAnnotations(true);
     chunkMutation.mutate({ start: windowStart, end: windowEnd });
     nextPrefetchFrameRef.current = null;
@@ -1063,11 +995,15 @@ export default function DynamicVideo({
     const time = val[0];
     setDragTime(time);
     
-    // ✅ Pause video during slider drag
+
     if (video && !video.paused) {
       video.pause();
       setIsPlaying(false);
     }
+
+    setAnnotationsReady(false);
+    setIsLoadingAnnotations(true);
+
 
     // ✅ Fetch annotations immediately on slider drag
     const seekFrameNumber = Math.round(time * fps);
@@ -1221,6 +1157,13 @@ export default function DynamicVideo({
     video.pause();
     setIsPlaying(false);
   }
+
+  requestAnimationFrame(() => {
+            if (wasPlaying && video) {
+                video.play();
+                setIsPlaying(true);
+            }
+        });
 
   // Seek to frame
   video.currentTime = safeTime;
@@ -1533,20 +1476,6 @@ useEffect(() => {
         {/* ✅ PLAYBACK CONTROLS */}
         <div className="flex flex-col pt-1">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* <Button 
-              size="icon" 
-              variant="ghost"
-              onClick={() => handleFrameStep(-1)}
-              title="Previous Frame">
-              <Undo2 />
-            </Button>
-            <Button 
-              size="icon" 
-              variant="ghost"
-              onClick={() => handleFrameStep(1)}
-              title="Next Frame">
-              <Redo2 />
-            </Button> */}
 
             <Button
               size="icon"
@@ -1696,12 +1625,6 @@ useEffect(() => {
                 </div>
               </div>
             </div>
-             <p ml-2 m-4 p-2>speed</p>
-
-            {/* ✅ FULLSCREEN */}
-            {/* <Button size="icon" variant="ghost" onClick={handleFullscreen}>
-              <Maximize2 />
-            </Button> */}
           </div>
         </div>
       </Card>
