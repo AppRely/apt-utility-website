@@ -59,7 +59,7 @@ export default function AuditModal({ open, onClose, videoId }: AuditModalProps) 
           </p>
         )}
 
-        {data?.logs?.length === 0 && (
+        {data?.data?.total_logs === 0 && (
           <p className="text-center py-4 text-gray-500">
             No activity logs found
           </p>

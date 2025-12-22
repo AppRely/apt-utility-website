@@ -51,6 +51,9 @@ export default function AnnotationLandingPage() {
 
   // Format backend array
   const projects = data || [];
+  //const projects = data?.data || [];
+
+  
 
   // Filter using project_status
   const inProgress = projects.filter(

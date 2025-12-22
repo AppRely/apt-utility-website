@@ -548,83 +548,7 @@ export default function DynamicVideo({
     };
   }, [video, fps]);
 
-  // // ✅ OPTIMIZED: REQUEST DEDUPLICATION & CACHING FOR ANNOTATIONS
-  // const chunkMutation = useMutation({
-  //   mutationFn: async ({ start, end }: { start: number; end: number }) => {
-  //     if (!videoId) return Promise.resolve(null);
-
-  //     const key = `${start}-${end}`;
-
-  //     // ✅ Check if already loading or cached
-  //     const cached = requestCacheRef.getCachedRange(start, end);
-  //     if (cached) {
-  //       console.log(`📦 Using cached/pending response for ${key}`);
-  //       return cached;
-  //     }
-
-  //     // ✅ Prevent duplicate requests
-  //     if (loadedRangesRef.current.has(key)) {
-  //       console.log(`⏭️  Range ${key} already loaded, skipping`);
-  //       return Promise.resolve(null);
-  //     }
-
-  //     console.log(`🔄 Fetching annotations for ${key}`);
-  //     const promise = getFrameRangeData(videoId, start, end);
-  //     return requestCacheRef.addActiveRequest(key, promise);
-  //   },
-  //   onSuccess: (data) => {
-  //     if (!data || !data.objects) return;
-
-  //     const loadedAnnotations: Annotation[] = [];
-  //     const newTrajectoryFrames: TrajectoryFrame[] = [];
-
-  //     data.objects.forEach(
-  //       (obj: { frames: any[]; object_id: number }) => {
-  //         obj.frames.forEach((f: any) => {
-  //           loadedAnnotations.push({
-  //             object_id: obj.object_id,
-  //             frame_id: f.frame_id,
-  //             coordinates: f.coordinates,
-  //           });
-
-  //           if (f.coordinates && f.coordinates.length > 0) {
-  //             newTrajectoryFrames.push({
-  //               frame_id: f.frame_id,
-  //               object_id: obj.object_id,
-  //               coordinate: f.coordinates[0],
-  //             });
-  //           }
-  //         });
-  //       }
-  //     );
-
-  //     setAnnotations(loadedAnnotations);
-
-  //     persistentTrajectoryRef.current = [
-  //       ...persistentTrajectoryRef.current,
-  //       ...newTrajectoryFrames,
-  //     ];
-  //     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
-
-  //     const start = typeof data.start_frame === "number" ? data.start_frame : 0;
-  //     const end = typeof data.end_frame === "number" ? data.end_frame : start;
-  //     currentAnnoWindowRef.current = { start, end };
-
-  //     // ✅ Mark this range as loaded
-  //     loadedRangesRef.current.add(`${start}-${end}`);
-  //     requestCacheRef.setCachedRange(start, end, data);
-
-  //     setIsLoadingAnnotations(false);
-  //     setAnnotationsReady(true);
-    
-  //     // ✅ FIXED: Don't auto-play after annotations load due to browser restrictions
-  //     console.log("✅ Annotations loaded, video ready");
-  //   },
-  //   onError: () => {
-  //     setIsLoadingAnnotations(false);
-  //     console.error("❌ Failed to load annotations");
-  //   },
-  // });
+  
   const chunkMutation = useMutation({
   mutationFn: async ({ start, end }: { start: number; end: number }) => {
     if (!videoId) return Promise.resolve(null);
@@ -681,7 +605,7 @@ export default function DynamicVideo({
       console.log("⚠️ No data returned from mutation");
       return;
     }
-
+    console.log(data);
     const { start, end } = variables;
     const key = `${start}-${end}`;
     
@@ -708,6 +632,7 @@ export default function DynamicVideo({
           });
         }
       });
+    
     });
 
     // ✅ Update state even if data came from cache
@@ -989,24 +914,6 @@ export default function DynamicVideo({
     update();
   }, [video]);
 
-  // // ✅ FIXED: Remove problematic auto-play effect
-  // useEffect(() => {
-  //   if (!video || isLoadingAnnotations) return;
-    
-  //   // Just sync the playing state with video element
-  //   const syncPlayState = () => {
-  //     setIsPlaying(!video.paused);
-  //   };
-    
-  //   video.addEventListener("play", syncPlayState);
-  //   video.addEventListener("pause", syncPlayState);
-    
-  //   return () => {
-  //     video.removeEventListener("play", syncPlayState);
-  //     video.removeEventListener("pause", syncPlayState);
-  //   };
-  // }, [video, isLoadingAnnotations]);
-
   // ✅ VIDEO EVENT HANDLERS
   useEffect(() => {
     if (!video) return;
@@ -1208,13 +1115,35 @@ export default function DynamicVideo({
 
   // ✅ SKIP HANDLER
   const handleSkip = (seconds: number) => {
-    if (video) {
-      video.currentTime = Math.min(
-        Math.max(video.currentTime + seconds, 0),
-        video.duration
-      );
-    }
-  };
+  if (!video) return;
+
+  const newTime = Math.min(
+    Math.max(video.currentTime + seconds, 0),
+    video.duration
+  );
+  
+  video.currentTime = newTime;
+  setCurrentTime(newTime);
+  
+  const newFrame = Math.round(newTime * fps);
+  setSelectedFrameIndex(newFrame);
+  sessionStorage.setItem("frameId", newFrame.toString());
+  
+  // ✅ Only fetch annotations without frame extraction
+  const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+  const totalFrames = Math.floor(video.duration * fps);
+  
+  const windowStart = Math.max(0, newFrame);
+  const windowEnd = Math.min(newFrame + windowFrames, totalFrames);
+  
+  const key = `${windowStart}-${windowEnd}`;
+  if (!loadedRangesRef.current.has(key)) {
+    console.log(`⏭️ Skip: fetching annotations for ${windowStart}-${windowEnd}`);
+    setIsLoadingAnnotations(true);
+    chunkMutation.mutate({ start: windowStart, end: windowEnd });
+  }
+};
+
 
   const handleFrameStep = (direction: 1 | -1) => {
   if (video) {
@@ -1231,14 +1160,14 @@ export default function DynamicVideo({
 };
 
   // ✅ FULLSCREEN HANDLER
-  const handleFullscreen = () => {
-    const container =
-      stageRef.current?.getStage?.()?.container() ||
-      stageRef.current?.container?.();
-    if (container && container.requestFullscreen) {
-      container.requestFullscreen();
-    }
-  };
+  // const handleFullscreen = () => {
+  //   const container =
+  //     stageRef.current?.getStage?.()?.container() ||
+  //     stageRef.current?.container?.();
+  //   if (container && container.requestFullscreen) {
+  //     container.requestFullscreen();
+  //   }
+  // };
 
   // ✅ HANDLE FRAME CLICK
   const handleFrameClick = async (frame: Frame) => {
@@ -1362,14 +1291,14 @@ useEffect(() => {
         break;
       case 'KeyF':
         e.preventDefault();
-        handleFullscreen();
+        // handleFullscreen();
         break;
     }
   };
 
   window.addEventListener('keydown', handleKeyDown);
   return () => window.removeEventListener('keydown', handleKeyDown);
-}, [video, playbackRate, togglePlayPause, handleSkip, handleFullscreen, setPlaybackRate]);
+}, [video, playbackRate, togglePlayPause, handleSkip, setPlaybackRate]);
 
 
   return (
@@ -1604,7 +1533,7 @@ useEffect(() => {
         {/* ✅ PLAYBACK CONTROLS */}
         <div className="flex flex-col pt-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <Button 
+            {/* <Button 
               size="icon" 
               variant="ghost"
               onClick={() => handleFrameStep(-1)}
@@ -1617,13 +1546,13 @@ useEffect(() => {
               onClick={() => handleFrameStep(1)}
               title="Next Frame">
               <Redo2 />
-            </Button>
+            </Button> */}
 
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => handleSkip(-10)}
-              title="Rewind 10 seconds">
+              onClick={() => handleFrameStep(-1)}
+              title="Previous Frame">
               <SkipBack />
             </Button>
 
@@ -1641,8 +1570,8 @@ useEffect(() => {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => handleSkip(10)}
-              title="Fast forward 10 seconds"
+              onClick={() => handleFrameStep(1)}
+              title="Next Frame"
             >
               <SkipForward />
             </Button>
@@ -1730,42 +1659,49 @@ useEffect(() => {
               </Button>
             </div>
 
-            {/* ✅ PLAYBACK SPEED DROPDOWN */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    <span className="mr-2">Speed</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {playbackRate}
-                    <ChevronRight className="w-3 h-3" />
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-32 bg-[#181818] text-white"
+          <div className="relative group w-10 ">
+              <button
+                className="flex items-center justify-between text-sm px-3 py-2 rounded hover:bg-gray-800 transition-colors w-full"
+                title="Playback Speed"
               >
-                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 4, 8, 16].map((speed) => (
-                  <DropdownMenuItem
-                    key={speed}
-                    onClick={() => setPlaybackRate(speed)}
-                    className={`cursor-pointer py-1 text-sm ${
-                      speed === playbackRate ? "font-bold" : ""
-                    }`}
-                  >
-                    {speed}x
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <div className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  <span className="ml-1">{playbackRate}x</span>
+                </div>
+                <ChevronRight className="w-3 h-3 ml-1" />
+              </button>
+            
+              {/* Vertical Slider Popup */}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center bg-[#181818] border border-gray-700 rounded-lg p-3 w-12 z-50 shadow-xl">
+                {/* Speed Value Display */}
+                <div className="text-white text-xs ml-4 mb-2 font-bold">
+                  {playbackRate}x
+                </div>
+              
+                {/* Vertical Slider */}
+                <div className="relative h-32">
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="16"
+                    step="0.25"
+                    value={playbackRate}
+                    onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                    className="absolute top-0 left-1/2 transform -translate-x-1/2 h-32 w-6 appearance-none bg-transparent [writing-mode:vertical-lr] [direction:rtl]"
+                    style={{
+                      background: `linear-gradient(to top, #3b82f6 0%, #3b82f6 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%, #374151 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%, #374151 100%)`,
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+             <p ml-2 m-4 p-2>speed</p>
 
             {/* ✅ FULLSCREEN */}
-            <Button size="icon" variant="ghost" onClick={handleFullscreen}>
+            {/* <Button size="icon" variant="ghost" onClick={handleFullscreen}>
               <Maximize2 />
-            </Button>
+            </Button> */}
           </div>
         </div>
       </Card>
