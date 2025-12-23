@@ -35,20 +35,6 @@ export default function AnnotationLandingPage() {
     queryFn: getProjectList,
   });
 
-  // if (isLoading)
-  //   return (
-  //     <div className="flex justify-center items-center h-screen text-lg">
-  //       Loading projects...
-  //     </div>
-  //   );
-
-  // if (isError)
-  //   return (
-  //     <div className="flex justify-center items-center h-screen text-red-500 text-lg">
-  //       Failed to load project list
-  //     </div>
-  //   );
-
   // Format backend array
   const projects = data || [];
   //const projects = data?.data || [];
@@ -86,7 +72,7 @@ export default function AnnotationLandingPage() {
     );
   };
 
-  // ✨ TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
+  // TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
   const renderTable = (rows: any[], isCompleted: boolean) => (
     <Table>
       <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
