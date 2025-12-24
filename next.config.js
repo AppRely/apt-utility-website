@@ -1,8 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   experimental: {
-    serverActions: true,
-    turbopack: true,
   },
 
   // Webpack alias for canvas to avoid server issues

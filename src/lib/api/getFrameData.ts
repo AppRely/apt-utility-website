@@ -1,9 +1,9 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT
 
-export const getFrameData = async (videoId: number, frameNumber: number) => {
-  console.log("Frame Number:", frameNumber, "VideoID:", videoId);
-  const url = `${API_BASE}/api/v1/videos/frame/?video=${videoId}&frame=${frameNumber}`;
+export const getFrameData = async (projectId: number, frameNumber: number) => {
+  console.log("Frame Number:", frameNumber, "ProjectID:", projectId);
+  const url = `${API_BASE}/api/v1/videos/frame/?video=${projectId}&frame=${frameNumber}`;
 
   const response = await fetch(url, { method: "GET" });
   if (!response.ok){

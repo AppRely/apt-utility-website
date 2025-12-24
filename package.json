@@ -39,11 +39,13 @@
   "devDependencies": {
     "@types/node": "24.2.0",
     "@types/react": "19.1.10",
+    "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "7.10.0",
     "@typescript-eslint/parser": "7.10.0",
     "autoprefixer": "10.4.19",
     "eslint": "9.33.0",
     "eslint-config-next": "15.1.6",
+    "eslint-plugin-prettier": "^5.5.4",
     "eslint-plugin-tailwindcss": "3.15.0",
     "postcss": "8.4.31",
     "prettier": "3.4.2",

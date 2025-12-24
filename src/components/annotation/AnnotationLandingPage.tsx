@@ -36,14 +36,22 @@ export default function AnnotationLandingPage() {
   });
 
   // Format backend array
-  const projects = data || [];
-  //const projects = data?.data || [];
+  // const projects = data || [];
+  // //const projects = data?.data || [];
 
   
 
-  // Filter using project_status
+  // // Filter using project_status
+  // const inProgress = projects.filter(
+  //   (p: any) => p.project_status.toLowerCase() === "inprogress"
+  // );
+
+  const projects = Array.isArray(data?.data) ? data.data : 
+                  Array.isArray(data) ? data : [];
+
+  // ✅ SAFE: Only filter if projects is array (always true now)
   const inProgress = projects.filter(
-    (p: any) => p.project_status.toLowerCase() === "inprogress"
+    (p: any) => p.project_status?.toLowerCase() === "inprogress"
   );
 
   const completed = projects.filter(
@@ -122,7 +130,7 @@ export default function AnnotationLandingPage() {
                 onClick={() => {
                   sessionStorage.setItem("projectId", p.project_id);
                   sessionStorage.setItem("project_name", p.project_name);
-                  sessionStorage.setItem("videoId", p.video_id);
+                  // sessionStorage.setItem("videoId", p.video_id);
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);

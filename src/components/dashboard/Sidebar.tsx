@@ -54,7 +54,7 @@ export default function Sidebar({
 
     useEffect(() => {
       const handleStorageChange = () => {
-        const newValue = sessionStorage.getItem(key);
+        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
         setValue(newValue);
       };
 
@@ -62,7 +62,7 @@ export default function Sidebar({
 
       // IMPROVED POLLING - CHECK EVERY 200MS
       const interval = setInterval(() => {
-        const newValue = sessionStorage.getItem(key);
+        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
         if (newValue !== value) {
           setValue(newValue);
           console.log(`${key} changed to:`, newValue);
@@ -79,6 +79,7 @@ export default function Sidebar({
   };
 
   const videoId = useSessionStorage("videoId");
+  const projectId = useSessionStorage("projectId");
   const frameId = useSessionStorage("frameId");
   const projectName = useSessionStorage("project_name");
   const videoName = useSessionStorage("video_name");
@@ -87,15 +88,15 @@ export default function Sidebar({
 
   // QUERY WITH PROPER CACHE INVALIDATION
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["frameData", videoId, frameId],
-    queryFn: () => getFrameData(Number(videoId!), Number(frameId!)),
-    enabled: !!(videoId && frameId),
+    queryKey: ["frameData", projectId, frameId],
+    queryFn: () => getFrameData(Number(projectId!), Number(frameId!)),
+    enabled: !!(projectId && frameId),
     staleTime: 0,
     gcTime: 0, // Disable caching
   });
 
   const swapMutation = useMutation({
-    mutationFn: (formData: FormData) => swapObjects(Number(videoId), formData),
+    mutationFn: (formData: FormData) => swapObjects(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "Swap",
@@ -115,7 +116,7 @@ export default function Sidebar({
   });
 
   const linkMutation = useMutation({
-    mutationFn: (formData: FormData) => linkObjects(Number(videoId), formData),
+    mutationFn: (formData: FormData) => linkObjects(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "✅ Success",
@@ -153,7 +154,7 @@ export default function Sidebar({
   });
 
   const breakMutation = useMutation({
-    mutationFn: (formData: FormData) => breakObjects(Number(videoId), formData),
+    mutationFn: (formData: FormData) => breakObjects(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "Break",
@@ -173,7 +174,7 @@ export default function Sidebar({
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (formData: FormData) => objectDelete(Number(videoId), formData),
+    mutationFn: (formData: FormData) => objectDelete(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "Delete",
@@ -280,9 +281,8 @@ export default function Sidebar({
       onSuccess: () => {
         const formattedObjects = formatObjectsData(selectedObjects);
         activityLogMutation.mutate({
-          project_id: Number(videoId),
+          project_id: Number(projectId),
           operation: "link",
-          videoId: Number(videoId),
           objects_data: formattedObjects,
         });
         setLinkDialogOpen(false);
@@ -305,20 +305,19 @@ export default function Sidebar({
 
     const formData = new FormData();
     formData.append("object_1_id", String(obj1.object_id));
-    formData.append("object_1_start", String(obj1.start_frame));
+    formData.append("object_1_start", String(obj1.frame_id));
     formData.append("object_1_end", String(obj1.end_frame));
 
     formData.append("object_2_id", String(obj2.object_id));
-    formData.append("object_2_start", String(obj2.start_frame));
+    formData.append("object_2_start", String(obj1.frame_id));
     formData.append("object_2_end", String(obj2.end_frame));
 
     swapMutation.mutate(formData, {
       onSuccess: () => {
         const formattedObjects = formatObjectsData(selectedObjects);
         activityLogMutation.mutate({
-          project_id: Number(videoId),
+          project_id: Number(projectId),
           operation: "Swap",
-          videoId: Number(videoId),
           objects_data: formattedObjects,
         });
       },
@@ -350,9 +349,8 @@ export default function Sidebar({
       onSuccess: () => {
         const formattedObjects = formatObjectsData(selectedObjects);
         activityLogMutation.mutate({
-          project_id: Number(videoId),
+          project_id: Number(projectId),
           operation: "Break",
-          videoId: Number(videoId),
           objects_data: formattedObjects,
         });
       },
@@ -384,9 +382,8 @@ console.log(obj);
     onSuccess: () => {
       const formattedObjects = formatObjectsData(selectedObjects);
       activityLogMutation.mutate({
-        project_id: Number(videoId),
+        project_id: Number(projectId),
         operation: "Delete",
-        videoId: Number(videoId),
         objects_data: formattedObjects,
       });
     },
@@ -416,7 +413,7 @@ console.log(obj);
       );
     }
 
-    if (!data?.objects || data.objects.length === 0) {
+    if (!data?.data.objects || data?.data.objects.length === 0) {
       return (
         <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg">
           <p className="text-[#5A5A5A] text-[13px]">
@@ -428,7 +425,7 @@ console.log(obj);
 
     return (
       <div className="h-[350px] overflow-y-auto space-y-3 pr-2">
-        {data.objects.map((obj: any, index: number) => {
+        {data.data.objects.map((obj: any, index: number) => {
           const isExpanded = expandedIds.has(obj.object_id);
           return (
             <Card
@@ -687,7 +684,7 @@ console.log(obj);
           Frame #{frameId}
         </p>
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
-          fps : {sessionStorage.getItem("fps")}
+          fps : {typeof window !== 'undefined' ? sessionStorage.getItem("fps") : 'N/A'}
         </p>
       </CardContent>
 

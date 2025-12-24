@@ -1,11 +1,11 @@
 const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
 
 export const breakObjects = async (
-  videoId: number,
+  projectId: number,
   formData: FormData
 ) => {
   const res = await fetch(
-    `${API_BASE}/api/v1/videos/${videoId}/objects/break/`,
+    `${API_BASE}/api/v1/videos/${projectId}/objects/break/`,
     {
       method: "POST",
       body: formData,

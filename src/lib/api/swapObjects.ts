@@ -1,11 +1,11 @@
 const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
 
 export const swapObjects = async (
-  videoId: number,
+  projectId: number,
   formData: FormData
 ) => {
   const res = await fetch(
-    `${API_BASE}/api/v1/videos/${videoId}/swap-objects/`,
+    `${API_BASE}/api/v1/videos/${projectId}/swap-objects/`,
     {
       method: "PUT",
       body: formData, // same pattern as link

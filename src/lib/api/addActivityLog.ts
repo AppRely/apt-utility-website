@@ -1,7 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
 
 export async function addActivityLog(payload: any) {
-  const res = await fetch(`${API_BASE}/api/v1/videos/${payload.videoId}/add-activity-log/`, {
+  const res = await fetch(`${API_BASE}/api/v1/videos/${payload.projectId}/add-activity-log/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
