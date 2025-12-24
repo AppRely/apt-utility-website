@@ -13,6 +13,10 @@ const nextConfig = {
     return config;
   },
 
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000",
+  },
+
   // Headers for COOP/COEP needed for WebAssembly (ffmpeg.wasm) and Konva
   async headers() {
     return [
