@@ -65,7 +65,7 @@ export default function AuditModal({ open, onClose, videoId }: AuditModalProps) 
           </p>
         )}
 
-        {data?.logs?.length > 0 && (
+        {data?.data?.logs?.length > 0 && (
           <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
 
             <Table>
@@ -88,7 +88,7 @@ export default function AuditModal({ open, onClose, videoId }: AuditModalProps) 
               </TableHeader>
 
               <TableBody>
-                {data.logs.map((log: any) => {
+                {data.data.logs.map((log: any) => {
                   const obj1 = log.objects_data.objects[0];
                   const obj2 = log.objects_data.objects[1];
 
