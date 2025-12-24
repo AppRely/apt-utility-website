@@ -110,7 +110,7 @@ export default function AnnotationLandingPage() {
             {/* ACTION BUTTONS */}
             <TableCell className="flex gap-2">
               {/* Hide "Mark as Complete" in Completed tab */}
-              {!isCompleted && (
+              {/* {!isCompleted && (
                 <Button
                   size="sm"
                   className="bg-green-100 text-green-700 hover:bg-green-100">
@@ -122,7 +122,7 @@ export default function AnnotationLandingPage() {
                 size="sm"
                 className="bg-amber-100 text-amber-700 hover:bg-amber-100">
                 Archived
-              </Button>
+              </Button> */}
 
               <Button
                 size="sm"
