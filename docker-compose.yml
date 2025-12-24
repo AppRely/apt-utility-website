@@ -16,6 +16,7 @@ services:
       - .:/app
       - /app/node_modules
       - /app/.next
+    restart: always
     # Add stdin_open and tty for interactive debugging if needed
     stdin_open: true
     tty: true
