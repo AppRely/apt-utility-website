@@ -25,7 +25,7 @@ import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
-  const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
+  const [auditVideoId, setAuditVideoId] = useState<number | null>(null);
 
   const router = useRouter();
 
@@ -110,7 +110,7 @@ export default function AnnotationLandingPage() {
             {/* ACTION BUTTONS */}
             <TableCell className="flex gap-2">
               {/* Hide "Mark as Complete" in Completed tab */}
-              {/* {!isCompleted && (
+              {!isCompleted && (
                 <Button
                   size="sm"
                   className="bg-green-100 text-green-700 hover:bg-green-100">
@@ -122,7 +122,7 @@ export default function AnnotationLandingPage() {
                 size="sm"
                 className="bg-amber-100 text-amber-700 hover:bg-amber-100">
                 Archived
-              </Button> */}
+              </Button>
 
               <Button
                 size="sm"
@@ -130,6 +130,7 @@ export default function AnnotationLandingPage() {
                 onClick={() => {
                   sessionStorage.setItem("projectId", p.project_id);
                   sessionStorage.setItem("project_name", p.project_name);
+                  // sessionStorage.setItem("videoId", p.video_id);
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);
@@ -144,7 +145,7 @@ export default function AnnotationLandingPage() {
                 className="bg-blue-100 text-blue-700 hover:bg-blue-200"
                 onClick={() => {
                   setAuditOpen(true);
-                  setAuditProjectId(p.project_id);
+                  setAuditVideoId(p.video_id);
                 }}>
                 Audit
               </Button>
@@ -240,7 +241,7 @@ export default function AnnotationLandingPage() {
         <AuditModal
           open={auditOpen}
           onClose={() => setAuditOpen(false)}
-          projectId={Number(auditProjectId)}
+          videoId={Number(auditVideoId)}
         />
       )}
     </div>

@@ -713,7 +713,10 @@ export default function DynamicVideo({
   //OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
   useEffect(() => {
     const loadVideoAndFrames = async () => {
+      // const videoId = typeof window !== "undefined" ? sessionStorage.getItem("videoId") : null;
       const projectId = typeof window !== "undefined" ? sessionStorage.getItem("projectId") : null;
+      const videoId = 1;
+
 
       if (!projectId) return;
 

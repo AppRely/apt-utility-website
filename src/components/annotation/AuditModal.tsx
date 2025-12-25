@@ -25,14 +25,14 @@ import { getActivityLogs } from "@/lib/api/getActivityLogs";
 type AuditModalProps = {
   open: boolean;
   onClose: () => void;
-  projectId: number;
+  videoId: number;
 };
 
-export default function AuditModal({ open, onClose, projectId }: AuditModalProps) {
+export default function AuditModal({ open, onClose, videoId }: AuditModalProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["activityLogs", projectId],
-    queryFn: () => getActivityLogs(projectId),
-    enabled: open && !!projectId,
+    queryKey: ["activityLogs", videoId],
+    queryFn: () => getActivityLogs(videoId),
+    enabled: open && !!videoId,
   });
 
   return (
@@ -88,9 +88,7 @@ export default function AuditModal({ open, onClose, projectId }: AuditModalProps
               </TableHeader>
 
               <TableBody>
-                {[...data.data.logs]
-                .sort((a: any, b: any) => a.activity_id - b.activity_id) 
-                .map((log: any) => {
+                {data.data.logs.map((log: any) => {
                   const obj1 = log.objects_data.objects[0];
                   const obj2 = log.objects_data.objects[1];
 
