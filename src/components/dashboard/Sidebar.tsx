@@ -138,7 +138,7 @@ export default function Sidebar({
 
       // REFETCH SIDEBAR DATA AFTER 500MS (AFTER MAIN COMPONENT PROCESSES)
       setTimeout(() => {
-        console.log(" Refetching sidebar data after linking...");
+        console.log("🔄 Refetching sidebar data after linking...");
         refetch();
       }, 500);
     },
@@ -443,7 +443,7 @@ console.log(obj);
                     Object {index + 1}: Fly
                   </span>
                 </div>
-                <span className="font-medium text-[13px] leading-[13px]">
+                <span className="text-[#A2A2A2] font-medium text-[13px] leading-[13px]">
                   ID {obj.object_id}
                   {isExpanded ? " ▼" : " ►"}
                 </span>
@@ -452,86 +452,50 @@ console.log(obj);
               {isExpanded && (
                 <div className="mt-2 pt-2 border-t border-gray-200">
                   <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                  <strong>start frame :</strong>  {obj.start_frame}
+                    start frame : {obj.start_frame}
                   </p>
                   <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                  <strong>end frame :</strong> {obj.end_frame}
+                    end frame : {obj.end_frame}
                   </p>
 
-                  <div className="space-y-3">
-  {/* Coordinates card */}
-  <div>
-    <p className="text-xs font-medium text-neutral-800 mb-1">
-      Coordinates
-    </p>
-    <div className="rounded-md border border-neutral-200 bg-neutral-50">
-      <div className="max-h-32 overflow-y-auto px-3 py-2">
-        {obj.coordinates && obj.coordinates.length > 0 ? (
-          <ul className="space-y-1">
-            {obj.coordinates.map(
-              (point: [number, number], pointIndex: number) => {
-                const [x, y] = point;
-                return (
-                  <li
-                    key={pointIndex}
-                    className="text-[11px] text-neutral-700 flex items-start gap-2"
-                  >
-                    <span className="mt-[2px] text-[10px] text-neutral-500">
-                      {pointIndex + 1}.
-                    </span>
-                    <div className="space-y-[1px]">
-                      <div>
-                        <span className="font-medium">x</span> = {x}
-                      </div>
-                      <div>
-                        <span className="font-medium">y</span> = {y}
+                  {/* ✅ COORDINATES (x,y format - ALL digits, no rounding) */}
+                  <div>
+                    <p className="text-[#5A5A5A] text-[13px] font-medium mb-1">coordinates:</p>
+                    <div className="max-h-32 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200">
+                      <div className="flex flex-col gap-1">
+                        {obj.coordinates?.map((point: [number, number], pointIndex: number) => {
+                          const [x, y] = point;
+                          return (
+                            <div key={pointIndex} className="text-[11px] text-[#5A5A5A]">
+                              <div>{pointIndex + 1}. x = {x}</div>
+                              <div className="ml-3">y = {y}</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  </li>
-                );
-              }
-            )}
-          </ul>
-        ) : (
-          <p className="text-[11px] text-neutral-400 italic">
-            No coordinate data
-          </p>
-        )}
-      </div>
-    </div>
-  </div>
-
-  {/* Confidence card */}
-  <div>
-    <p className="text-xs font-medium text-neutral-800 mb-1">
-      Confidence
-    </p>
-    <div className="rounded-md border border-neutral-200 bg-neutral-50">
-      <div className="max-h-32 overflow-y-auto px-3 py-2">
-        {obj.confidence && obj.confidence.length > 0 ? (
-          <div className="grid grid-cols-1 gap-1.5">
-            {obj.confidence.map((conf: number, confIndex: number) => (
-              <span
-                key={confIndex}
-                className="inline-flex items-center justify-between rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] text-neutral-700"
-              >
-                <span className="text-[10px] text-neutral-500 mr-1">
-                  #{confIndex + 1}
-                </span>
-                <span className="font-medium tabular-nums">{conf}</span>
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[11px] text-neutral-400 italic">
-            No confidence data
-          </p>
-        )}
-      </div>
-    </div>
-  </div>
-</div>
-
+                  </div>
+                  <div className="mb-2">
+                    <p className="text-[#5A5A5A] text-[13px] font-medium mb-1">
+                      confidence:
+                    </p>
+                    <div className="max-h-32 overflow-y-auto bg-gray-50 p-2 rounded border border-gray-200">
+                      {obj.confidence && obj.confidence.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {obj.confidence.map((conf: number, confIndex: number) => (
+                            <span 
+                              key={confIndex}
+                              className="inline-block bg-white px-2 py-1 rounded text-[12px] border border-gray-300 w-full text-left"
+                            >
+                              {conf}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[#A2A2A2] text-[12px]">No confidence data</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </Card>

@@ -210,7 +210,7 @@ export default function DynamicVideo({
           console.log("▶️ Video playing");
         })
         .catch((error) => {
-          console.warn("  Autoplay prevented:", error);
+          console.warn("⚠️ Autoplay prevented:", error);
           toast({
             title: "Click the play button to start video",
             description: "Some browsers require user interaction",
@@ -341,7 +341,7 @@ export default function DynamicVideo({
     }
   };
 
-  //   MOUSE MOVE HANDLER
+  // ✅ MOUSE MOVE HANDLER
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
 
@@ -505,7 +505,7 @@ export default function DynamicVideo({
 
     onSuccess: (data, variables) => {
       if (!data) {
-        console.log("  No data returned from mutation");
+        console.log("⚠️ No data returned from mutation");
         return;
       }
 
@@ -720,7 +720,7 @@ export default function DynamicVideo({
       if (!videoId || !projectId) return;
 
       try {
-        console.log("  Starting optimized video load...");
+        console.log("⏳ Starting optimized video load...");
         const startTime = performance.now();
 
         //Use direct API URL
@@ -734,7 +734,7 @@ export default function DynamicVideo({
         vid.playsInline = true; // Important for mobile compatibility
 
         vid.onloadedmetadata = async () => {
-          console.log("  Video metadata loaded");
+          console.log("✅ Video metadata loaded");
           setDuration(vid.duration);
 
           // Get FPS (Optimized - no FFmpeg)
@@ -1039,7 +1039,7 @@ export default function DynamicVideo({
 
     const key = `${windowStart}-${windowEnd}`;
     if (!loadedRangesRef.current.has(key)) {
-      console.log(`  Skip: fetching annotations for ${windowStart}-${windowEnd}`);
+      console.log(`⏭️ Skip: fetching annotations for ${windowStart}-${windowEnd}`);
       setIsLoadingAnnotations(true);
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     }
@@ -1223,15 +1223,16 @@ export default function DynamicVideo({
         setPlaybackRate((r) => Math.max(0.25, +(r - 0.25).toFixed(2)));
         break;
 
-      // case "Digit0": // go to start
-      //   e.preventDefault();
-      //   handleSeek?.(0);
-      //   break;
+      case "Digit0": // go to start
+        e.preventDefault();
+        handleSeek?.(0);
+        break;
 
       case "Equal":
 //        if (e.key === "+") {
           e.preventDefault();
           handleZoomIn?.();
+   //     }
         break;
 
       case "Minus":
@@ -1239,30 +1240,30 @@ export default function DynamicVideo({
         handleZoomOut?.();
         break;
 
-      // case "Numpad4":
-      //   e.preventDefault();
-      //   setStagePos((prev) => ({ x: prev.x + PAN_STEP, y: prev.y }));
-      //   break;
+      case "Numpad4":
+        e.preventDefault();
+        setStagePos((prev) => ({ x: prev.x + PAN_STEP, y: prev.y }));
+        break;
 
-      // case "Numpad6":
-      //   e.preventDefault();
-      //   setStagePos((prev) => ({ x: prev.x - PAN_STEP, y: prev.y }));
-      //   break;
+      case "Numpad6":
+        e.preventDefault();
+        setStagePos((prev) => ({ x: prev.x - PAN_STEP, y: prev.y }));
+        break;
 
-      // case "Numpad2":
-      //   e.preventDefault();
-      //   setStagePos((prev) => ({ x: prev.x, y: prev.y + PAN_STEP }));
-      //   break;
+      case "Numpad2":
+        e.preventDefault();
+        setStagePos((prev) => ({ x: prev.x, y: prev.y + PAN_STEP }));
+        break;
 
-      // case "Numpad8":
-      //   e.preventDefault();
-      //   setStagePos((prev) => ({ x: prev.x, y: prev.y - PAN_STEP }));
-      //   break;
+      case "Numpad8":
+        e.preventDefault();
+        setStagePos((prev) => ({ x: prev.x, y: prev.y - PAN_STEP }));
+        break;
       
-      // case "Numpad5":
-      //   e.preventDefault();
-      //   handleResetZoom?.();
-      //   break;
+      case "Numpad5":
+        e.preventDefault();
+        handleResetZoom?.();
+        break;
       
       case "KeyT": 
         e.preventDefault();
@@ -1389,10 +1390,10 @@ export default function DynamicVideo({
 
                         if (selectedObjects.length >= 2) {
                           console.log(
-                            "  Maximum 2 selections allowed"
+                            "⚠️ Maximum 2 selections allowed"
                           );
                           toast({
-                            title: "  Maximum 2 selections allowed.",
+                            title: "⚠️ Maximum 2 selections allowed.",
                             description: "",
                             variant: "default",
                             duration: 1000,
@@ -1647,7 +1648,7 @@ export default function DynamicVideo({
           value={playbackRate}
           onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
           className="absolute top-0 left-1/2 -translate-x-1/2 h-32 w-6 appearance-none bg-transparent
-                    [writing-mode:vertical-lr] [direction:rtl]"
+                     [writing-mode:vertical-lr] [direction:rtl]"
           style={{
             background: `linear-gradient(to top,
               #3b82f6 0%,
@@ -1666,9 +1667,9 @@ export default function DynamicVideo({
 
       </Card>
 
-      {/*   FRAME STRIP SECTION */}
+      {/* ✅ FRAME STRIP SECTION */}
       <Card className="flex flex-col border rounded-[7px] overflow-hidden p-3 pb-4">
-        {/*   STATS BAR */}
+        {/* ✅ STATS BAR */}
         <div className="text-[13px] text-[#5A5A5A] font-medium pb-3 pl-2 pr-2 pt-1">
           Frames: {frames.length} | Time:{" "}
           {frames.length > 0
@@ -1679,7 +1680,7 @@ export default function DynamicVideo({
           {currentFrame}
         </div>
 
-        {/*   RULER */}
+        {/* ✅ RULER */}
         <div className="relative w-full h-5 mb-3">
           <div className="absolute top-0 left-0 right-0 h-[1px] bg-gray-500 ml-2 mr-2"></div>
           <div className="absolute top-0 left-0 right-0 flex justify-between">
@@ -1704,7 +1705,7 @@ export default function DynamicVideo({
           </div>
         </div>
 
-        {/*   FRAME STRIP */}
+        {/* ✅ FRAME STRIP */}
         <div className="flex items-center pl-2 pr-1">
           <Image
             src="/images/verticalLine.svg"
