@@ -485,7 +485,7 @@ export default function DynamicVideo({
       const windowStart = Math.max(0, frameId);
       const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
 
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      chunkMutation.mutate({ start: windowStart, end: windowEnd,projectOverride: videoId!});
     };
 
     window.addEventListener("operationComplete", handleLinkingComplete);
@@ -772,7 +772,7 @@ export default function DynamicVideo({
             `Fetching initial annotations: ${initialStart}-${initialEnd}`
           );
           setIsLoadingAnnotations(true);
-          chunkMutation.mutate({ start: initialStart, end: initialEnd });
+          chunkMutation.mutate({ start: initialStart, end: initialEnd,projectOverride: videoId });
 
           const endTime = performance.now();
           console.log(
@@ -848,7 +848,7 @@ export default function DynamicVideo({
               console.log(
                 `Progressive prefetch: frames ${nextStart}-${nextEnd}`
               );
-              chunkMutation.mutate({ start: nextStart, end: nextEnd });
+              chunkMutation.mutate({ start: nextStart, end: nextEnd,projectOverride: videoId! });
               lastAnnoLoadTs.current = now;
             }
           }
@@ -935,7 +935,7 @@ export default function DynamicVideo({
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
     setIsLoadingAnnotations(true);
-    chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    chunkMutation.mutate({ start: windowStart, end: windowEnd, projectOverride: videoId! });
     nextPrefetchFrameRef.current = null;
 
     //Extract frames for the seeked position
@@ -986,7 +986,7 @@ export default function DynamicVideo({
         `Slider drag: fetching annotations for ${windowStart}-${windowEnd}`
       );
       setIsLoadingAnnotations(true);
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      chunkMutation.mutate({ start: windowStart, end: windowEnd, projectOverride: videoId! });
     }
   };
 
@@ -1043,7 +1043,7 @@ export default function DynamicVideo({
     if (!loadedRangesRef.current.has(key)) {
       console.log(`  Skip: fetching annotations for ${windowStart}-${windowEnd}`);
       setIsLoadingAnnotations(true);
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      chunkMutation.mutate({ start: windowStart, end: windowEnd,projectOverride: videoId! });
     }
   };
 
@@ -1094,6 +1094,7 @@ export default function DynamicVideo({
     chunkMutation.mutate({
       start: windowStart,
       end: windowEnd,
+      projectOverride: videoId!,
     });
   };
 
@@ -1138,7 +1139,7 @@ export default function DynamicVideo({
       `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
     );
     setIsLoadingAnnotations(true);
-    chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    chunkMutation.mutate({ start: windowStart, end: windowEnd, projectOverride: videoId! });
     nextPrefetchFrameRef.current = null;
 
     // Extract frames for the seeked position
