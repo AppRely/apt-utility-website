@@ -497,11 +497,10 @@ export default function DynamicVideo({
 
 
   const chunkMutation = useMutation({
-    mutationFn: async ({ start, end, projectOverride }: { start: number; end: number; projectOverride: number }) => {
-      const idToUse = projectOverride || videoId;
-      if (!idToUse) return Promise.resolve(null);
+    mutationFn: async ({ start, end }: { start: number; end: number }) => {
+      if (!videoId) return Promise.resolve(null);
 
-      return getFrameRangeData(idToUse, start, end);
+      return getFrameRangeData(videoId, start, end);
     },
 
     onSuccess: (data, variables) => {
