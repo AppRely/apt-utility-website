@@ -495,13 +495,12 @@ export default function DynamicVideo({
     };
   }, [video, fps]);
 
-
+  const projectId = Number(typeof window !== "undefined" ? sessionStorage.getItem("projectId") : null);
   const chunkMutation = useMutation({
-    mutationFn: async ({ start, end, projectOverride }: { start: number; end: number; projectOverride: number }) => {
-      const idToUse = projectOverride || videoId;
-      if (!idToUse) return Promise.resolve(null);
+    mutationFn: async ({ start, end }: { start: number; end: number }) => {
+      if (!projectId) return Promise.resolve(null);
 
-      return getFrameRangeData(idToUse, start, end);
+      return getFrameRangeData(projectId, start, end);
     },
 
     onSuccess: (data, variables) => {
@@ -576,7 +575,6 @@ export default function DynamicVideo({
     },
   });
 
-  const projectId = Number(typeof window !== "undefined" ? sessionStorage.getItem("projectId") : null);
   const objectMutation = useMutation({
     mutationFn: ({
       projectId,
