@@ -10,6 +10,3 @@ export async function getActivityLogs(projectId: number) {
   return res.json();
 }
 
-⁠Suraj Chothe
-6:55 PM
-http://localhost:8002/api/v1/videos/activity/logs/?video_id=1

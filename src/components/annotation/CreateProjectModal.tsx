@@ -75,6 +75,13 @@ const mutation = useMutation({
   },
 })
 
+const resetForm = () => {
+    setProjectName("")
+    setFileUpload(null)
+    setTrackingFile(null)
+    setErrors({})
+  }
+
 
   // Handle submit
   const handleSubmit = async () => {
@@ -96,6 +103,11 @@ const mutation = useMutation({
       if (trackingFile?.[0]) body.append("tracking_file", trackingFile[0])
       mutation.mutate(body)
     
+  }
+
+  const handleClose = () => {
+    resetForm()
+    onClose()
   }
 
   //Helper to clear error for a single field
@@ -228,7 +240,7 @@ const mutation = useMutation({
           <Button
             variant="ghost"
             size={null}
-            onClick={onClose}
+            onClick={handleClose}
             className="text-[#BDBDBD] hover:bg-[white] hover:-text-[#BDBDBD] text-[22px] px-10 rounded-[7px] border-[2px] font-normal"
           >
             Cancel
