@@ -25,14 +25,14 @@ import { getActivityLogs } from "@/lib/api/getActivityLogs";
 type AuditModalProps = {
   open: boolean;
   onClose: () => void;
-  videoId: number;
+  projectId: number;
 };
 
-export default function AuditModal({ open, onClose, videoId }: AuditModalProps) {
+export default function AuditModal({ open, onClose, projectId }: AuditModalProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["activityLogs", videoId],
-    queryFn: () => getActivityLogs(videoId),
-    enabled: open && !!videoId,
+    queryKey: ["activityLogs", projectId],
+    queryFn: () => getActivityLogs(projectId),
+    enabled: open && !!projectId,
   });
 
   return (

@@ -25,7 +25,7 @@ import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
-  const [auditVideoId, setAuditVideoId] = useState<number | null>(null);
+  const [auditProjectId, setauditProjectId] = useState<number | null>(null);
 
   const router = useRouter();
 
@@ -130,7 +130,6 @@ export default function AnnotationLandingPage() {
                 onClick={() => {
                   sessionStorage.setItem("projectId", p.project_id);
                   sessionStorage.setItem("project_name", p.project_name);
-                  // sessionStorage.setItem("videoId", p.video_id);
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);
@@ -145,7 +144,7 @@ export default function AnnotationLandingPage() {
                 className="bg-blue-100 text-blue-700 hover:bg-blue-200"
                 onClick={() => {
                   setAuditOpen(true);
-                  setAuditVideoId(p.video_id);
+                  setauditProjectId(p.project_id);
                 }}>
                 Audit
               </Button>
@@ -241,7 +240,7 @@ export default function AnnotationLandingPage() {
         <AuditModal
           open={auditOpen}
           onClose={() => setAuditOpen(false)}
-          videoId={Number(auditVideoId)}
+          projectId={Number(auditProjectId)}
         />
       )}
     </div>
