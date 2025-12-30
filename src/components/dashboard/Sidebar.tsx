@@ -305,9 +305,9 @@ export default function Sidebar({
 
     const formData = new FormData();
     formData.append("object_1_id", String(obj1.object_id));
-    // formData.append("object_1_start", String(obj1.frame_id));
-    // formData.append("object_1_end", String(obj1.end_frame));
     formData.append("current_frame", String(obj1.frame_id));
+    // formData.append("object_1_end", String(obj1.end_frame));
+
     formData.append("object_2_id", String(obj2.object_id));
     // formData.append("object_2_start", String(obj1.frame_id));
     // formData.append("object_2_end", String(obj2.end_frame));
