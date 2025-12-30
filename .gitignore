@@ -38,7 +38,7 @@ pids
 .eslintcache
 
 # Env files
-.env
+# .env
 .env.*.local
 .env.local
 .env.development.local
