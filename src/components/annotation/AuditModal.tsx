@@ -5,7 +5,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
 
@@ -28,6 +27,48 @@ type AuditModalProps = {
   projectId: number;
 };
 
+type NormalizedObject = {
+  id?: number;
+  start_frame?: number;
+  end_frame?: number;
+};
+
+function normalizeObjects(
+  operation: string,
+  objectsData: any
+): { obj1: NormalizedObject; obj2: NormalizedObject | null } {
+  switch (operation) {
+    case "link":
+    case "swap":
+      return {
+        obj1: {
+          id: objectsData.object_1_id,
+          start_frame: objectsData.object_1_start,
+          end_frame: objectsData.object_1_end,
+        },
+        obj2: {
+          id: objectsData.object_2_id,
+          start_frame: objectsData.object_2_start,
+          end_frame: objectsData.object_2_end,
+        },
+      };
+
+    case "delete":
+    case "break_object":
+      return {
+        obj1: {
+          id: objectsData.object_id,
+          start_frame: objectsData.object_start,
+          end_frame: objectsData.object_end,
+        },
+        obj2: null,
+      };
+
+    default:
+      return { obj1: {}, obj2: null };
+  }
+}
+
 export default function AuditModal({
   open,
   onClose,
@@ -38,6 +79,8 @@ export default function AuditModal({
     queryFn: () => getActivityLogs(projectId),
     enabled: open && !!projectId,
   });
+
+  const logs = data?.data?.logs ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -57,21 +100,22 @@ export default function AuditModal({
         {isLoading && <p className="text-center py-4">Loading...</p>}
 
         {error && (
-          <p className="text-center text-red-500 py-4">Failed to load logs</p>
+          <p className="text-center text-red-500 py-4">
+            Failed to load logs
+          </p>
         )}
 
-        {data?.data?.logs?.length === 0 && (
+        {!isLoading && logs.length === 0 && (
           <p className="text-center py-4 text-gray-500">
             No activity logs found
           </p>
         )}
 
-        {data?.data?.logs?.length > 0 && (
+        {logs.length > 0 && (
           <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
             <Table>
               <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
                 <TableRow className="hover:bg-[#3B3B3B]">
-                  {/* <TableHead className="text-center text-white">Activity ID</TableHead> */}
                   <TableHead className="text-center text-white">
                     Sr. No.
                   </TableHead>
@@ -84,7 +128,6 @@ export default function AuditModal({
                   <TableHead className="text-center text-white">
                     Obj1 End
                   </TableHead>
-
                   <TableHead className="text-center text-white">
                     Obj2 ID
                   </TableHead>
@@ -94,7 +137,6 @@ export default function AuditModal({
                   <TableHead className="text-center text-white">
                     Obj2 End
                   </TableHead>
-
                   <TableHead className="text-center text-white">
                     Operation
                   </TableHead>
@@ -105,31 +147,32 @@ export default function AuditModal({
               </TableHeader>
 
               <TableBody>
-                {[...data.data.logs]
+                {[...logs]
                   .sort(
                     (a: any, b: any) =>
                       new Date(a.activity_updated_at).getTime() -
                       new Date(b.activity_updated_at).getTime()
                   )
                   .map((log: any, index: number) => {
-                    const obj1 = log.objects_data.objects[0];
-                    const obj2 = log.objects_data.objects[1];
+                    const { obj1, obj2 } = normalizeObjects(
+                      log.operation,
+                      log.objects_data
+                    );
 
                     return (
-                      <TableRow key={index} className="hover:bg-transparent">
-                        {/* Sr. No. */}
+                      <TableRow key={log.activity_id}>
                         <TableCell className="text-center font-medium">
                           {index + 1}
                         </TableCell>
 
                         <TableCell className="text-center">
-                          {obj1?.id ?? "-"}
+                          {obj1.id ?? "-"}
                         </TableCell>
                         <TableCell className="text-center">
-                          {obj1?.start_frame ?? "-"}
+                          {obj1.start_frame ?? "-"}
                         </TableCell>
                         <TableCell className="text-center">
-                          {obj1?.end_frame ?? "-"}
+                          {obj1.end_frame ?? "-"}
                         </TableCell>
 
                         <TableCell className="text-center">
@@ -143,7 +186,7 @@ export default function AuditModal({
                         </TableCell>
 
                         <TableCell className="text-center capitalize">
-                          {log.operation}
+                          {log.operation.replace("_", " ")}
                         </TableCell>
 
                         <TableCell className="text-center">
