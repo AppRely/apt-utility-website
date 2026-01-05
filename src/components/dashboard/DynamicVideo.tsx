@@ -167,7 +167,7 @@ export default function DynamicVideo({
   const nextPrefetchFrameRef = useRef<number | null>(null);
 
   const loadedRangesRef = useRef<Set<string>>(new Set());
-  const pendingAnnoRequestRef = useRef<string | null>(null);
+  const pendingRangesRef = useRef<Set<string>>(new Set());
 
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 5;
@@ -201,6 +201,25 @@ export default function DynamicVideo({
     "#2E8B57",
     "#4682B4",
   ];
+
+  
+  const isRangeAlreadyLoading = (start: number, end: number): boolean => {
+    const key = `${start}-${end}`;
+    
+    
+    if (loadedRangesRef.current.has(key)) return true;
+    if (pendingRangesRef.current.has(key)) return true;
+    
+    for (const pendingKey of pendingRangesRef.current) {
+      const [pStart, pEnd] = pendingKey.split('-').map(Number);
+      if (!(end <= pStart || start >= pEnd)) {
+        console.log(`Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`);
+        return true;
+      }
+    }
+    return false;
+  };
+
 
   const getObjectColor = (id: number) =>
     OBJECT_COLORS[id % OBJECT_COLORS.length];
@@ -266,7 +285,7 @@ export default function DynamicVideo({
       if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
       // const twoMinFrames = 2 * 60 * fps; // 7200 frames at 30fps
-      const twoMinFrames = 30 * fps;
+      const twoMinFrames = 60 * fps;
       const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
 
       const sortedFrames = Array.from(frameTrajectory.keys())
@@ -467,6 +486,8 @@ export default function DynamicVideo({
     setCursorStyle("grab");
   };
 
+
+
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
       const { frameId } = event.detail;
@@ -489,8 +510,13 @@ export default function DynamicVideo({
       const windowStart = Math.max(0, frameId);
       const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
 
+      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    };
+    } else {
+      console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+      setIsLoadingAnnotations(false);
+    }
+        };
 
     window.addEventListener("operationComplete", handleLinkingComplete);
 
@@ -506,18 +532,24 @@ export default function DynamicVideo({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return Promise.resolve(null);
 
+      const key = `${start}-${end}`;
+      pendingRangesRef.current.add(key);
+      console.log(`Fetching [${start}-${end}]`);
+
       return getFrameRangeData(projectId, start, end);
     },
 
     onSuccess: (data, variables) => {
+      const { start, end } = variables;
+      const key = `${start}-${end}`;
       if (!data) {
+        pendingRangesRef.current.delete(key);
         console.log("  No data returned from mutation");
         return;
       }
 
       console.log(data);
-      const { start, end } = variables;
-      const key = `${start}-${end}`;
+      
 
       const loadedAnnotations: Annotation[] = [];
       const newTrajectoryFrames: TrajectoryFrame[] = [];
@@ -563,6 +595,9 @@ export default function DynamicVideo({
       const endFrame =
         typeof data.end_frame === "number" ? data.end_frame : end;
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
+      
+      pendingRangesRef.current.delete(key);
+      loadedRangesRef.current.add(key);
 
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
@@ -575,7 +610,7 @@ export default function DynamicVideo({
     onError: (error, variables) => {
       const { start, end } = variables;
       const key = `${start}-${end}`;
-
+      pendingRangesRef.current.delete(key);
       setIsLoadingAnnotations(false);
       console.error(`Failed to load annotations for ${key}:`, error);
     },
@@ -935,15 +970,17 @@ export default function DynamicVideo({
           const prefetchPoint =
             currentAnnoWindowRef.current.start + ANNO_PREFETCH_THRESHOLD;
 
+          const nextStart = frameNumber;
+          const nextEnd = Math.min(frameNumber + windowSize, totalFrames);
           if (
             frameNumber >= prefetchPoint &&
             frameNumber + windowSize <= totalFrames &&
-            nextPrefetchFrameRef.current !== frameNumber
+            // nextPrefetchFrameRef.current !== frameNumber
+            !isRangeAlreadyLoading(nextStart, nextEnd)
           ) {
             nextPrefetchFrameRef.current = frameNumber;
 
-            const nextStart = frameNumber;
-            const nextEnd = Math.min(frameNumber + windowSize, totalFrames);
+            
 
             // Check if already loading
             const key = `${nextStart}-${nextEnd}`;
@@ -1034,7 +1071,12 @@ export default function DynamicVideo({
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
     setIsLoadingAnnotations(true);
-    chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    } else {
+      console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+      setIsLoadingAnnotations(false);
+    }
     nextPrefetchFrameRef.current = null;
 
     //Extract frames for the seeked position
@@ -1086,9 +1128,14 @@ export default function DynamicVideo({
         `Slider drag: fetching annotations for ${windowStart}-${windowEnd}`
       );
       setIsLoadingAnnotations(true);
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    }
-  };
+      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+        chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      } else {
+        console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+        setIsLoadingAnnotations(false);
+      }
+          }
+        };
 
   // SCROLL HANDLER FOR FRAME STRIP
   const handleScroll = async () => {
@@ -1148,9 +1195,14 @@ export default function DynamicVideo({
         `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
       );
       setIsLoadingAnnotations(true);
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    }
-  };
+      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+        chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      } else {
+        console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+        setIsLoadingAnnotations(false);
+      }
+          }
+        };
 
   const handleFrameStep = (direction: 1 | -1) => {
     if (video) {
@@ -1200,6 +1252,7 @@ export default function DynamicVideo({
       end: windowEnd,
     });
   };
+  
 
   // handle frame jump
   const handleFrameJump = async (targetFrame: number) => {
@@ -1242,7 +1295,12 @@ export default function DynamicVideo({
       `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
     );
     setIsLoadingAnnotations(true);
-    chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    } else {
+      console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+      setIsLoadingAnnotations(false);
+    }
     nextPrefetchFrameRef.current = null;
 
     // Extract frames for the seeked position
