@@ -217,6 +217,7 @@ export default function DynamicVideo({
         return true;
       }
     }
+
     return false;
   };
 
@@ -334,7 +335,7 @@ export default function DynamicVideo({
       y: (pointer.y - stage.y()) / oldScale,
     };
 
-    let direction = e.evt.deltaY > 0 ? 1 : -1;
+    let direction = e.evt.deltaY > 0 ? -1 : 1;
     if (e.evt.ctrlKey) {
       direction = -direction;
     }
@@ -1351,12 +1352,12 @@ export default function DynamicVideo({
 
         case "ArrowLeft": // -10s
           e.preventDefault();
-          handleSkip(-10);
+          handleFrameStep?.(-1);
           break;
 
         case "ArrowRight": // +10s
           e.preventDefault();
-          handleSkip(10);
+          handleFrameStep?.(1);
           break;
 
         case "KeyJ": // -5s
@@ -1369,15 +1370,15 @@ export default function DynamicVideo({
           handleSkip(5);
           break;
 
-        case "Period": // next frame
-          e.preventDefault();
-          handleFrameStep?.(1);
-          break;
+        // case "Period": // next frame
+        //   e.preventDefault();
+        //   handleFrameStep?.(1);
+        //   break;
 
-        case "Comma": // previous frame
-          e.preventDefault();
-          handleFrameStep?.(-1);
-          break;
+        // case "Comma": // previous frame
+        //   e.preventDefault();
+        //   handleFrameStep?.(-1);
+        //   break;
 
         case "ArrowUp": // faster
           e.preventDefault();
