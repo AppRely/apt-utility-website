@@ -9,22 +9,13 @@ import { useEffect, useState, useCallback } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { SelectedObject } from "@/types/selection";
 import { useMutation } from "@tanstack/react-query";
-import { getObjectData } from "@/lib/api/getObjectData";
 import { linkObjects } from "@/lib/api/linkObjects";
 import { swapObjects } from "@/lib/api/swapObjects";
 import { breakObjects } from "@/lib/api/breakObjects";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/hooks/use-toast";
-import { addActivityLog } from "@/lib/api/addActivityLog";
 import { objectDelete } from "@/lib/api/objectDelete";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 
 type SelectedObjectProps = {
   selectedObjects: SelectedObject[];
@@ -39,7 +30,7 @@ export default function Sidebar({
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [previousFrameId, setPreviousFrameId] = useState<number | null>(null);
   const { toast } = useToast();
-  
+
   // State for dialog boxes
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
@@ -54,7 +45,8 @@ export default function Sidebar({
 
     useEffect(() => {
       const handleStorageChange = () => {
-        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
+        const newValue =
+          typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
         setValue(newValue);
       };
 
@@ -62,7 +54,8 @@ export default function Sidebar({
 
       // IMPROVED POLLING - CHECK EVERY 200MS
       const interval = setInterval(() => {
-        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
+        const newValue =
+          typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
         if (newValue !== value) {
           setValue(newValue);
           console.log(`${key} changed to:`, newValue);
@@ -96,7 +89,8 @@ export default function Sidebar({
   });
 
   const swapMutation = useMutation({
-    mutationFn: (formData: FormData) => swapObjects(Number(projectId), formData),
+    mutationFn: (formData: FormData) =>
+      swapObjects(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "Swap",
@@ -108,7 +102,7 @@ export default function Sidebar({
 
       setSelectedObjects([]);
       window.dispatchEvent(
-        new CustomEvent("linkingComplete", {
+        new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
         })
       );
@@ -116,7 +110,8 @@ export default function Sidebar({
   });
 
   const linkMutation = useMutation({
-    mutationFn: (formData: FormData) => linkObjects(Number(projectId), formData),
+    mutationFn: (formData: FormData) =>
+      linkObjects(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "✅ Success",
@@ -124,6 +119,7 @@ export default function Sidebar({
         duration: 3000,
         className: "text-green-600",
       });
+      setLinkDialogOpen(false);
 
       setSelectedObjects([]);
 
@@ -154,7 +150,8 @@ export default function Sidebar({
   });
 
   const breakMutation = useMutation({
-    mutationFn: (formData: FormData) => breakObjects(Number(projectId), formData),
+    mutationFn: (formData: FormData) =>
+      breakObjects(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "Break",
@@ -174,7 +171,8 @@ export default function Sidebar({
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (formData: FormData) => objectDelete(Number(projectId), formData),
+    mutationFn: (formData: FormData) =>
+      objectDelete(Number(projectId), formData),
     onSuccess: () => {
       toast({
         title: "Delete",
@@ -208,24 +206,6 @@ export default function Sidebar({
       window.removeEventListener("operationComplete", handleLinkingComplete);
     };
   }, [refetch]);
-  
-  const activityLogMutation = useMutation({
-    mutationFn: (payload: any) => addActivityLog(payload),
-    onSuccess: () => console.log("Activity logged!"),
-    // onError: (err: any) => console.error("Activity log failed:", err.message),
-  });
-
-  const formatObjectsData = (selectedObjects: SelectedObject[]) => {
-    const formattedObjects = selectedObjects.map((obj) => ({
-      id: obj.object_id,
-      start_frame: obj.start_frame,
-      end_frame: obj.end_frame,
-    }));
-
-    return {
-      objects: Array.isArray(formattedObjects) ? formattedObjects : [],
-    };
-  };
 
   // Reset expansions & log on frame change
   useEffect(() => {
@@ -255,7 +235,6 @@ export default function Sidebar({
   // Handler functions for each operation
   const handleLinkObjects = () => {
     if (selectedObjects.length !== 2) {
-      
       toast({
         title: "⚠️ Invalid Selection",
         description: "Please select exactly 2 objects to link.",
@@ -277,17 +256,7 @@ export default function Sidebar({
     formData.append("object_2_start", String(obj2.start_frame));
     formData.append("object_2_end", String(obj2.end_frame));
 
-    linkMutation.mutate(formData, {
-      onSuccess: () => {
-        const formattedObjects = formatObjectsData(selectedObjects);
-        activityLogMutation.mutate({
-          project_id: Number(projectId),
-          operation: "link",
-          objects_data: formattedObjects,
-        });
-        setLinkDialogOpen(false);
-      },
-    });
+    linkMutation.mutate(formData);
   };
 
   const handleSwapObjects = () => {
@@ -300,28 +269,15 @@ export default function Sidebar({
       });
       return;
     }
-    
+
     const [obj1, obj2] = selectedObjects;
 
     const formData = new FormData();
     formData.append("object_1_id", String(obj1.object_id));
     formData.append("current_frame", String(obj1.frame_id));
-    // formData.append("object_1_end", String(obj1.end_frame));
-
     formData.append("object_2_id", String(obj2.object_id));
-    // formData.append("object_2_start", String(obj1.frame_id));
-    // formData.append("object_2_end", String(obj2.end_frame));
 
-    swapMutation.mutate(formData, {
-      onSuccess: () => {
-        const formattedObjects = formatObjectsData(selectedObjects);
-        activityLogMutation.mutate({
-          project_id: Number(projectId),
-          operation: "Swap",
-          objects_data: formattedObjects,
-        });
-      },
-    });
+    swapMutation.mutate(formData);
   };
 
   const handleBreakObject = () => {
@@ -334,7 +290,7 @@ export default function Sidebar({
       });
       return;
     }
-    
+
     const [obj] = selectedObjects;
 
     const formData = new FormData();
@@ -344,53 +300,32 @@ export default function Sidebar({
     formData.append("start_frame", String(obj.start_frame));
     formData.append("end_frame", String(obj.end_frame));
 
-    
-    breakMutation.mutate(formData, {
-      onSuccess: () => {
-        const formattedObjects = formatObjectsData(selectedObjects);
-        activityLogMutation.mutate({
-          project_id: Number(projectId),
-          operation: "Break",
-          objects_data: formattedObjects,
-        });
-      },
-    });
+    breakMutation.mutate(formData);
   };
 
   const handleDeleteObject = () => {
-  if (selectedObjects.length !== 1) {
-    toast({
-      title: "⚠️ Invalid Selection",
-      description: "Please select exactly 1 object to delete.", // Fixed message
-      variant: "destructive",
-      duration: 3000,
-    });
-    return;
-  }
-  console.log("deleting log start");
-  
-  const [obj] = selectedObjects;
-console.log(obj);
-  const formData = new FormData();
-  formData.append("object_id", String(obj.object_id));
-  // formData.append("video_id", String(videoId));
-  // formData.append("frame_id", String(obj.frame_id)); // Added missing frame_id
-  formData.append("start_frame", String(obj.start_frame));
-  formData.append("end_frame", String(obj.end_frame));
-  console.log(formData);
-  deleteMutation.mutate(formData, {
-    onSuccess: () => {
-      const formattedObjects = formatObjectsData(selectedObjects);
-      activityLogMutation.mutate({
-        project_id: Number(projectId),
-        operation: "Delete",
-        objects_data: formattedObjects,
+    if (selectedObjects.length !== 1) {
+      toast({
+        title: "⚠️ Invalid Selection",
+        description: "Please select exactly 1 object to delete.", // Fixed message
+        variant: "destructive",
+        duration: 3000,
       });
-    },
-  });
-};
+      return;
+    }
+    console.log("deleting log start");
 
-// FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
+    const [obj] = selectedObjects;
+    console.log(obj);
+    const formData = new FormData();
+    formData.append("object_id", String(obj.object_id));
+    formData.append("start_frame", String(obj.start_frame));
+    formData.append("end_frame", String(obj.end_frame));
+    console.log(formData);
+    deleteMutation.mutate(formData);
+  };
+
+  // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
     if (isLoading || !initialLoadComplete) {
       return (
@@ -431,8 +366,7 @@ console.log(obj);
             <Card
               key={obj.object_id || index}
               className="border border-[#D9D9D9] border-[1px] rounded-[7px] p-3 cursor-pointer hover:shadow-md transition-all min-h-[50px]"
-              onClick={() => toggleExpand(obj.object_id)}
-            >
+              onClick={() => toggleExpand(obj.object_id)}>
               <div className="flex items-center pb-1 justify-between">
                 <div className="flex items-center">
                   <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
@@ -449,86 +383,92 @@ console.log(obj);
               {isExpanded && (
                 <div className="mt-2 pt-2 border-t border-gray-200">
                   <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                  <strong>start frame :</strong>  {obj.start_frame}
+                    <strong>start frame :</strong> {obj.start_frame}
                   </p>
                   <p className="text-[#5A5A5A] text-[13px] font-medium mb-2">
-                  <strong>end frame :</strong> {obj.end_frame}
+                    <strong>end frame :</strong> {obj.end_frame}
                   </p>
 
                   <div className="space-y-3">
-  {/* Coordinates card */}
-  <div>
-    <p className="text-xs font-medium text-neutral-800 mb-1">
-      Coordinates
-    </p>
-    <div className="rounded-md border border-neutral-200 bg-neutral-50">
-      <div className="max-h-32 overflow-y-auto px-3 py-2">
-        {obj.coordinates && obj.coordinates.length > 0 ? (
-          <ul className="space-y-1">
-            {obj.coordinates.map(
-              (point: [number, number], pointIndex: number) => {
-                const [x, y] = point;
-                return (
-                  <li
-                    key={pointIndex}
-                    className="text-[11px] text-neutral-700 flex items-start gap-2"
-                  >
-                    <span className="mt-[2px] text-[10px] text-neutral-500">
-                      {pointIndex + 1}.
-                    </span>
-                    <div className="space-y-[1px]">
-                      <div>
-                        <span className="font-medium">x</span> = {x}
-                      </div>
-                      <div>
-                        <span className="font-medium">y</span> = {y}
+                    {/* Coordinates card */}
+                    <div>
+                      <p className="text-xs font-medium text-neutral-800 mb-1">
+                        Coordinates
+                      </p>
+                      <div className="rounded-md border border-neutral-200 bg-neutral-50">
+                        <div className="max-h-32 overflow-y-auto px-3 py-2">
+                          {obj.coordinates && obj.coordinates.length > 0 ? (
+                            <ul className="space-y-1">
+                              {obj.coordinates.map(
+                                (
+                                  point: [number, number],
+                                  pointIndex: number
+                                ) => {
+                                  const [x, y] = point;
+                                  return (
+                                    <li
+                                      key={pointIndex}
+                                      className="text-[11px] text-neutral-700 flex items-start gap-2">
+                                      <span className="mt-[2px] text-[10px] text-neutral-500">
+                                        {pointIndex + 1}.
+                                      </span>
+                                      <div className="space-y-[1px]">
+                                        <div>
+                                          <span className="font-medium">x</span>{" "}
+                                          = {x}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">y</span>{" "}
+                                          = {y}
+                                        </div>
+                                      </div>
+                                    </li>
+                                  );
+                                }
+                              )}
+                            </ul>
+                          ) : (
+                            <p className="text-[11px] text-neutral-400 italic">
+                              No coordinate data
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </li>
-                );
-              }
-            )}
-          </ul>
-        ) : (
-          <p className="text-[11px] text-neutral-400 italic">
-            No coordinate data
-          </p>
-        )}
-      </div>
-    </div>
-  </div>
 
-  {/* Confidence card */}
-  <div>
-    <p className="text-xs font-medium text-neutral-800 mb-1">
-      Confidence
-    </p>
-    <div className="rounded-md border border-neutral-200 bg-neutral-50">
-      <div className="max-h-32 overflow-y-auto px-3 py-2">
-        {obj.confidence && obj.confidence.length > 0 ? (
-          <div className="grid grid-cols-1 gap-1.5">
-            {obj.confidence.map((conf: number, confIndex: number) => (
-              <span
-                key={confIndex}
-                className="inline-flex items-center justify-between rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] text-neutral-700"
-              >
-                <span className="text-[10px] text-neutral-500 mr-1">
-                  #{confIndex + 1}
-                </span>
-                <span className="font-medium tabular-nums">{conf}</span>
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[11px] text-neutral-400 italic">
-            No confidence data
-          </p>
-        )}
-      </div>
-    </div>
-  </div>
-</div>
-
+                    {/* Confidence card */}
+                    <div>
+                      <p className="text-xs font-medium text-neutral-800 mb-1">
+                        Confidence
+                      </p>
+                      <div className="rounded-md border border-neutral-200 bg-neutral-50">
+                        <div className="max-h-32 overflow-y-auto px-3 py-2">
+                          {obj.confidence && obj.confidence.length > 0 ? (
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {obj.confidence.map(
+                                (conf: number, confIndex: number) => (
+                                  <span
+                                    key={confIndex}
+                                    className="inline-flex items-center justify-between rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] text-neutral-700">
+                                    <span className="text-[10px] text-neutral-500 mr-1">
+                                      #{confIndex + 1}
+                                    </span>
+                                    <span className="font-medium tabular-nums">
+                                      {conf}
+                                    </span>
+                                  </span>
+                                )
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-neutral-400 italic">
+                              No confidence data
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </Card>
@@ -537,7 +477,6 @@ console.log(obj);
       </div>
     );
   };
-
 
   return (
     <Card className="border rounded-[7px] text-sm">
@@ -670,12 +609,16 @@ console.log(obj);
             disabled={selectedObjects.length !== 1 || deleteMutation.isPending}
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}>
-            <Image src="/images/delete.png" alt="Delete" width={25} height={25} />
+            <Image
+              src="/images/delete.png"
+              alt="Delete"
+              width={25}
+              height={25}
+            />
             {deleteMutation.isPending ? "Deleting..." : "Delete"}
           </Button>
         </div>
       </CardContent>
-
 
       <Separator />
 
@@ -684,7 +627,10 @@ console.log(obj);
           Frame #{frameId}
         </p>
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
-          fps : {typeof window !== 'undefined' ? sessionStorage.getItem("fps") : 'N/A'}
+          fps :{" "}
+          {typeof window !== "undefined"
+            ? sessionStorage.getItem("fps")
+            : "N/A"}
         </p>
       </CardContent>
 
@@ -697,155 +643,145 @@ console.log(obj);
         {renderObjectsSection()}
       </CardContent>
 
-      {/* Link Confirmation Dialog */}
-      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Confirm Link Objects</DialogTitle>
-            <DialogDescription>
-              <div className="space-y-2">
-              <span>Are you sure you want to link these {selectedObjects.length} objects?</span>
-              {selectedObjects.length === 2 && (
-                <div className="mt-4 space-y-1">
-                  <span className="block"><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Current Range: {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame})</span>
-                  <span className="block"><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Current Range: {selectedObjects[1].start_frame} to {selectedObjects[1].end_frame})</span>
-                  <span className="text-yellow-600 text-sm mt-8">This will connect the two object IDs together.</span>
-                </div>
-              )}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setLinkDialogOpen(false)}
-              disabled={linkMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="bg-[#5EC16A] hover:bg-[#4CAF50]"
-              onClick={handleLinkObjects}
-              disabled={linkMutation.isPending}
-            >
-              {linkMutation.isPending ? "Linking..." : "Confirm Link"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* LINK CONFIRM DIALOG */}
+      <ConfirmDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        title="Confirm Link Objects"
+        confirmText="Confirm Link"
+        loadingText="Linking..."
+        confirmClassName="bg-[#5EC16A] hover:bg-[#4CAF50]"
+        loading={linkMutation.isPending}
+        onConfirm={handleLinkObjects}
+        description={
+          <>
+            <p>Are you sure you want to link these 2 objects?</p>
 
-      {/* Swap Confirmation Dialog */}
-      <Dialog open={swapDialogOpen} onOpenChange={setSwapDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Confirm Swap Objects</DialogTitle>
-            <DialogDescription>
-              <div className="space-y-2">
-              <span>Are you sure you want to swap these {selectedObjects.length} objects?</span>
-              {selectedObjects.length === 2 && (
-                <div className="mt-4 space-y-1">
-                  <span className="block"><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Current Range: {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame})</span>
-                  <span className="block"><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Current Range: {selectedObjects[1].start_frame} to {selectedObjects[1].end_frame})</span>
-                  <span className="text-yellow-600 text-sm mt-8">This will swap the IDs and tracking data of the two objects.</span>
-                </div>
-              )}
+            {selectedObjects.length === 2 && (
+              <div className="mt-4 space-y-1">
+                <p>
+                  <strong>Object 1:</strong> ID {selectedObjects[0].object_id}
+                  (Current Range: {selectedObjects[0].start_frame} to{" "}
+                  {selectedObjects[0].end_frame})
+                </p>
+                <p>
+                  <strong>Object 2:</strong> ID {selectedObjects[1].object_id}
+                  (Current Range: {selectedObjects[1].start_frame} to{" "}
+                  {selectedObjects[1].end_frame})
+                </p>
+                <p className="text-yellow-600 mt-2">
+                  This will connect the two object IDs together.
+                </p>
               </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setSwapDialogOpen(false)}
-              disabled={swapMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="bg-[#4B84EE] hover:bg-[#3B74DE]"
-              onClick={handleSwapObjects}
-              disabled={swapMutation.isPending}
-            >
-              {swapMutation.isPending ? "Swapping..." : "Confirm Swap"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            )}
+          </>
+        }
+      />
 
-      {/* Break Confirmation Dialog */}
-      <Dialog open={breakDialogOpen} onOpenChange={setBreakDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Confirm Break Object</DialogTitle>
-            <DialogDescription>
-              <div className="space-y-2">
-              <span>Are you sure you want to break this object?</span>
-              {selectedObjects.length === 1 && (
-                <div className="mt-4 space-y-1">
-                  <span className="block"><strong>Object:</strong> ID {selectedObjects[0].object_id}</span>
-                  <span className="block"><strong>At Frame:</strong> {selectedObjects[0].frame_id}</span>
-                  <span className="block"><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</span>
-                  <span className="text-yellow-600 text-sm mt-8">Current ID will be deleted and a new ID will be assigned.</span>
-                </div>
-              )}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setBreakDialogOpen(false)}
-              disabled={breakMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="bg-[#DD524C] hover:bg-[#CC423C]"
-              onClick={handleBreakObject}
-              disabled={breakMutation.isPending}
-            >
-              {breakMutation.isPending ? "Breaking..." : "Confirm Break"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* SWAP CONFIRM DIALOG */}
+      <ConfirmDialog
+        open={swapDialogOpen}
+        onOpenChange={setSwapDialogOpen}
+        title="Confirm Swap Objects"
+        confirmText="Confirm Swap"
+        loadingText="Swapping..."
+        confirmClassName="bg-[#4B84EE] hover:bg-[#3B74DE]"
+        loading={swapMutation.isPending}
+        onConfirm={handleSwapObjects}
+        description={
+          <>
+            <p>Are you sure you want to swap these 2 objects?</p>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Confirm Delete Object</DialogTitle>
-            <DialogDescription>
-              <div className="space-y-2">
-              <span>Are you sure you want to delete this object?</span>
-              {selectedObjects.length === 1 && (
-                <div className="mt-4 space-y-1">
-                  <span className="block"><strong>Object:</strong> ID {selectedObjects[0].object_id}</span>
-                  <span className="block"><strong>At Frame:</strong> {selectedObjects[0].frame_id}</span>
-                  <span className="block"><strong>Current Range:</strong> Frame {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}</span>
-                  <span className="text-yellow-600 text-sm mt-8">Current ID will be deleted.</span>
-                </div>
-              )}
+            {selectedObjects.length === 2 && (
+              <div className="mt-4 space-y-1">
+                <p>
+                  <strong>Object 1:</strong> ID {selectedObjects[0].object_id}
+                  (Current Range: {selectedObjects[0].start_frame} to{" "}
+                  {selectedObjects[0].end_frame})
+                </p>
+                <p>
+                  <strong>Object 2:</strong> ID {selectedObjects[1].object_id}
+                  (Current Range: {selectedObjects[1].start_frame} to{" "}
+                  {selectedObjects[1].end_frame})
+                </p>
+                <p className="text-yellow-600 mt-2">
+                  This will swap the IDs and tracking data of the two objects.
+                </p>
               </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteDialogOpen(false)}
-              disabled={deleteMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="bg-[#DD524C] hover:bg-[#CC423C]"
-              onClick={handleDeleteObject}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Confirm Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            )}
+          </>
+        }
+      />
+      {/* BREAK CONFIRM DIALOG */}
+      <ConfirmDialog
+        open={breakDialogOpen}
+        onOpenChange={setBreakDialogOpen}
+        title="Confirm Break Object"
+        confirmText="Confirm Break"
+        loadingText="Breaking..."
+        confirmClassName="bg-[#DD524C] hover:bg-[#CC423C]"
+        loading={breakMutation.isPending}
+        onConfirm={handleBreakObject}
+        description={
+          <>
+            <p>Are you sure you want to break this object?</p>
+
+            {selectedObjects.length === 1 && (
+              <div className="mt-4 space-y-1">
+                <p>
+                  <strong>Object:</strong> ID {selectedObjects[0].object_id}
+                </p>
+                <p>
+                  <strong>At Frame:</strong> {selectedObjects[0].frame_id}
+                </p>
+                <p>
+                  <strong>Current Range:</strong> Frame{" "}
+                  {selectedObjects[0].start_frame} to{" "}
+                  {selectedObjects[0].end_frame}
+                </p>
+                <p className="text-yellow-600 mt-2">
+                  Current ID will be deleted and a new ID will be assigned.
+                </p>
+              </div>
+            )}
+          </>
+        }
+      />
+      {/* DELETE CONFIRM DIALOG */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Confirm Delete Object"
+        confirmText="Confirm Delete"
+        loadingText="Deleting..."
+        confirmClassName="bg-[#DD524C] hover:bg-[#CC423C]"
+        loading={deleteMutation.isPending}
+        onConfirm={handleDeleteObject}
+        description={
+          <>
+            <p>Are you sure you want to delete this object?</p>
+
+            {selectedObjects.length === 1 && (
+              <div className="mt-4 space-y-1">
+                <p>
+                  <strong>Object:</strong> ID {selectedObjects[0].object_id}
+                </p>
+                <p>
+                  <strong>At Frame:</strong> {selectedObjects[0].frame_id}
+                </p>
+                <p>
+                  <strong>Current Range:</strong> Frame{" "}
+                  {selectedObjects[0].start_frame} to{" "}
+                  {selectedObjects[0].end_frame}
+                </p>
+                <p className="text-yellow-600 mt-2">
+                  Current ID will be deleted.
+                </p>
+              </div>
+            )}
+          </>
+        }
+      />
     </Card>
   );
 }
