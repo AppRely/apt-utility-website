@@ -145,7 +145,7 @@ export default function DynamicVideo({
   const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
 
   const ANNO_WINDOW_SECONDS = 5;
-  const ANNO_PREFETCH_THRESHOLD = 70;
+  const ANNO_PREFETCH_THRESHOLD = Math.round((80 / 100) * ANNO_WINDOW_SECONDS * 30);
   const ANNO_THROTTLE_MS = 500;
   const INITIAL_FRAME_DURATION = 2; // Load only 2 seconds initially
   const FRAME_CHUNK_DURATION = 2; // Duration for each frame chunk
@@ -512,7 +512,7 @@ export default function DynamicVideo({
       const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
 
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
     } else {
       console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
@@ -708,7 +708,7 @@ export default function DynamicVideo({
             `Fetching initial annotations: ${initialStart}-${initialEnd}`
           );
           setIsLoadingAnnotations(true);
-          chunkMutation.mutate({ start: initialStart, end: initialEnd });
+          chunkMutation.mutate({ start: Math.max(0, initialStart), end: initialEnd });
 
           const endTime = performance.now();
           console.log(
@@ -989,7 +989,11 @@ export default function DynamicVideo({
               console.log(
                 `Progressive prefetch: frames ${nextStart}-${nextEnd}`
               );
+<<<<<<< HEAD
               chunkMutation.mutate({ start: nextStart, end: nextEnd});
+=======
+              chunkMutation.mutate({ start: Math.max(0, nextStart), end: nextEnd });
+>>>>>>> vaibhav-stable
               lastAnnoLoadTs.current = now;
             }
           }
@@ -1050,6 +1054,7 @@ export default function DynamicVideo({
     setCurrentTime(safeTime);
     setDragTime(null);
     setSelectedFrameIndex(Math.round(safeTime * fps));
+    loadedRangesRef.current.clear();
 
     //  Remember if was playing, then pause
     const wasPlaying = !video.paused;
@@ -1073,7 +1078,7 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart-60), end: windowEnd });
     } else {
       console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
@@ -1106,6 +1111,7 @@ export default function DynamicVideo({
   const handleSliderChange = (val: number[]) => {
     const time = val[0];
     setDragTime(time);
+    loadedRangesRef.current.clear();
 
     if (video && !video.paused) {
       video.pause();
@@ -1115,30 +1121,11 @@ export default function DynamicVideo({
     setAnnotationsReady(false);
     setIsLoadingAnnotations(true);
 
-    // Fetch annotations immediately on slider drag
-    const seekFrameNumber = Math.round(time * fps);
-    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-    const totalFrames = Math.floor(video?.duration ? video.duration * fps : 0);
-
-    const windowStart = Math.max(0, seekFrameNumber);
-    const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
-
-    const key = `${windowStart}-${windowEnd}`;
-    if (!loadedRangesRef.current.has(key)) {
-      console.log(
-        `Slider drag: fetching annotations for ${windowStart}-${windowEnd}`
-      );
-      setIsLoadingAnnotations(true);
-      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({ start: windowStart, end: windowEnd });
-      } else {
-        console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
-        setIsLoadingAnnotations(false);
-      }
-          }
         };
 
-  // SCROLL HANDLER FOR FRAME STRIP
+  
+
+  // // SCROLL HANDLER FOR FRAME STRIP
   const handleScroll = async () => {
     if (loading || !video) return;
     const el = containerRef.current;
@@ -1170,6 +1157,7 @@ export default function DynamicVideo({
   // SKIP HANDLER
   const handleSkip = (seconds: number) => {
     if (!video) return;
+    loadedRangesRef.current.clear();
 
     const newTime = Math.min(
       Math.max(video.currentTime + seconds, 0),
@@ -1197,7 +1185,7 @@ export default function DynamicVideo({
       );
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({ start: windowStart, end: windowEnd });
+        chunkMutation.mutate({ start: Math.max(0, windowStart-60), end: windowEnd });
       } else {
         console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
         setIsLoadingAnnotations(false);
@@ -1249,8 +1237,13 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     chunkMutation.mutate({
+<<<<<<< HEAD
       start: windowStart,
       end: windowEnd
+=======
+     start: Math.max(0, windowStart),
+      end: windowEnd,
+>>>>>>> vaibhav-stable
     });
   };
   
@@ -1258,6 +1251,7 @@ export default function DynamicVideo({
   // handle frame jump
   const handleFrameJump = async (targetFrame: number) => {
     if (!video) return;
+    loadedRangesRef.current.clear();
 
     // Clamp frame to valid range
     const totalFrames = Math.floor(video.duration * fps);
@@ -1286,7 +1280,7 @@ export default function DynamicVideo({
     setSelectedFrameIndex(safeFrame);
     sessionStorage.setItem("frameId", safeFrame.toString());
 
-    // FETCH ANNOTATIONS (exact handleSeek logic)
+    // FETCH ANNOTATIONS 
     const seekFrameNumber = safeFrame;
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
     const windowStart = Math.max(0, seekFrameNumber);
@@ -1297,7 +1291,7 @@ export default function DynamicVideo({
     );
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart-60), end: windowEnd });
     } else {
       console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
@@ -1719,7 +1713,8 @@ export default function DynamicVideo({
               max={duration || 100}
               step={0.01}
               onValueChange={handleSliderChange}
-              onValueCommit={(val) => handleSeek(val[0])}
+              onValueCommit={(val) => {handleSeek(val[0]) 
+                setDragTime(null);}}
               className="flex-1 min-w-[240px]"
             />
 
