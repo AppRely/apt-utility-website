@@ -1050,6 +1050,7 @@ export default function DynamicVideo({
     setCurrentTime(safeTime);
     setDragTime(null);
     setSelectedFrameIndex(Math.round(safeTime * fps));
+    loadedRangesRef.current.clear();
 
     //  Remember if was playing, then pause
     const wasPlaying = !video.paused;
@@ -1106,6 +1107,7 @@ export default function DynamicVideo({
   const handleSliderChange = (val: number[]) => {
     const time = val[0];
     setDragTime(time);
+    loadedRangesRef.current.clear();
 
     if (video && !video.paused) {
       video.pause();
@@ -1151,6 +1153,7 @@ export default function DynamicVideo({
   // SKIP HANDLER
   const handleSkip = (seconds: number) => {
     if (!video) return;
+    loadedRangesRef.current.clear();
 
     const newTime = Math.min(
       Math.max(video.currentTime + seconds, 0),
@@ -1239,6 +1242,7 @@ export default function DynamicVideo({
   // handle frame jump
   const handleFrameJump = async (targetFrame: number) => {
     if (!video) return;
+    loadedRangesRef.current.clear();
 
     // Clamp frame to valid range
     const totalFrames = Math.floor(video.duration * fps);
