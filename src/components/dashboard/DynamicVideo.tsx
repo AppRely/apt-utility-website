@@ -30,8 +30,6 @@ import {
   Rect,
   Line,
 } from "react-konva";
-import { extractFramesExact } from "@/lib/ffmpeg/extractFramesFast";
-import { loadFFmpeg } from "@/lib/ffmpeg/ffmpeg";
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { getFrameRangeData } from "@/lib/api/getFrameRangeData";
@@ -60,58 +58,14 @@ type SelectedObjectProps = {
   setSelectedObjects: React.Dispatch<React.SetStateAction<SelectedObject[]>>;
 };
 
-const videoBlobCache = new Map<number, Promise<Blob>>();
-let videoFetchController: AbortController | null = null;
-
-async function fetchVideoBlob(videoId: number, apiUrl: string): Promise<Blob> {
-  if (videoBlobCache.has(videoId)) {
-    console.log(`Using cached blob for video ${videoId}`);
-    return videoBlobCache.get(videoId)!;
-  }
-
-  if (videoFetchController) {
-    videoFetchController.abort();
-  }
-
-  videoFetchController = new AbortController();
-
-  console.log(`Fetching video blob for ${videoId}...`);
-  const startTime = performance.now();
-
-  const promise = (async () => {
-    try {
-      const res = await fetch(apiUrl, {
-        signal: videoFetchController!.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Failed to fetch video: ${res.statusText}`);
-      }
-
-      const blob = await res.blob();
-      const endTime = performance.now();
-
-      return blob;
-    } catch (err: any) {
-      if (err.name === "AbortError") {
-        console.log(`Video fetch cancelled`);
-      }
-      throw err;
-    }
-  })();
-
-  videoBlobCache.set(videoId, promise);
-
-  return promise;
-}
-
 export default function DynamicVideo({
   selectedObjects,
   setSelectedObjects,
 }: SelectedObjectProps) {
-  const [file, setFile] = useState<File | null>(null);
+  
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
+  const [projectId, setProjectId] = useState<number | null>(null);
   const [fps, setFps] = useState(30);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -126,7 +80,6 @@ export default function DynamicVideo({
   const [videoHeight, setVideoHeight] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [videoId, setVideoId] = useState<number | null>(null);
 
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
@@ -147,8 +100,8 @@ export default function DynamicVideo({
   const ANNO_WINDOW_SECONDS = 5;
   const ANNO_PREFETCH_THRESHOLD = 70;
   const ANNO_THROTTLE_MS = 500;
-  const INITIAL_FRAME_DURATION = 2; // Load only 2 seconds initially
-  const FRAME_CHUNK_DURATION = 2; // Duration for each frame chunk
+  const INITIAL_FRAME_DURATION = 2; 
+  const FRAME_CHUNK_DURATION = 2; 
 
   const layerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -202,6 +155,32 @@ export default function DynamicVideo({
     "#4682B4",
   ];
 
+  useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const storedProjectId = sessionStorage.getItem("projectId");
+  const storedFps = sessionStorage.getItem("fps");
+  const storedWidth = sessionStorage.getItem("width");
+  const storedHeight = sessionStorage.getItem("height");
+  const storedDuration = sessionStorage.getItem("duration");
+  const storedTotalFrames = sessionStorage.getItem("total_frames");
+
+  if (storedProjectId) setProjectId(Number(storedProjectId));
+  if (storedFps) setFps(Number(storedFps));
+  if (storedWidth) setVideoWidth(Number(storedWidth));
+  if (storedHeight) setVideoHeight(Number(storedHeight));
+  if (storedDuration) setDuration(Number(storedDuration));
+
+  console.log("📦 Session video meta loaded:", {
+    projectId: storedProjectId,
+    fps: storedFps,
+    width: storedWidth,
+    height: storedHeight,
+    duration: storedDuration,
+    totalFrames: storedTotalFrames,
+  });
+}, []);
+
   
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
@@ -213,7 +192,7 @@ export default function DynamicVideo({
     for (const pendingKey of pendingRangesRef.current) {
       const [pStart, pEnd] = pendingKey.split('-').map(Number);
       if (!(end <= pStart || start >= pEnd)) {
-        console.log(`Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`);
+        // console.log(`Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`);
         return true;
       }
     }
@@ -233,7 +212,7 @@ export default function DynamicVideo({
         .play()
         .then(() => {
           setIsPlaying(true);
-          console.log("▶️ Video playing");
+          // console.log("▶️ Video playing");
         })
         .catch((error) => {
           console.warn("  Autoplay prevented:", error);
@@ -246,19 +225,9 @@ export default function DynamicVideo({
     } else {
       video.pause();
       setIsPlaying(false);
-      console.log("⏸️ Video paused");
+      // console.log("⏸️ Video paused");
     }
   }, [video, toast]);
-
-  useEffect(() => {
-    const storedId =
-      typeof window !== "undefined"
-        ? sessionStorage.getItem("projectId")
-        : null;
-    if (storedId) {
-      setVideoId(Number(storedId));
-    }
-  }, []);
 
   useEffect(() => {
     if (annotationsReady && video && video.paused) {
@@ -514,7 +483,7 @@ export default function DynamicVideo({
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     } else {
-      console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+      // console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
     }
         };
@@ -526,16 +495,13 @@ export default function DynamicVideo({
     };
   }, [video, fps]);
 
-  const projectId = Number(
-    typeof window !== "undefined" ? sessionStorage.getItem("projectId") : null
-  );
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return Promise.resolve(null);
 
       const key = `${start}-${end}`;
       pendingRangesRef.current.add(key);
-      console.log(`Fetching [${start}-${end}]`);
+      // console.log(`Fetching [${start}-${end}]`);
 
       return getFrameRangeData(projectId, start, end);
     },
@@ -545,11 +511,11 @@ export default function DynamicVideo({
       const key = `${start}-${end}`;
       if (!data) {
         pendingRangesRef.current.delete(key);
-        console.log("  No data returned from mutation");
+        // console.log("  No data returned from mutation");
         return;
       }
 
-      console.log(data);
+      // console.log(data);
       
 
       const loadedAnnotations: Annotation[] = [];
@@ -603,9 +569,9 @@ export default function DynamicVideo({
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
 
-      console.log(
-        `Annotations loaded for ${key} (${loadedAnnotations.length} new)`
-      );
+      // console.log(
+      //   `Annotations loaded for ${key} (${loadedAnnotations.length} new)`
+      // );
     },
 
     onError: (error, variables) => {
@@ -631,7 +597,7 @@ export default function DynamicVideo({
 
   const activityLogsQuery = useQuery({
     queryKey: ["activity-logs", projectId],
-    queryFn: () => getActivityLogs(projectId),
+    queryFn: () => getActivityLogs(projectId!),
     enabled: !!projectId,
     refetchOnWindowFocus: false,
   });
@@ -652,11 +618,10 @@ export default function DynamicVideo({
         typeof window !== "undefined"
           ? sessionStorage.getItem("projectId")
           : null;
-
       if (!projectId) return;
 
       try {
-        console.log("  Starting optimized video load...");
+        // console.log("  Starting optimized video load...");
         const startTime = performance.now();
 
         //Use direct API URL
@@ -670,19 +635,11 @@ export default function DynamicVideo({
         vid.playsInline = true; // Important for mobile compatibility
 
         vid.onloadedmetadata = async () => {
-          console.log("  Video metadata loaded");
-          setDuration(vid.duration);
-
-          // Get FPS (Optimized - no FFmpeg)
-          const exactFps = await getVideoFPS(vid);
-          setFps(exactFps);
-          setVideoWidth(vid.videoWidth);
-          setVideoHeight(vid.videoHeight);
 
           // STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
           const firstBatch = await runCancelableExtraction(
             async () => {
-              console.log("Extracting initial frames (2 sec)...");
+              // console.log("Extracting initial frames (2 sec)...");
               return await extractFramesFromVideo(
                 vid,
                 0,
@@ -695,25 +652,25 @@ export default function DynamicVideo({
             INITIAL_FRAME_DURATION
           );
           setFrames(firstBatch);
-          console.log(`Initial frames loaded: ${firstBatch.length} frames`);
+          // console.log(`Initial frames loaded: ${firstBatch.length} frames`);
 
           //STEP 2: Fetch initial annotations (Non-blocking)
           const initialStart = 0;
           const initialEnd = Math.min(
-            Math.round(ANNO_WINDOW_SECONDS * exactFps),
-            Math.floor(vid.duration * exactFps)
+            Math.round(ANNO_WINDOW_SECONDS * fps),
+            Math.floor(duration * fps)
           );
 
-          console.log(
-            `Fetching initial annotations: ${initialStart}-${initialEnd}`
-          );
+          // console.log(
+          //   `Fetching initial annotations: ${initialStart}-${initialEnd}`
+          // );
           setIsLoadingAnnotations(true);
           chunkMutation.mutate({ start: initialStart, end: initialEnd });
 
           const endTime = performance.now();
-          console.log(
-            `Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`
-          );
+          // console.log(
+          //   `Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`
+          // );
         };
 
         vid.onerror = () => {
@@ -726,7 +683,6 @@ export default function DynamicVideo({
 
         // FIXED: Set video state after it's fully loaded
         setVideo(vid);
-        setVideoId(Number(videoId));
       } catch (error) {
         console.error("Failed to load video:", error);
         toast({
@@ -740,7 +696,7 @@ export default function DynamicVideo({
   }, []);
 
   const undoMutation = useMutation({
-    mutationFn: () => undoAction(projectId),
+    mutationFn: () => undoAction(projectId!),
     onSuccess: () => {
       toast({
         title: "Undo successful",
@@ -770,7 +726,7 @@ export default function DynamicVideo({
   });
 
   const redoMutation = useMutation({
-    mutationFn: () => redoAction(projectId),
+    mutationFn: () => redoAction(projectId!),
     onSuccess: () => {
       toast({
         title: "Redo successful",
@@ -833,25 +789,6 @@ export default function DynamicVideo({
   const scaleX = videoWidth ? 650 / videoWidth : 1;
   const scaleY = videoHeight ? 650 / videoHeight : 1;
 
-  // OPTIMIZED: SKIP FFmpeg FPS DETECTION (Use default 30 FPS)
-  const getVideoFPS = async (
-    file: File | HTMLVideoElement
-  ): Promise<number> => {
-    // If HTMLVideoElement, try to get FPS from it
-    if (file instanceof HTMLVideoElement) {
-      try {
-        const fps = (file as any).frameRate || 30;
-        sessionStorage.setItem("fps", fps);
-        return fps;
-      } catch {
-        return 30;
-      }
-    }
-
-    // For File, use default 30 FPS (Fastest - no overhead)
-    return 30;
-  };
-
   // CANCELABLE EXTRACTION WITH EARLY ABORT
   const runCancelableExtraction = async (
     fn: () => Promise<Frame[]>,
@@ -862,18 +799,19 @@ export default function DynamicVideo({
   ) => {
     extractionAbort.current = true;
     if (ongoingExtraction.current) {
-      console.log(`Aborting ongoing ${currentTaskType.current} extraction`);
+      console.log(`[${type}] Aborting ongoing ${currentTaskType.current} extraction`);
       await ongoingExtraction.current;
     }
     extractionAbort.current = false;
 
     currentTaskType.current = type;
     setLoading(true);
+    console.log(`[${type}] Starting extraction for chunk ${chunk}, seconds ${startSec}-${startSec + durationSec}`);
 
     const promise = (async () => {
       const result = await fn();
       if (extractionAbort.current) {
-        console.log(`Extraction aborted: ${type}`);
+        console.log(`[${type}] Extraction aborted for chunk ${chunk}`);
         return [];
       }
       return result;
@@ -895,6 +833,7 @@ export default function DynamicVideo({
     durationSec: number
   ): Promise<Frame[]> => {
     try {
+      console.log(`→ ExtractFrames: Starting at ${startSec}s for ${durationSec}s`);
       // Create a video element for frame extraction
       const tempVideo = document.createElement("video");
       tempVideo.src = videoElement.src;
@@ -930,11 +869,12 @@ export default function DynamicVideo({
               index: Math.round(currentSec * fps),
               src: dataUrl,
             });
+            // console.log(`Frame ${Math.round(currentSec * fps)} captured at ${currentSec.toFixed(3)}s`);
             resolve(null);
           };
         });
       }
-
+      console.log(`ExtractFrames: Finished, total frames: ${frames.length}`);
       return frames;
     } catch (error) {
       console.error("Error extracting frames:", error);
@@ -966,7 +906,7 @@ export default function DynamicVideo({
         const frameNumber = Math.round(vid.currentTime * fps);
 
         if (currentAnnoWindowRef.current) {
-          const totalFrames = Math.floor(vid.duration * fps);
+          const totalFrames = Math.floor(duration * fps);
           const windowSize = Math.round(ANNO_WINDOW_SECONDS * fps);
           const prefetchPoint =
             currentAnnoWindowRef.current.start + ANNO_PREFETCH_THRESHOLD;
@@ -986,9 +926,9 @@ export default function DynamicVideo({
             // Check if already loading
             const key = `${nextStart}-${nextEnd}`;
             if (!loadedRangesRef.current.has(key)) {
-              console.log(
-                `Progressive prefetch: frames ${nextStart}-${nextEnd}`
-              );
+              // console.log(
+              //   `Progressive prefetch: frames ${nextStart}-${nextEnd}`
+              // );
               chunkMutation.mutate({ start: nextStart, end: nextEnd });
               lastAnnoLoadTs.current = now;
             }
@@ -999,12 +939,12 @@ export default function DynamicVideo({
 
     const handlePlay = () => {
       setIsPlaying(true);
-      console.log("Video started playing");
+      // console.log("Video started playing");
     };
 
     const handlePause = () => {
       setIsPlaying(false);
-      console.log("Video paused");
+      // console.log("Video paused");
       if (!video) return;
       const frameNumber = Math.round(video.currentTime * fps);
       sessionStorage.setItem("frameId", frameNumber.toString());
@@ -1075,7 +1015,7 @@ export default function DynamicVideo({
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     } else {
-      console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+      // console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
     }
     nextPrefetchFrameRef.current = null;
@@ -1125,14 +1065,14 @@ export default function DynamicVideo({
 
     const key = `${windowStart}-${windowEnd}`;
     if (!loadedRangesRef.current.has(key)) {
-      console.log(
-        `Slider drag: fetching annotations for ${windowStart}-${windowEnd}`
-      );
+      // console.log(
+      //   `Slider drag: fetching annotations for ${windowStart}-${windowEnd}`
+      // );
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({ start: windowStart, end: windowEnd });
       } else {
-        console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+        // console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
         setIsLoadingAnnotations(false);
       }
           }
@@ -1192,14 +1132,14 @@ export default function DynamicVideo({
 
     const key = `${windowStart}-${windowEnd}`;
     if (!loadedRangesRef.current.has(key)) {
-      console.log(
-        `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
-      );
+      // console.log(
+      //   `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
+      // );
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({ start: windowStart, end: windowEnd });
       } else {
-        console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+        // console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
         setIsLoadingAnnotations(false);
       }
           }
@@ -1292,14 +1232,14 @@ export default function DynamicVideo({
     const windowStart = Math.max(0, seekFrameNumber);
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
-    console.log(
-      `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
-    );
+    // console.log(
+    //   `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
+    // );
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     } else {
-      console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
+      // console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
     }
     nextPrefetchFrameRef.current = null;
@@ -1559,7 +1499,7 @@ export default function DynamicVideo({
                         }
 
                         if (selectedObjects.length >= 2) {
-                          console.log("  Maximum 2 selections allowed");
+                          // console.log("  Maximum 2 selections allowed");
                           toast({
                             title: "  Maximum 2 selections allowed.",
                             description: "",
@@ -1570,7 +1510,7 @@ export default function DynamicVideo({
                         }
 
                         if (!projectId) {
-                          console.log("Project ID not available");
+                          // console.log("Project ID not available");
                           return;
                         }
 
@@ -1602,7 +1542,7 @@ export default function DynamicVideo({
                                 duration: 1000,
                               });
 
-                              console.log("Object selected:", newSelection);
+                              // console.log("Object selected:", newSelection);
                             },
                           }
                         );
