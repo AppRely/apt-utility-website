@@ -989,11 +989,7 @@ export default function DynamicVideo({
               console.log(
                 `Progressive prefetch: frames ${nextStart}-${nextEnd}`
               );
-<<<<<<< HEAD
-              chunkMutation.mutate({ start: nextStart, end: nextEnd});
-=======
               chunkMutation.mutate({ start: Math.max(0, nextStart), end: nextEnd });
->>>>>>> vaibhav-stable
               lastAnnoLoadTs.current = now;
             }
           }
