@@ -144,11 +144,11 @@ export default function DynamicVideo({
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
 
-  const ANNO_WINDOW_SECONDS = 5;
-  const ANNO_PREFETCH_THRESHOLD = Math.round((80 / 100) * ANNO_WINDOW_SECONDS * 30);
+  const ANNO_WINDOW_SECONDS = 6;
+  const ANNO_PREFETCH_THRESHOLD = Math.round((30 / 100) * ANNO_WINDOW_SECONDS * 30);
   const ANNO_THROTTLE_MS = 500;
-  const INITIAL_FRAME_DURATION = 2; // Load only 2 seconds initially
-  const FRAME_CHUNK_DURATION = 2; // Duration for each frame chunk
+  const INITIAL_FRAME_DURATION = 2; 
+  const FRAME_CHUNK_DURATION = 2;
 
   const layerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -512,7 +512,7 @@ export default function DynamicVideo({
       const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
 
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart-600), end: windowEnd });
     } else {
       console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
@@ -1078,7 +1078,7 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: Math.max(0, windowStart-60), end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
     } else {
       console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
@@ -1185,7 +1185,7 @@ export default function DynamicVideo({
       );
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({ start: Math.max(0, windowStart-60), end: windowEnd });
+        chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
       } else {
         console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
         setIsLoadingAnnotations(false);
@@ -1339,27 +1339,27 @@ export default function DynamicVideo({
 
       switch (e.code) {
         case "Space":
-        case "KeyP": // play / pause
+        case "KeyP": 
           e.preventDefault();
           togglePlayPause();
           break;
 
-        case "ArrowLeft": // -10s
+        case "ArrowLeft": 
           e.preventDefault();
           handleFrameStep?.(-1);
           break;
 
-        case "ArrowRight": // +10s
+        case "ArrowRight":
           e.preventDefault();
           handleFrameStep?.(1);
           break;
 
-        case "KeyJ": // -5s
+        case "KeyJ": 
           e.preventDefault();
           handleSkip(-5);
           break;
 
-        case "KeyL": // +5s
+        case "KeyL": 
           e.preventDefault();
           handleSkip(5);
           break;
