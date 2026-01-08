@@ -1233,13 +1233,8 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     chunkMutation.mutate({
-<<<<<<< HEAD
-      start: windowStart,
-      end: windowEnd
-=======
-     start: Math.max(0, windowStart),
-      end: windowEnd,
->>>>>>> vaibhav-stable
+    start: Math.max(0, windowStart),
+    end: windowEnd,
     });
   };
   
