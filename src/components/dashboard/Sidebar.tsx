@@ -58,7 +58,7 @@ export default function Sidebar({
           typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
         if (newValue !== value) {
           setValue(newValue);
-          console.log(`${key} changed to:`, newValue);
+          // console.log(`${key} changed to:`, newValue);
         }
       }, 200);
 
@@ -134,7 +134,7 @@ export default function Sidebar({
 
       // REFETCH SIDEBAR DATA AFTER 500MS (AFTER MAIN COMPONENT PROCESSES)
       setTimeout(() => {
-        console.log(" Refetching sidebar data after linking...");
+        // console.log(" Refetching sidebar data after linking...");
         refetch();
       }, 500);
     },
@@ -193,7 +193,7 @@ export default function Sidebar({
   // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
-      console.log("📡 Sidebar received linking complete event");
+      // console.log("📡 Sidebar received linking complete event");
       setTimeout(() => {
         refetch();
       }, 1000);
@@ -210,13 +210,13 @@ export default function Sidebar({
   useEffect(() => {
     if (data) {
       setExpandedIds(new Set());
-      console.log(
-        `Frame ${frameId}: ${data.objects?.length || 0} objects loaded`
-      );
-      console.log(
-        "Sample coordinates (Object 0):",
-        data.objects?.[0]?.coordinates?.slice(0, 2)
-      );
+      // console.log(
+      //   `Frame ${frameId}: ${data.objects?.length || 0} objects loaded`
+      // );
+      // console.log(
+      //   "Sample coordinates (Object 0):",
+      //   data.objects?.[0]?.coordinates?.slice(0, 2)
+      // );
       setInitialLoadComplete(true);
       setPreviousFrameId(Number(frameId));
     }
@@ -311,15 +311,15 @@ export default function Sidebar({
       });
       return;
     }
-    console.log("deleting log start");
+    // console.log("deleting log start");
 
     const [obj] = selectedObjects;
-    console.log(obj);
+    // console.log(obj);
     const formData = new FormData();
     formData.append("object_id", String(obj.object_id));
     formData.append("start_frame", String(obj.start_frame));
     formData.append("end_frame", String(obj.end_frame));
-    console.log(formData);
+    // console.log(formData);
     deleteMutation.mutate(formData);
   };
 
@@ -636,7 +636,7 @@ export default function Sidebar({
 
       <CardContent className="p-3 flex-1 flex flex-col">
         <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
-          Objects ({data?.objects?.length || 0})
+          Objects ({data?.data?.objects?.length || 0})
         </p>
         {renderObjectsSection()}
       </CardContent>

@@ -128,13 +128,17 @@ export default function AnnotationLandingPage() {
                 size="sm"
                 className="bg-purple-100 text-purple-700 hover:bg-purple-100"
                 onClick={() => {
-                  sessionStorage.setItem("projectId", p.project_id);
+                  sessionStorage.setItem("projectId", String(p.project_id));
                   sessionStorage.setItem("project_name", p.project_name);
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);
                   sessionStorage.setItem("frameId", "0");
-                  sessionStorage.setItem("fps", "30");
+                  sessionStorage.setItem("fps", String(p.fps));
+                  sessionStorage.setItem("width", String(p.width));
+                  sessionStorage.setItem("height", String(p.height));
+                  sessionStorage.setItem("duration", String(p.duration));
+                  sessionStorage.setItem("total_frames", String(p.total_frames));
                   router.push("/dashboard");
                 }}>
                 Edit
