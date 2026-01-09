@@ -554,7 +554,6 @@ export default function DynamicVideo({
 
       const loadedAnnotations: Annotation[] = [];
       const newTrajectoryFrames: TrajectoryFrame[] = [];
-      data = data.data;
       data.objects?.forEach((obj: { frames: any[]; object_id: number }) => {
         obj.frames.forEach((f: any) => {
           loadedAnnotations.push({
