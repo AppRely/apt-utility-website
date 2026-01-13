@@ -159,8 +159,11 @@ export default function AnnotationLandingPage() {
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);
-                  sessionStorage.setItem("frameId", "0");
-                  sessionStorage.setItem("fps", "30");
+                  sessionStorage.setItem("fps", p.fps);
+                  sessionStorage.setItem("width", p.width);
+                  sessionStorage.setItem("height", p.height);
+                  sessionStorage.setItem("duration", p.duration);
+                  sessionStorage.setItem("total_frames", p.total_frames);
                   router.push("/dashboard");
                 }}>
                 Edit
