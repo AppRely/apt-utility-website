@@ -1336,7 +1336,7 @@ const exportMutation = useMutation({
     );
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: Math.max(0, windowStart-60), end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart-350), end: windowEnd });
     } else {
       console.log(`Skipping [${windowStart}-${windowEnd}] - already loading/loaded`);
       setIsLoadingAnnotations(false);
