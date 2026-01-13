@@ -231,17 +231,16 @@ export default function DynamicVideo({
     }
   }, [video, toast]);
 
-
   useEffect(() => {
-  if (!video || !annotationsReady) return;
+    if (!video || !annotationsReady) return;
 
-  // ▶️ Auto-play ONLY once (initial load)
-  if (!hasAutoPlayedRef.current) {
-    video.play().catch(() => {});
-    setIsPlaying(true);
-    hasAutoPlayedRef.current = true;
-  }
-}, [annotationsReady, video]);
+    // ▶️ Auto-play ONLY once (initial load)
+    if (!hasAutoPlayedRef.current) {
+      video.play().catch(() => {});
+      setIsPlaying(true);
+      hasAutoPlayedRef.current = true;
+    }
+  }, [annotationsReady, video]);
 
   // BUILD TRAJECTORY MAP
   useEffect(() => {
@@ -1025,8 +1024,8 @@ export default function DynamicVideo({
   const handleSeek = async (time: number) => {
     if (!video) return;
 
-    video.pause();          // ⏸ FORCE pause
-  setIsPlaying(false);
+    video.pause(); // ⏸ FORCE pause
+    setIsPlaying(false);
 
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     video.currentTime = safeTime;
@@ -1189,7 +1188,7 @@ export default function DynamicVideo({
     if (!video) return;
 
     video.pause();
-  setIsPlaying(false);
+    setIsPlaying(false);
 
     const frameTime = frame.index / fps;
     video.currentTime = frameTime;

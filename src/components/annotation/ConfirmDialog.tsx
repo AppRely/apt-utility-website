@@ -18,7 +18,7 @@ type ConfirmDialogProps = {
   confirmText: string;
   confirmClassName?: string;
   loading?: boolean;
-  loadingText?: string; 
+  loadingText?: string;
   onConfirm: () => void;
 };
 
@@ -55,8 +55,7 @@ export function ConfirmDialog({
           <Button
             onClick={onConfirm}
             disabled={loading}
-            className={confirmClassName}
-          >
+            className={confirmClassName}>
             {loading ? loadingText : confirmText}
           </Button>
         </DialogFooter>

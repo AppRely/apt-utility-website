@@ -100,9 +100,7 @@ export default function AuditModal({
         {isLoading && <p className="text-center py-4">Loading...</p>}
 
         {error && (
-          <p className="text-center text-red-500 py-4">
-            Failed to load logs
-          </p>
+          <p className="text-center text-red-500 py-4">Failed to load logs</p>
         )}
 
         {!isLoading && logs.length === 0 && (
