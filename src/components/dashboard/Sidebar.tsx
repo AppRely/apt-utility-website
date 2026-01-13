@@ -636,7 +636,7 @@ export default function Sidebar({
 
       <CardContent className="p-3 flex-1 flex flex-col">
         <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
-          Objects ({data?.objects?.length || 0})
+          Objects ({data?.data?.objects?.length || 0})
         </p>
         {renderObjectsSection()}
       </CardContent>
