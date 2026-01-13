@@ -211,7 +211,7 @@ export default function Sidebar({
     if (data) {
       setExpandedIds(new Set());
       console.log(
-        `Frame ${frameId}: ${data.objects?.length || 0} objects loaded`
+        `Frame ${frameId}: ${data.data.objects?.length || 0} objects loaded`
       );
       console.log(
         "Sample coordinates (Object 0):",

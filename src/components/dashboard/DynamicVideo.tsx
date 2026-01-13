@@ -39,6 +39,8 @@ import { SelectedObject } from "@/types/selection";
 import { undoAction, redoAction } from "@/lib/api/undoRedo";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
+import { exportTrk } from "@/lib/api/exportTrk";
+import { ExportResponse } from '@/types/export';
 
 type Frame = { index: number; src: string };
 type Annotation = {
@@ -202,9 +204,14 @@ export default function DynamicVideo({
     "#4682B4",
   ];
 
+  const [exportData, setExportData] = useState<ExportResponse | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
+
   
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
-    const key = `${start}-${end}`;
+  const key = `${start}-${end}`;
+  
     
     
     if (loadedRangesRef.current.has(key)) return true;
@@ -529,6 +536,7 @@ export default function DynamicVideo({
   const projectId = Number(
     typeof window !== "undefined" ? sessionStorage.getItem("projectId") : null
   );
+
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return Promise.resolve(null);
@@ -554,7 +562,6 @@ export default function DynamicVideo({
 
       const loadedAnnotations: Annotation[] = [];
       const newTrajectoryFrames: TrajectoryFrame[] = [];
-      data = data.data;
       data.objects?.forEach((obj: { frames: any[]; object_id: number }) => {
         obj.frames.forEach((f: any) => {
           loadedAnnotations.push({
@@ -635,6 +642,53 @@ export default function DynamicVideo({
     enabled: !!projectId,
     refetchOnWindowFocus: false,
   });
+
+//   const exportMutation = useMutation({
+//   mutationFn: () => exportTrk(projectId!),
+//   onSuccess: (data) => {
+//     toast({
+//       title: "Export started",
+//       description: "Your export is being processed",
+//       duration: 2000,
+//       className: "text-green-600",
+//     });
+//     setExportData(data);
+//     console.log("Export response:", data);
+//   },
+//   onError: (error) => {
+//     console.error("Export failed", error);
+//     toast({
+//       title: "Export failed",
+//       description: "Unable to export project",
+//       variant: "destructive",
+//     });
+//   },
+// });
+
+//const [downloadUrl, setDownloadUrl] = useState(null);
+const [trkVersion, setTrkVersion] = useState(null);
+//const [isExporting, setIsExporting] = useState(false);
+
+const exportMutation = useMutation({
+  mutationFn: () => exportTrk(projectId),
+  onMutate: () => {
+    setIsExporting(true);
+    setDownloadUrl(null);
+  },
+  onSuccess: (response) => {
+    setDownloadUrl(response.data.download_url);
+    console.log("Export response:", response);
+    console.log("setDownloadUrl:", downloadUrl);
+    setTrkVersion(response.data.trk_version);
+    setIsExporting(false);
+  },
+  onError: () => {
+    setIsExporting(false);
+    setDownloadUrl(null);
+  }
+});
+
+
 
   const undoCount = activityLogsQuery.data?.data?.total_undo_can_perform ?? 0;
 
@@ -1524,6 +1578,7 @@ export default function DynamicVideo({
 
                   const boxWidth = maxX - minX;
                   const boxHeight = maxY - minY;
+          
 
                   return (
                     <Group
@@ -1635,6 +1690,63 @@ export default function DynamicVideo({
           <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
             {(stageScale.x * 100).toFixed(0)}%
           </div>
+
+          {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+            <Button
+              className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
+              disabled={!projectId || exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
+              {exportMutation.isPending ? "Exporting..." : "Export"}
+              <Image
+                src="/images/exportDownArrow.svg"
+                alt="Export Down Arrow"
+                width={13}
+                height={7}
+              />
+            </Button>
+          </div> */}
+
+        
+
+        <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+  {downloadUrl ? (
+    // Download button
+    <Button
+      className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
+      onClick={() => {
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        // Optional: Reset after download
+        setDownloadUrl(null);
+      }}
+    >
+      <Image src="/images/download.svg" alt="Download" width={15} height={15} />
+      Download TRK
+      <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
+    </Button>
+  ) : (
+    // Original export button
+    <Button
+      className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
+      disabled={!projectId || isExporting}
+      onClick={() => exportMutation.mutate()}
+    >
+      <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
+      {isExporting ? "Exporting..." : "Export"}
+      <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
+    </Button>
+  )}
+</div>
+
+
+
+
 
           {/* FRAME NUMBER DISPLAY */}
           <div className="absolute top-2 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">

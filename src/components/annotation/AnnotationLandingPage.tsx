@@ -6,6 +6,14 @@ import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -16,16 +24,19 @@ import {
 } from "@/components/ui/table";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation ,useQueryClient } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { getProjectList } from "@/lib/api/getProjectList";
 import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
+import { deleteProject } from "@/lib/api/deleteProject";
 
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
 
   const router = useRouter();
 
@@ -34,6 +45,20 @@ export default function AnnotationLandingPage() {
     queryKey: ["project-list"],
     queryFn: getProjectList,
   });
+
+  const queryClient = useQueryClient()
+  const deleteMutation = useMutation({
+    mutationFn: deleteProject,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+
+  const handleDeleteClick = () => {
+    if (deleteProjectId) {
+      deleteMutation.mutate(deleteProjectId)
+    }
+  }
 
   // Format backend array
   // const projects = data || [];
@@ -139,6 +164,7 @@ export default function AnnotationLandingPage() {
                 }}>
                 Edit
               </Button>
+
               <Button
                 size="sm"
                 className="bg-blue-100 text-blue-700 hover:bg-blue-200"
@@ -147,6 +173,16 @@ export default function AnnotationLandingPage() {
                   setAuditProjectId(p.project_id);
                 }}>
                 Audit
+              </Button>
+
+              <Button
+                size="sm"
+                className="bg-red-100 text-red-700 hover:bg-red-200"
+                onClick={() => {
+                  setDeleteOpen(true);
+                  setDeleteProjectId(p.project_id);
+                }}>
+                Delete
               </Button>
             </TableCell>
           </TableRow>
@@ -243,6 +279,33 @@ export default function AnnotationLandingPage() {
           projectId={Number(auditProjectId)}
         />
       )}
+
+        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the project and remove all associated data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => handleDeleteClick()}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Project'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
