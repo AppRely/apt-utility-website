@@ -85,8 +85,6 @@ export default function DynamicVideo({
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
 
-  const [wasPlayingBeforeSeek, setWasPlayingBeforeSeek] = useState(false); //
-
   const [stageScale, setStageScale] = useState({ x: 1, y: 1 });
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -111,6 +109,10 @@ export default function DynamicVideo({
   const ANNO_PREFETCH_THRESHOLD = Math.round(
     (30 / 100) * ANNO_WINDOW_SECONDS * 30
   );
+
+  const STAGE_WIDTH = 900;
+  const STAGE_HEIGHT = 650;
+
   const ANNO_THROTTLE_MS = 500;
   const INITIAL_FRAME_DURATION = 2;
   const FRAME_CHUNK_DURATION = 2;
@@ -124,6 +126,8 @@ export default function DynamicVideo({
   const extractionAbort = useRef(false);
   const currentTaskType = useRef<"Initial" | "Scroll" | "Slider" | null>(null);
   const lastExtractedChunk = useRef(0);
+
+  const hasAutoPlayedRef = useRef(false);
 
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(
     null
@@ -165,21 +169,20 @@ export default function DynamicVideo({
   ];
 
   useEffect(() => {
-  if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
 
-  const storedProjectId = sessionStorage.getItem("projectId");
-  const storedFps = sessionStorage.getItem("fps");
-  const storedWidth = sessionStorage.getItem("width");
-  const storedHeight = sessionStorage.getItem("height");
-  const storedDuration = sessionStorage.getItem("duration");
+    const storedProjectId = sessionStorage.getItem("projectId");
+    const storedFps = sessionStorage.getItem("fps");
+    const storedWidth = sessionStorage.getItem("width");
+    const storedHeight = sessionStorage.getItem("height");
+    const storedDuration = sessionStorage.getItem("duration");
 
-  if (storedProjectId) setProjectId(Number(storedProjectId));
-  if (storedFps) setFps(Number(storedFps));
-  if (storedWidth) setVideoWidth(Number(storedWidth));
-  if (storedHeight) setVideoHeight(Number(storedHeight));
-  if (storedDuration) setDuration(Number(storedDuration));
-}, []);
-
+    if (storedProjectId) setProjectId(Number(storedProjectId));
+    if (storedFps) setFps(Number(storedFps));
+    if (storedWidth) setVideoWidth(Number(storedWidth));
+    if (storedHeight) setVideoHeight(Number(storedHeight));
+    if (storedDuration) setDuration(Number(storedDuration));
+  }, []);
 
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
@@ -230,10 +233,15 @@ export default function DynamicVideo({
 
 
   useEffect(() => {
-    if (annotationsReady && video && video.paused) {
-      video.play();
-    }
-  }, [annotationsReady, video]);
+  if (!video || !annotationsReady) return;
+
+  // ▶️ Auto-play ONLY once (initial load)
+  if (!hasAutoPlayedRef.current) {
+    video.play().catch(() => {});
+    setIsPlaying(true);
+    hasAutoPlayedRef.current = true;
+  }
+}, [annotationsReady, video]);
 
   // BUILD TRAJECTORY MAP
   useEffect(() => {
@@ -718,6 +726,20 @@ export default function DynamicVideo({
     loadVideoAndFrames();
   }, []);
 
+  const scale =
+    videoWidth && videoHeight
+      ? Math.min(STAGE_WIDTH / videoWidth, STAGE_HEIGHT / videoHeight)
+      : 1;
+
+  const displayWidth = videoWidth ? videoWidth * scale : STAGE_WIDTH;
+  const displayHeight = videoHeight ? videoHeight * scale : STAGE_HEIGHT;
+
+  const offsetX = (STAGE_WIDTH - displayWidth) / 2;
+  const offsetY = (STAGE_HEIGHT - displayHeight) / 2;
+
+  const mapX = (x: number) => offsetX + x * scale;
+  const mapY = (y: number) => offsetY + y * scale;
+
   const undoMutation = useMutation({
     mutationFn: () => undoAction(projectId!),
     onSuccess: () => {
@@ -808,9 +830,6 @@ export default function DynamicVideo({
   useEffect(() => {
     if (video) video.playbackRate = playbackRate;
   }, [video, playbackRate]);
-
-  const scaleX = videoWidth ? 650 / videoWidth : 1;
-  const scaleY = videoHeight ? 650 / videoHeight : 1;
 
   // CANCELABLE EXTRACTION WITH EARLY ABORT
   const runCancelableExtraction = async (
@@ -1006,21 +1025,15 @@ export default function DynamicVideo({
   const handleSeek = async (time: number) => {
     if (!video) return;
 
+    video.pause();          // ⏸ FORCE pause
+  setIsPlaying(false);
+
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     video.currentTime = safeTime;
     setCurrentTime(safeTime);
     setDragTime(null);
     setSelectedFrameIndex(Math.round(safeTime * fps));
     loadedRangesRef.current.clear();
-
-    //  Remember if was playing, then pause
-    const wasPlaying = !video.paused;
-    setWasPlayingBeforeSeek(wasPlaying);
-
-    if (wasPlaying) {
-      video.pause();
-      setIsPlaying(false);
-    }
 
     setAnnotationsReady(false);
     setIsLoadingAnnotations(true);
@@ -1175,14 +1188,8 @@ export default function DynamicVideo({
   const handleFrameClick = async (frame: Frame) => {
     if (!video) return;
 
-    // Remember if playing, then pause and seek
-    const wasPlaying = !video.paused;
-    setWasPlayingBeforeSeek(wasPlaying);
-
-    if (wasPlaying) {
-      video.pause();
-      setIsPlaying(false);
-    }
+    video.pause();
+  setIsPlaying(false);
 
     const frameTime = frame.index / fps;
     video.currentTime = frameTime;
@@ -1213,21 +1220,8 @@ export default function DynamicVideo({
     const safeFrame = Math.min(Math.max(targetFrame, 0), totalFrames);
     const safeTime = safeFrame / fps;
 
-    // Remember if was playing, then pause
-    const wasPlaying = !video.paused;
-    setWasPlayingBeforeSeek(wasPlaying);
-
-    if (wasPlaying) {
-      video.pause();
-      setIsPlaying(false);
-    }
-
-    requestAnimationFrame(() => {
-      if (wasPlaying && video) {
-        video.play();
-        setIsPlaying(true);
-      }
-    });
+    video.pause();
+    setIsPlaying(false);
 
     // Seek to frame
     video.currentTime = safeTime;
@@ -1399,8 +1393,8 @@ export default function DynamicVideo({
 
           <Stage
             ref={stageRef}
-            width={650}
-            height={650}
+            width={STAGE_WIDTH}
+            height={STAGE_HEIGHT}
             scaleX={stageScale.x}
             scaleY={stageScale.y}
             x={stagePos.x}
@@ -1418,8 +1412,10 @@ export default function DynamicVideo({
               {video && (
                 <KonvaImage
                   image={video}
-                  width={650}
-                  height={650}
+                  x={offsetX}
+                  y={offsetY}
+                  width={displayWidth}
+                  height={displayHeight}
                   listening={false}
                 />
               )}
@@ -1437,7 +1433,7 @@ export default function DynamicVideo({
                     <Line
                       key={`trajectory-${objectId}`}
                       points={points.map((p, idx) => {
-                        return idx % 2 === 0 ? p * scaleX : p * scaleY;
+                        return idx % 2 === 0 ? mapX(p) : mapY(p);
                       })}
                       stroke={getObjectColor(objectId)}
                       strokeWidth={2}
@@ -1458,8 +1454,8 @@ export default function DynamicVideo({
                     (obj) => obj.object_id === a.object_id
                   );
 
-                  const xs = a.coordinates.map((c) => c[0] * scaleX);
-                  const ys = a.coordinates.map((c) => c[1] * scaleY);
+                  const xs = a.coordinates.map(([x]) => mapX(x));
+                  const ys = a.coordinates.map(([, y]) => mapY(y));
 
                   const minX = Math.min(...xs);
                   const minY = Math.min(...ys);
@@ -1539,16 +1535,16 @@ export default function DynamicVideo({
                       {a.coordinates.map(([x, y], idx) => (
                         <Circle
                           key={`${a.object_id}-${idx}`}
-                          x={x * scaleX}
-                          y={y * scaleY}
+                          x={mapX(x)}
+                          y={mapY(y)}
                           radius={2}
                           fill={color}
                         />
                       ))}
 
                       <Text
-                        x={a.coordinates[0][0] * scaleX + 12}
-                        y={a.coordinates[0][1] * scaleY - 12}
+                        x={mapX(a.coordinates[0][0]) + 12}
+                        y={mapY(a.coordinates[0][1]) - 12}
                         text={`id:${a.object_id}`}
                         fontSize={16}
                         fill={color}
