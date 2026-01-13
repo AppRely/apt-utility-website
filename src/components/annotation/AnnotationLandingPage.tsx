@@ -51,6 +51,7 @@ export default function AnnotationLandingPage() {
     mutationFn: deleteProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setDeleteOpen(false);
     },
   })
 
