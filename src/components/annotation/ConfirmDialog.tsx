@@ -9,18 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/Button";
-
-type ConfirmDialogProps = {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  title: string;
-  description: React.ReactNode;
-  confirmText: string;
-  confirmClassName?: string;
-  loading?: boolean;
-  loadingText?: string;
-  onConfirm: () => void;
-};
+import { ConfirmDialogProps } from "@/types";
 
 export function ConfirmDialog({
   open,

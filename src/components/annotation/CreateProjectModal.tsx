@@ -12,6 +12,8 @@ import { useState } from "react";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createProject } from "@/lib/api/createProject";
+import { CreateProjectModalProps } from "@/types";
+
 const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
 
 //Schema
@@ -32,11 +34,6 @@ const projectSchema = z.object({
     ),
   trackingFile: z.any().optional(),
 });
-
-interface CreateProjectModalProps {
-  open: boolean;
-  onClose: () => void;
-}
 
 export default function CreateProjectModal({
   open,

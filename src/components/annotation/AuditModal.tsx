@@ -20,18 +20,7 @@ import {
 
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
-
-type AuditModalProps = {
-  open: boolean;
-  onClose: () => void;
-  projectId: number;
-};
-
-type NormalizedObject = {
-  id?: number;
-  start_frame?: number;
-  end_frame?: number;
-};
+import { AuditModalProps, NormalizedObject } from "@/types";
 
 function normalizeObjects(
   operation: string,

@@ -33,32 +33,19 @@ import {
 import { useMutation } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { getFrameRangeData } from "@/lib/api/getFrameRangeData";
-import { SelectedObject } from "@/types/selection";
 import { undoAction, redoAction } from "@/lib/api/undoRedo";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { exportTrk } from "@/lib/api/exportTrk";
-import { ExportResponse } from "@/types/export";
+import {
+  Frame,
+  Annotation,
+  TrajectoryFrame,
+  TrajectoryMap,
+  SelectedObjectProps,
+  ExportResponse
+} from "@/types";
 
-type Frame = { index: number; src: string };
-type Annotation = {
-  object_id: number;
-  frame_id: number;
-  coordinates: [number, number][];
-};
-
-type TrajectoryFrame = {
-  frame_id: number;
-  object_id: number;
-  coordinate: [number, number];
-};
-
-type TrajectoryMap = Map<number, Map<number, [number, number]>>;
-
-type SelectedObjectProps = {
-  selectedObjects: SelectedObject[];
-  setSelectedObjects: React.Dispatch<React.SetStateAction<SelectedObject[]>>;
-};
 
 export default function DynamicVideo({
   selectedObjects,
@@ -1316,17 +1303,6 @@ export default function DynamicVideo({
           e.preventDefault();
           handleSkip(5);
           break;
-
-        // case "Period": // next frame
-        //   e.preventDefault();
-        //   handleFrameStep?.(1);
-        //   break;
-
-        // case "Comma": // previous frame
-        //   e.preventDefault();
-        //   handleFrameStep?.(-1);
-        //   break;
-
         case "ArrowUp": // faster
           e.preventDefault();
           setPlaybackRate((r) => Math.min(16, +(r + 0.25).toFixed(2)));
@@ -1336,11 +1312,6 @@ export default function DynamicVideo({
           e.preventDefault();
           setPlaybackRate((r) => Math.max(0.25, +(r - 0.25).toFixed(2)));
           break;
-
-        // case "Digit0": // go to start
-        //   e.preventDefault();
-        //   handleSeek?.(0);
-        //   break;
 
         case "Equal":
           //        if (e.key === "+") {
