@@ -449,48 +449,6 @@ export default function DynamicVideo({
     setCursorStyle("grab");
   };
 
-  useEffect(() => {
-    const handleLinkingComplete = (event: any) => {
-      const { frameId } = event.detail;
-
-      if (!video) return;
-
-      // 1. Clear current annotations and trajectory data
-      setAnnotations([]);
-      persistentTrajectoryRef.current = [];
-      trajectoriesRef.current = new Map();
-      setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
-
-      // 2. Set loading state
-      setIsLoadingAnnotations(true);
-
-      // 3. Refetch annotation and trajectory data for current window
-      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-      const totalFramesCount = Math.floor(video.duration * fps);
-      const windowStart = Math.max(0, frameId);
-      const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
-
-      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({
-          start: Math.max(0, windowStart - 600),
-          end: windowEnd,
-        });
-      } else {
-        console.log(
-          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-        );
-        setIsLoadingAnnotations(false);
-      }
-    };
-
-    window.addEventListener("operationComplete", handleLinkingComplete);
-
-    return () => {
-      window.removeEventListener("operationComplete", handleLinkingComplete);
-    };
-  }, [video, fps]);
-
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return Promise.resolve(null);
@@ -615,6 +573,51 @@ export default function DynamicVideo({
     },
   });
 
+  useEffect(() => {
+    const handleLinkingComplete = (event: any) => {
+      const { frameId } = event.detail;
+
+      if (!video) return;
+
+      // 🔄 REFRESH ACTIVITY LOGS
+      activityLogsQuery.refetch();
+
+      // 1. Clear current annotations and trajectory data
+      setAnnotations([]);
+      persistentTrajectoryRef.current = [];
+      trajectoriesRef.current = new Map();
+      setTrajectoryMap(new Map());
+      setTrajectoryPointCount(0);
+
+      // 2. Set loading state
+      setIsLoadingAnnotations(true);
+
+      // 3. Refetch annotation and trajectory data for current window
+      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+      const totalFramesCount = Math.floor(video.duration * fps);
+      const windowStart = Math.max(0, frameId);
+      const windowEnd = Math.min(frameId + windowFrames, totalFramesCount);
+
+      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+        chunkMutation.mutate({
+          start: Math.max(0, windowStart - 600),
+          end: windowEnd,
+        });
+      } else {
+        console.log(
+          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+        );
+        setIsLoadingAnnotations(false);
+      }
+    };
+
+    window.addEventListener("operationComplete", handleLinkingComplete);
+
+    return () => {
+      window.removeEventListener("operationComplete", handleLinkingComplete);
+    };
+  }, [video, fps, activityLogsQuery]);
+
   const undoCount = activityLogsQuery.data?.data?.total_undo_can_perform ?? 0;
 
   const totalLength = activityLogsQuery.data?.data?.total_length ?? 0;
@@ -738,7 +741,6 @@ export default function DynamicVideo({
       const vid = video;
       const frameId = Math.round(vid.currentTime * fps);
 
-      activityLogsQuery.refetch(); // refresh counts
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
@@ -767,7 +769,6 @@ export default function DynamicVideo({
       if (!video) return;
       const vid = video;
       const frameId = Math.round(vid.currentTime * fps);
-      activityLogsQuery.refetch(); // refresh counts
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
