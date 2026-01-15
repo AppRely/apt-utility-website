@@ -43,9 +43,8 @@ import {
   TrajectoryFrame,
   TrajectoryMap,
   SelectedObjectProps,
-  ExportResponse
+  ExportResponse,
 } from "@/types";
-
 
 export default function DynamicVideo({
   selectedObjects,
@@ -1227,7 +1226,7 @@ export default function DynamicVideo({
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({
-        start: Math.max(0, windowStart - 60),
+        start: Math.max(0, windowStart - 350),
         end: windowEnd,
       });
     } else {
@@ -1554,11 +1553,10 @@ export default function DynamicVideo({
                 onClick={() => {
                   const link = document.createElement("a");
                   link.href = downloadUrl;
-                  link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
+                  link.download = `project_${projectId}_v${trkVersion}.trk`;
                   document.body.appendChild(link);
                   link.click();
                   document.body.removeChild(link);
-                  // Optional: Reset after download
                   setDownloadUrl(null);
                 }}>
                 <Image
@@ -1575,11 +1573,28 @@ export default function DynamicVideo({
                   height={7}
                 />
               </Button>
+            ) : isExporting ? (
+              // ✅ CANCEL BUTTON - New state
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    // Cancel the export mutation
+                    exportMutation.reset(); // or exportController.abort() if using AbortController
+                    setDownloadUrl(null); // Reset any pending URL
+                    setIsExporting(false);
+                  }}
+                  disabled={false}>
+                  Cancel
+                </Button>
+                <div className="text-[13px] text-white/90">Exporting...</div>
+              </div>
             ) : (
               // Original export button
               <Button
                 className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-                disabled={!projectId || isExporting}
+                disabled={!projectId}
                 onClick={() => exportMutation.mutate()}>
                 <Image
                   src="/images/rightArrow.svg"
@@ -1587,7 +1602,7 @@ export default function DynamicVideo({
                   width={15}
                   height={15}
                 />
-                {isExporting ? "Exporting..." : "Export"}
+                Export
                 <Image
                   src="/images/exportDownArrow.svg"
                   alt="Export Down Arrow"
