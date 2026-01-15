@@ -67,7 +67,7 @@ export default function CreateProjectModal({
       onClose();
 
       // if you keep a "projects list" query, re-fetch it
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["project-list"] });
     },
     onError: (error: any) => {
       toast({
