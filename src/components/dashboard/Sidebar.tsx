@@ -4,23 +4,17 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery} from "@tanstack/react-query";
 import { useEffect, useState, useCallback } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
-import { SelectedObject } from "@/types/selection";
 import { useMutation } from "@tanstack/react-query";
 import { linkObjects } from "@/lib/api/linkObjects";
 import { swapObjects } from "@/lib/api/swapObjects";
 import { breakObjects } from "@/lib/api/breakObjects";
-import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/hooks/use-toast";
 import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
-
-type SelectedObjectProps = {
-  selectedObjects: SelectedObject[];
-  setSelectedObjects: React.Dispatch<React.SetStateAction<SelectedObject[]>>;
-};
+import {SelectedObjectProps} from "@/types";
 
 export default function Sidebar({
   selectedObjects,
@@ -212,7 +206,7 @@ export default function Sidebar({
     if (data) {
       setExpandedIds(new Set());
       console.log(
-        `Frame ${frameId}: ${data.objects?.length || 0} objects loaded`
+        `Frame ${frameId}: ${data.data.objects?.length || 0} objects loaded`
       );
       console.log(
         "Sample coordinates (Object 0):",
@@ -638,7 +632,7 @@ export default function Sidebar({
 
       <CardContent className="p-3 flex-1 flex flex-col">
         <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
-          Objects ({data?.objects?.length || 0})
+          Objects ({data?.data?.objects?.length || 0})
         </p>
         {renderObjectsSection()}
       </CardContent>
