@@ -7,6 +7,14 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -16,16 +24,18 @@ import {
 } from "@/components/ui/table";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useMutation } from "@tanstack/react-query";
-import { getActivityLogs } from "@/lib/api/getActivityLogs";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { getProjectList } from "@/lib/api/getProjectList";
 import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
+import { deleteProject } from "@/lib/api/deleteProject";
 
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
 
   const router = useRouter();
 
@@ -35,21 +45,32 @@ export default function AnnotationLandingPage() {
     queryFn: getProjectList,
   });
 
-  // Format backend array
-  // const projects = data || [];
-  // //const projects = data?.data || [];
+  const queryClient = useQueryClient();
+  const deleteMutation = useMutation({
+    mutationFn: deleteProject,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setDeleteOpen(false);
+    },
+  });
 
-  
+  const handleDeleteClick = () => {
+    if (deleteProjectId) {
+      deleteMutation.mutate(deleteProjectId);
+    }
+  };
 
-  // // Filter using project_status
-  // const inProgress = projects.filter(
-  //   (p: any) => p.project_status.toLowerCase() === "inprogress"
-  // );
+  const NoData = ({ message }: { message: string }) => (
+    <p className="text-center py-6 text-gray-500">{message}</p>
+  );
 
-  const projects = Array.isArray(data?.data) ? data.data : 
-                  Array.isArray(data) ? data : [];
+  const projects = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+      ? data
+      : [];
 
-  // ✅ SAFE: Only filter if projects is array (always true now)
+  // SAFE: Only filter if projects is array (always true now)
   const inProgress = projects.filter(
     (p: any) => p.project_status?.toLowerCase() === "inprogress"
   );
@@ -109,21 +130,6 @@ export default function AnnotationLandingPage() {
 
             {/* ACTION BUTTONS */}
             <TableCell className="flex gap-2">
-              {/* Hide "Mark as Complete" in Completed tab */}
-              {/* {!isCompleted && (
-                <Button
-                  size="sm"
-                  className="bg-green-100 text-green-700 hover:bg-green-100">
-                  Mark as Complete
-                </Button>
-              )}
-
-              <Button
-                size="sm"
-                className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-                Archived
-              </Button> */}
-
               <Button
                 size="sm"
                 className="bg-purple-100 text-purple-700 hover:bg-purple-100"
@@ -133,12 +139,16 @@ export default function AnnotationLandingPage() {
                   sessionStorage.setItem("video_name", p.video_name);
                   sessionStorage.setItem("videoPath", p.video_path);
                   sessionStorage.setItem("trk_file_name", p.trk_file_name);
-                  sessionStorage.setItem("frameId", "0");
-                  sessionStorage.setItem("fps", "30");
+                  sessionStorage.setItem("fps", p.fps);
+                  sessionStorage.setItem("width", p.width);
+                  sessionStorage.setItem("height", p.height);
+                  sessionStorage.setItem("duration", p.duration);
+                  sessionStorage.setItem("total_frames", p.total_frames);
                   router.push("/dashboard");
                 }}>
                 Edit
               </Button>
+
               <Button
                 size="sm"
                 className="bg-blue-100 text-blue-700 hover:bg-blue-200"
@@ -147,6 +157,16 @@ export default function AnnotationLandingPage() {
                   setAuditProjectId(p.project_id);
                 }}>
                 Audit
+              </Button>
+
+              <Button
+                size="sm"
+                className="bg-red-100 text-red-700 hover:bg-red-200"
+                onClick={() => {
+                  setDeleteOpen(true);
+                  setDeleteProjectId(p.project_id);
+                }}>
+                Delete
               </Button>
             </TableCell>
           </TableRow>
@@ -220,12 +240,20 @@ export default function AnnotationLandingPage() {
 
             {/* IN PROGRESS TAB */}
             <TabsContent value="inprogress">
-              {renderTable(inProgress, false)}
+              {!isLoading && inProgress.length === 0 ? (
+                <NoData message="No in-progress projects found" />
+              ) : (
+                renderTable(inProgress, false)
+              )}
             </TabsContent>
 
             {/* COMPLETED TAB */}
             <TabsContent value="completed">
-              {renderTable(completed, true)}
+              {!isLoading && completed.length === 0 ? (
+                <NoData message="No completed projects found" />
+              ) : (
+                renderTable(completed, true)
+              )}
             </TabsContent>
           </Tabs>
         </section>
@@ -243,6 +271,32 @@ export default function AnnotationLandingPage() {
           projectId={Number(auditProjectId)}
         />
       )}
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the
+              project and remove all associated data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleteMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleDeleteClick()}
+              disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? "Deleting..." : "Delete Project"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
