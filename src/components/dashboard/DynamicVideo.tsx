@@ -1710,6 +1710,40 @@ const exportMutation = useMutation({
 
         
 
+        {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+          {downloadUrl ? (
+            // Download button
+            <Button
+              className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
+              onClick={() => {
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                // Optional: Reset after download
+                setDownloadUrl(null);
+              }}
+            >
+              <Image src="/images/download.svg" alt="Download" width={15} height={15} />
+              Download TRK
+              <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
+            </Button>
+          ) : (
+            // Original export button
+            <Button
+              className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
+              disabled={!projectId || isExporting}
+              onClick={() => exportMutation.mutate()}
+            >
+              <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
+              {isExporting ? "Exporting..." : "Export"}
+              <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
+            </Button>
+          )}
+        </div> */}
+
         <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
   {downloadUrl ? (
     // Download button
@@ -1718,11 +1752,10 @@ const exportMutation = useMutation({
       onClick={() => {
         const link = document.createElement('a');
         link.href = downloadUrl;
-        link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
+        link.download = `project_${projectId}_v${trkVersion}.trk`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        // Optional: Reset after download
         setDownloadUrl(null);
       }}
     >
@@ -1730,19 +1763,38 @@ const exportMutation = useMutation({
       Download TRK
       <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
     </Button>
+  ) : isExporting ? (
+    // ✅ CANCEL BUTTON - New state
+    <div className="flex items-center gap-2">
+      <Button
+        variant="destructive"
+        size="sm"
+        onClick={() => {
+          // Cancel the export mutation
+          exportMutation.reset(); // or exportController.abort() if using AbortController
+          setDownloadUrl(null); // Reset any pending URL
+          setIsExporting(false);
+        }}
+        disabled={false}
+      >
+        Cancel
+      </Button>
+      <div className="text-[13px] text-white/90">Exporting...</div>
+    </div>
   ) : (
     // Original export button
     <Button
       className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-      disabled={!projectId || isExporting}
+      disabled={!projectId}
       onClick={() => exportMutation.mutate()}
     >
       <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-      {isExporting ? "Exporting..." : "Export"}
+      Export
       <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
     </Button>
   )}
 </div>
+
 
 
 
