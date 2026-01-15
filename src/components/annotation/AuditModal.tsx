@@ -20,18 +20,7 @@ import {
 
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
-
-type AuditModalProps = {
-  open: boolean;
-  onClose: () => void;
-  projectId: number;
-};
-
-type NormalizedObject = {
-  id?: number;
-  start_frame?: number;
-  end_frame?: number;
-};
+import { AuditModalProps, NormalizedObject } from "@/types";
 
 function normalizeObjects(
   operation: string,
@@ -100,9 +89,7 @@ export default function AuditModal({
         {isLoading && <p className="text-center py-4">Loading...</p>}
 
         {error && (
-          <p className="text-center text-red-500 py-4">
-            Failed to load logs
-          </p>
+          <p className="text-center text-red-500 py-4">Failed to load logs</p>
         )}
 
         {!isLoading && logs.length === 0 && (
