@@ -13,6 +13,8 @@ import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createProject } from "@/lib/api/createProject";
 import { CreateProjectModalProps } from "@/types";
+import { Loader2 } from "lucide-react";
+import { Spinner } from "../feedback/Spinner";
 
 const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
 
@@ -112,131 +114,147 @@ export default function CreateProjectModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[800px] p-0 rounded-[12px] overflow-hidden">
-        {/* Header */}
-        <div className="px-8 py-7 border-b-[2px]">
-          <DialogHeader>
-            <DialogTitle className="text-[#595959] text-[23px] font-medium leading-[14px]">
-              Create your project.
-            </DialogTitle>
-          </DialogHeader>
-        </div>
+    <>
+      {mutation.isPending && (
+        // <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        //   <Loader2 className="h-14 w-14 animate-spin text-white" />
+        // </div>
+        <Spinner/>
+      )}
 
-        {/* Body */}
-        <div className="px-8 py-5 space-y-7">
-          {/* Project Name */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-4">
-              <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left">
-                Project Name
-              </label>
-              <input
-                type="text"
-                value={projectName}
-                onChange={(e) => {
-                  setProjectName(e.target.value);
-                  clearError("projectName");
-                }}
-                className="flex-1 border-[2px] border-[#D9D9D9] outline-none bg-[#F2F2F27A] rounded-[7px] px-4 py-4 text-sm"
-              />
-            </div>
-            {errors.projectName && (
-              <p className="text-red-500 text-sm pl-[195px]">
-                {errors.projectName}
-              </p>
-            )}
+      <Dialog
+        open={open}
+        onOpenChange={(value) => {
+          if (!mutation.isPending) {
+            onClose();
+          }
+        }}>
+        <DialogContent className="sm:max-w-[800px] p-0 rounded-[12px] overflow-hidden">
+          {/* Header */}
+          <div className="px-8 py-7 border-b-[2px]">
+            <DialogHeader>
+              <DialogTitle className="text-[#595959] text-[23px] font-medium leading-[14px]">
+                Create your project.
+              </DialogTitle>
+            </DialogHeader>
           </div>
 
-          {/* File Upload */}
-          <div className="flex flex-col gap-2">
+          {/* Body */}
+          <div className="px-8 py-5 space-y-7">
+            {/* Project Name */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-4">
+                <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => {
+                    setProjectName(e.target.value);
+                    clearError("projectName");
+                  }}
+                  className="flex-1 border-[2px] border-[#D9D9D9] outline-none bg-[#F2F2F27A] rounded-[7px] px-4 py-4 text-sm"
+                />
+              </div>
+              {errors.projectName && (
+                <p className="text-red-500 text-sm pl-[195px]">
+                  {errors.projectName}
+                </p>
+              )}
+            </div>
+
+            {/* File Upload */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-start gap-4">
+                <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left pt-5">
+                  File Upload
+                </label>
+                <div className="flex-1">
+                  <div className="relative w-full">
+                    <input
+                      type="file"
+                      id="fileUpload"
+                      onChange={(e) => {
+                        setFileUpload(e.target.files);
+                        clearError("fileUpload");
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
+                      <label
+                        htmlFor="fileUpload"
+                        className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
+                        Choose File
+                      </label>
+                      <span className="text-[#929292] text-[17px] font-medium pl-2">
+                        {fileUpload?.[0]?.name ?? "No file chosen"}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-[#929292] text-[14px] pt-2">
+                    eg., Accept .avi, .mp4, .mov, .ufmf
+                  </p>
+                </div>
+              </div>
+              {errors.fileUpload && (
+                <p className="text-red-500 text-sm pl-[195px]">
+                  {errors.fileUpload}
+                </p>
+              )}
+            </div>
+
+            {/* Tracking File (optional) */}
             <div className="flex items-start gap-4">
               <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left pt-5">
-                File Upload
+                Upload Tracking file
               </label>
               <div className="flex-1">
                 <div className="relative w-full">
                   <input
                     type="file"
-                    id="fileUpload"
-                    onChange={(e) => {
-                      setFileUpload(e.target.files);
-                      clearError("fileUpload");
-                    }}
+                    id="trackingFile"
+                    onChange={(e) => setTrackingFile(e.target.files)}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
                   <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
                     <label
-                      htmlFor="fileUpload"
+                      htmlFor="trackingFile"
                       className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
                       Choose File
                     </label>
                     <span className="text-[#929292] text-[17px] font-medium pl-2">
-                      {fileUpload?.[0]?.name ?? "No file chosen"}
+                      {trackingFile?.[0]?.name ?? "No file chosen"}
                     </span>
                   </div>
                 </div>
-                <p className="text-[#929292] text-[14px] pt-2">
-                  eg., Accept .avi, .mp4, .mov, .ufmf
+                <p className="text-[#929292] text-[14px] pt-2 pb-2">
+                  eg., Accept .trk, .json, .csv, .xml
                 </p>
               </div>
             </div>
-            {errors.fileUpload && (
-              <p className="text-red-500 text-sm pl-[195px]">
-                {errors.fileUpload}
-              </p>
-            )}
           </div>
 
-          {/* Tracking File (optional) */}
-          <div className="flex items-start gap-4">
-            <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left pt-5">
-              Upload Tracking file
-            </label>
-            <div className="flex-1">
-              <div className="relative w-full">
-                <input
-                  type="file"
-                  id="trackingFile"
-                  onChange={(e) => setTrackingFile(e.target.files)}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                />
-                <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
-                  <label
-                    htmlFor="trackingFile"
-                    className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
-                    Choose File
-                  </label>
-                  <span className="text-[#929292] text-[17px] font-medium pl-2">
-                    {trackingFile?.[0]?.name ?? "No file chosen"}
-                  </span>
-                </div>
-              </div>
-              <p className="text-[#929292] text-[14px] pt-2 pb-2">
-                eg., Accept .trk, .json, .csv, .xml
-              </p>
-            </div>
+          {/* Footer */}
+          <div className="px-6 py-7 border-t-[2px] flex justify-end gap-5">
+            <Button
+              size={null}
+              onClick={handleSubmit}
+              disabled={mutation.isPending}
+              className="bg-[#3B46A0] hover:bg-[#3B46A0] border-[2px] text-white text-[22px] px-10 py-2 rounded-[7px] font-normal">
+              {mutation.isPending ? "Creating..." : "Create"}
+            </Button>
+            <Button
+              variant="ghost"
+              size={null}
+              onClick={onClose}
+              disabled={mutation.isPending}
+              className="text-[#BDBDBD] hover:bg-[white] hover:-text-[#BDBDBD] text-[22px] px-10 rounded-[7px] border-[2px] font-normal">
+              Cancel
+            </Button>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-7 border-t-[2px] flex justify-end gap-5">
-          <Button
-            size={null}
-            onClick={handleSubmit}
-            disabled={mutation.isPending}
-            className="bg-[#3B46A0] hover:bg-[#3B46A0] border-[2px] text-white text-[22px] px-10 py-2 rounded-[7px] font-normal">
-            {mutation.isPending ? "Creating..." : "Create"}
-          </Button>
-          <Button
-            variant="ghost"
-            size={null}
-            onClick={onClose}
-            className="text-[#BDBDBD] hover:bg-[white] hover:-text-[#BDBDBD] text-[22px] px-10 rounded-[7px] border-[2px] font-normal">
-            Cancel
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
