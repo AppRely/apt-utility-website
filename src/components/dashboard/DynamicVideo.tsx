@@ -126,7 +126,7 @@ export default function DynamicVideo({
   const pendingRangesRef = useRef<Set<string>>(new Set());
 
   const MIN_ZOOM = 1;
-  const MAX_ZOOM = 5;
+  const MAX_ZOOM = 10;
   const ZOOM_SPEED = 1.1;
 
   const { toast } = useToast();
@@ -1034,7 +1034,7 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart-350), end: windowEnd });
     } else {
       console.log(
         `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
