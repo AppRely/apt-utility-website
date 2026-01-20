@@ -69,7 +69,7 @@ export default function DynamicVideo({
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
   const [annotationsReady, setAnnotationsReady] = useState(false);
-  const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
+  const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
 
   const [stageScale, setStageScale] = useState({ x: 1, y: 1 });
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
