@@ -15,6 +15,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import {SelectedObjectProps} from "@/types";
+import { ArrowLeft } from 'lucide-react';
 
 export default function Sidebar({
   selectedObjects,
@@ -477,9 +478,20 @@ export default function Sidebar({
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
         <div className="bg-[#D9D9D9] h-10 w-10 rounded" />
         <div>
-          <h2 className="text-[#595959] text-[16px] font-medium">
-            Animal Annotation
-          </h2>
+          <div className="flex items-center gap-3">
+             <h2 className="text-[#595959] text-[16px] font-medium">
+              Animal Annotation
+            </h2>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => window.history.back()}
+              className="h-8 w-8 text-[#595959] hover:text-[#333] hover:bg-gray-100"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+           
+          </div>
           <p className="text-[#9F9F9F] text-[12px]">PROJECT</p>
         </div>
       </CardHeader>
