@@ -127,6 +127,7 @@ export default function DynamicVideo({
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 10;
   const ZOOM_SPEED = 1.1;
+  const [currentZoom, setCurrentZoom] = useState<number>(2);
 
   const { toast } = useToast();
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
@@ -305,6 +306,8 @@ export default function DynamicVideo({
     const newScale =
       direction > 0 ? oldScale * ZOOM_SPEED : oldScale / ZOOM_SPEED;
     const clampedScale = Math.min(Math.max(newScale, MIN_ZOOM), MAX_ZOOM);
+    setCurrentZoom(clampedScale);
+    
 
     const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
@@ -314,6 +317,18 @@ export default function DynamicVideo({
     setStageScale({ x: clampedScale, y: clampedScale });
     setStagePos(newPos);
   }, []);
+
+  const getRadiusBasedOnZoom = (zoom: number): number => {
+  if (zoom >= 1 && zoom <= 2) {
+    return 2;
+  } else if (zoom >= 3 && zoom <= 5) {
+    return 1.5;
+  } else if (zoom >= 6 && zoom <= 10) {
+    return 1;
+  }
+  // Default fallback
+  return 2;
+};
 
   // MOUSE DOWN HANDLER
   const handleMouseDown = (e: any) => {
@@ -1507,7 +1522,7 @@ export default function DynamicVideo({
                           key={`${a.object_id}-${idx}`}
                           x={mapX(x)}
                           y={mapY(y)}
-                          radius={2}
+                          radius={getRadiusBasedOnZoom(currentZoom)}
                           fill={color}
                         />
                       ))}
