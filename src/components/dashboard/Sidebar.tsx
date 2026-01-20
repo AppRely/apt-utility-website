@@ -354,7 +354,7 @@ export default function Sidebar({
     }
 
     return (
-      <div className="h-[350px] overflow-y-auto space-y-3 pr-2">
+      <div className="h-[450px] overflow-y-auto space-y-3 pr-2">
         {data.data.objects.map((obj: any, index: number) => {
           const isExpanded = expandedIds.has(obj.object_id);
           return (
