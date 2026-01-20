@@ -125,7 +125,7 @@ export default function DynamicVideo({
   const pendingRangesRef = useRef<Set<string>>(new Set());
 
   const MIN_ZOOM = 1;
-  const MAX_ZOOM = 5;
+  const MAX_ZOOM = 10;
   const ZOOM_SPEED = 1.1;
 
   const { toast } = useToast();
@@ -1937,7 +1937,7 @@ export default function DynamicVideo({
         </div>
 
         {/*   FRAME STRIP */}
-        <div className="flex items-center pl-2 pr-1">
+        <div className="w-full flex items-center pl-2 pr-1">
           <Image
             src="/images/verticalLine.svg"
             alt="line"
@@ -1945,11 +1945,11 @@ export default function DynamicVideo({
             height={60}
             className="opacity-100 flex-shrink-0 mr-2"
           />
-          <div className="w-full max-w-[1200px]">
+          <div className="w-full">
             <div
               ref={containerRef}
               onScroll={handleScroll}
-              className="flex-1 flex space-x-4 overflow-x-auto border rounded-lg"
+              className="w-full flex-1 flex space-x-4 overflow-x-auto border rounded-lg"
               style={{ height: 100 }}>
               {frames.length > 0 ? (
                 frames.map((f) => (
