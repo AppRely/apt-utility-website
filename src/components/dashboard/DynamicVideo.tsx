@@ -1395,7 +1395,7 @@ export default function DynamicVideo({
                 allObjectIds.map((objectId) => {
                   const points = getTrajectoryPointsUpToCurrent(
                     objectId,
-                    currentFrame
+                    currentFrame+50
                   );
                   if (points.length < 2) return null;
 
