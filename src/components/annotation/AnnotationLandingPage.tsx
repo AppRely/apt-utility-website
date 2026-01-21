@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useToast } from "@/components/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -53,6 +54,7 @@ export default function AnnotationLandingPage() {
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
 
   const router = useRouter();
+  const { toast } = useToast();
 
   // Fetch project list
   const { data, isLoading, isError } = useQuery({
@@ -64,6 +66,13 @@ export default function AnnotationLandingPage() {
   const deleteMutation = useMutation({
     mutationFn: deleteProject,
     onSuccess: () => {
+      toast({
+        title: "Project Deleted",
+        description: "Project deleted successfully",
+        duration: 3000,
+        className: "text-green-600",
+      });
+
       queryClient.invalidateQueries({ queryKey: ["project-list"] });
       setDeleteOpen(false);
     },
@@ -74,7 +83,6 @@ export default function AnnotationLandingPage() {
       deleteMutation.mutate(deleteProjectId);
     }
   };
-
   const NoData = ({ message }: { message: string }) => (
     <p className="text-center py-6 text-gray-500">{message}</p>
   );
@@ -132,68 +140,83 @@ export default function AnnotationLandingPage() {
       </TableHeader>
 
       <TableBody>
-        {rows.map((p, index) => (
-          <TableRow key={p.project_id}>
-            <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
-            <TableCell>{p.project_name}</TableCell>
-            <TableCell className="max-w-[220px] truncate" title={p.video_name}>
-              {formatFileName(p.video_name)}
-            </TableCell>
+        {rows.map((p, index) => {
+          const isDeletingRow =
+            deleteMutation.isPending && deleteProjectId === p.project_id;
 
-            <TableCell
-              className="max-w-[260px] truncate"
-              title={p.trk_file_name}>
-              {formatFileName(p.trk_file_name)}
-            </TableCell>
+          return (
+            <TableRow key={p.project_id}>
+              <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
+              <TableCell>{p.project_name}</TableCell>
 
-            <TableCell>{p.created_at.split("T")[0]}</TableCell>
-            <TableCell>
-              {getStatusBadge(p.project_status.toLowerCase())}
-            </TableCell>
+              <TableCell
+                className="max-w-[220px] truncate"
+                title={p.video_name}>
+                {formatFileName(p.video_name)}
+              </TableCell>
 
-            {/* ACTION BUTTONS */}
-            <TableCell className="flex gap-2">
-              <Button
-                size="sm"
-                className="bg-purple-100 text-purple-700 hover:bg-purple-100"
-                onClick={() => {
-                  sessionStorage.setItem("projectId", p.project_id);
-                  sessionStorage.setItem("project_name", p.project_name);
-                  sessionStorage.setItem("video_name", p.video_name);
-                  sessionStorage.setItem("videoPath", p.video_path);
-                  sessionStorage.setItem("trk_file_name", p.trk_file_name);
-                  sessionStorage.setItem("fps", p.fps);
-                  sessionStorage.setItem("width", p.width);
-                  sessionStorage.setItem("height", p.height);
-                  sessionStorage.setItem("duration", p.duration);
-                  sessionStorage.setItem("total_frames", p.total_frames);
-                  router.push("/dashboard");
-                }}>
-                Edit
-              </Button>
+              <TableCell
+                className="max-w-[260px] truncate"
+                title={p.trk_file_name}>
+                {formatFileName(p.trk_file_name)}
+              </TableCell>
 
-              <Button
-                size="sm"
-                className="bg-blue-100 text-blue-700 hover:bg-blue-200"
-                onClick={() => {
-                  setAuditOpen(true);
-                  setAuditProjectId(p.project_id);
-                }}>
-                Audit
-              </Button>
+              <TableCell>{p.created_at.split("T")[0]}</TableCell>
 
-              <Button
-                size="sm"
-                className="bg-red-100 text-red-700 hover:bg-red-200"
-                onClick={() => {
-                  setDeleteOpen(true);
-                  setDeleteProjectId(p.project_id);
-                }}>
-                Delete
-              </Button>
-            </TableCell>
-          </TableRow>
-        ))}
+              <TableCell>
+                {getStatusBadge(p.project_status.toLowerCase())}
+              </TableCell>
+
+              {/* ACTION BUTTONS */}
+              <TableCell className="flex gap-2">
+                {/* Edit */}
+                <Button
+                  size="sm"
+                  disabled={isDeletingRow}
+                  className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                  onClick={() => {
+                    sessionStorage.setItem("projectId", p.project_id);
+                    sessionStorage.setItem("project_name", p.project_name);
+                    sessionStorage.setItem("video_name", p.video_name);
+                    sessionStorage.setItem("videoPath", p.video_path);
+                    sessionStorage.setItem("trk_file_name", p.trk_file_name);
+                    sessionStorage.setItem("fps", p.fps);
+                    sessionStorage.setItem("width", p.width);
+                    sessionStorage.setItem("height", p.height);
+                    sessionStorage.setItem("duration", p.duration);
+                    sessionStorage.setItem("total_frames", p.total_frames);
+                    router.push("/dashboard");
+                  }}>
+                  Edit
+                </Button>
+
+                {/* Audit */}
+                <Button
+                  size="sm"
+                  disabled={isDeletingRow}
+                  className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+                  onClick={() => {
+                    setAuditOpen(true);
+                    setAuditProjectId(p.project_id);
+                  }}>
+                  Audit
+                </Button>
+
+                {/* Delete */}
+                <Button
+                  size="sm"
+                  disabled={isDeletingRow}
+                  className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
+                  onClick={() => {
+                    setDeleteOpen(true);
+                    setDeleteProjectId(p.project_id);
+                  }}>
+                  {isDeletingRow ? "Deleting..." : "Delete"}
+                </Button>
+              </TableCell>
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );
