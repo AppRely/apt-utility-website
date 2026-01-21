@@ -32,10 +32,24 @@ const projectSchema = z.object({
         const fileExt = files[0].name.split(".").pop()?.toLowerCase();
         return allowed.includes(fileExt ?? "");
       },
-      { message: "Only .avi, .mp4, .mov, .ufmf files are allowed" }
+      { message: "Only .avi, .mp4, .mov, .ufmf files are allowed" },
     ),
   trackingFile: z.any().optional(),
 });
+
+const formatFileName = (name: string, maxLength = 35) => {
+  if (name.length <= maxLength) return name;
+
+  const extIndex = name.lastIndexOf(".");
+  if (extIndex === -1) {
+    return name.slice(0, maxLength) + "...";
+  }
+
+  const ext = name.slice(extIndex);
+  const base = name.slice(0, maxLength - ext.length - 3);
+
+  return `${base}...${ext}`;
+};
 
 export default function CreateProjectModal({
   open,
@@ -115,13 +129,12 @@ export default function CreateProjectModal({
 
   return (
     <>
-      {/* {mutation.isPending && (
-        // <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-        //   <Loader2 className="h-14 w-14 animate-spin text-white" />
-        // </div>
+      {mutation.isPending && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <Loader2 className="h-14 w-14 animate-spin text-white" />
+        </div>
         // <Spinner/>
-        onClose();
-      )} */}
+      )}
 
       <Dialog
         open={open}
@@ -182,14 +195,18 @@ export default function CreateProjectModal({
                       }}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
-                    <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
+                    <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4 flex items-center gap-2">
                       <label
                         htmlFor="fileUpload"
                         className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
                         Choose File
                       </label>
-                      <span className="text-[#929292] text-[17px] font-medium pl-2">
-                        {fileUpload?.[0]?.name ?? "No file chosen"}
+                      <span
+                        className="text-[#929292] text-[17px] font-medium flex-1 min-w-0 overflow-hidden"
+                        title={fileUpload?.[0]?.name}>
+                        {fileUpload?.[0]?.name
+                          ? formatFileName(fileUpload[0].name)
+                          : "No file chosen"}
                       </span>
                     </div>
                   </div>
@@ -218,14 +235,18 @@ export default function CreateProjectModal({
                     onChange={(e) => setTrackingFile(e.target.files)}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
-                  <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
+                  <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4 flex items-center gap-2">
                     <label
                       htmlFor="trackingFile"
                       className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
                       Choose File
                     </label>
-                    <span className="text-[#929292] text-[17px] font-medium pl-2">
-                      {trackingFile?.[0]?.name ?? "No file chosen"}
+                    <span
+                      className="text-[#929292] text-[17px] font-medium flex-1 min-w-0 overflow-hidden"
+                      title={trackingFile?.[0]?.name}>
+                      {trackingFile?.[0]?.name
+                        ? formatFileName(trackingFile[0].name)
+                        : "No file chosen"}
                     </span>
                   </div>
                 </div>

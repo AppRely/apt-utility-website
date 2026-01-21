@@ -30,6 +30,21 @@ import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
 
+const formatFileName = (name?: string, maxLength = 30) => {
+  if (!name) return "-";
+  if (name.length <= maxLength) return name;
+
+  const lastDot = name.lastIndexOf(".");
+  if (lastDot === -1) {
+    return name.slice(0, maxLength) + "...";
+  }
+
+  const ext = name.slice(lastDot); // .mp4 / .trk
+  const base = name.slice(0, maxLength - ext.length - 3);
+
+  return `${base}...${ext}`;
+};
+
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
@@ -72,11 +87,11 @@ export default function AnnotationLandingPage() {
 
   // SAFE: Only filter if projects is array (always true now)
   const inProgress = projects.filter(
-    (p: any) => p.project_status?.toLowerCase() === "inprogress"
+    (p: any) => p.project_status?.toLowerCase() === "inprogress",
   );
 
   const completed = projects.filter(
-    (p: any) => p.project_status.toLowerCase() === "completed"
+    (p: any) => p.project_status.toLowerCase() === "completed",
   );
 
   const getStatusBadge = (status: string) => {
@@ -121,8 +136,16 @@ export default function AnnotationLandingPage() {
           <TableRow key={p.project_id}>
             <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
             <TableCell>{p.project_name}</TableCell>
-            <TableCell>{p.video_name}</TableCell>
-            <TableCell>{p.trk_file_name}</TableCell>
+            <TableCell className="max-w-[220px] truncate" title={p.video_name}>
+              {formatFileName(p.video_name)}
+            </TableCell>
+
+            <TableCell
+              className="max-w-[260px] truncate"
+              title={p.trk_file_name}>
+              {formatFileName(p.trk_file_name)}
+            </TableCell>
+
             <TableCell>{p.created_at.split("T")[0]}</TableCell>
             <TableCell>
               {getStatusBadge(p.project_status.toLowerCase())}
