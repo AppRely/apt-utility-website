@@ -58,7 +58,7 @@ export default function DynamicVideo({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number | null>(
-    null
+    null,
   );
 
   const [loading, setLoading] = useState(false);
@@ -93,7 +93,7 @@ export default function DynamicVideo({
 
   const ANNO_WINDOW_SECONDS = 6;
   const ANNO_PREFETCH_THRESHOLD = Math.round(
-    (30 / 100) * ANNO_WINDOW_SECONDS * 30
+    (30 / 100) * ANNO_WINDOW_SECONDS * 30,
   );
 
   const STAGE_WIDTH = 900;
@@ -116,7 +116,7 @@ export default function DynamicVideo({
   const hasAutoPlayedRef = useRef(false);
 
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(
-    null
+    null,
   );
   const lastAnnoLoadTs = useRef<number>(0);
   const nextPrefetchFrameRef = useRef<number | null>(null);
@@ -180,9 +180,9 @@ export default function DynamicVideo({
     for (const pendingKey of pendingRangesRef.current) {
       const [pStart, pEnd] = pendingKey.split("-").map(Number);
       if (!(end <= pStart || start >= pEnd)) {
-        console.log(
-          `Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`
-        );
+        // console.log(
+        //   `Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`
+        // );
         return true;
       }
     }
@@ -201,10 +201,10 @@ export default function DynamicVideo({
         .play()
         .then(() => {
           setIsPlaying(true);
-          console.log("▶️ Video playing");
+          // console.log("▶️ Video playing");
         })
         .catch((error) => {
-          console.warn("  Autoplay prevented:", error);
+          // console.warn("  Autoplay prevented:", error);
           toast({
             title: "Click the play button to start video",
             description: "Some browsers require user interaction",
@@ -214,7 +214,7 @@ export default function DynamicVideo({
     } else {
       video.pause();
       setIsPlaying(false);
-      console.log("⏸️ Video paused");
+      // console.log("⏸️ Video paused");
     }
   }, [video, toast]);
 
@@ -266,7 +266,7 @@ export default function DynamicVideo({
 
       return points;
     },
-    [trajectoryMap, fps]
+    [trajectoryMap, fps],
   );
 
   // GET ALL OBJECT IDS
@@ -307,7 +307,6 @@ export default function DynamicVideo({
       direction > 0 ? oldScale * ZOOM_SPEED : oldScale / ZOOM_SPEED;
     const clampedScale = Math.min(Math.max(newScale, MIN_ZOOM), MAX_ZOOM);
     setCurrentZoom(clampedScale);
-    
 
     const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
@@ -319,16 +318,16 @@ export default function DynamicVideo({
   }, []);
 
   const getRadiusBasedOnZoom = (zoom: number): number => {
-  if (zoom >= 1 && zoom <= 2) {
+    if (zoom >= 1 && zoom <= 2) {
+      return 2;
+    } else if (zoom >= 3 && zoom <= 5) {
+      return 1.5;
+    } else if (zoom >= 6 && zoom <= 10) {
+      return 1;
+    }
+    // Default fallback
     return 2;
-  } else if (zoom >= 3 && zoom <= 5) {
-    return 1.5;
-  } else if (zoom >= 6 && zoom <= 10) {
-    return 1;
-  }
-  // Default fallback
-  return 2;
-};
+  };
 
   // MOUSE DOWN HANDLER
   const handleMouseDown = (e: any) => {
@@ -470,7 +469,7 @@ export default function DynamicVideo({
 
       const key = `${start}-${end}`;
       pendingRangesRef.current.add(key);
-      console.log(`Fetching [${start}-${end}]`);
+      // console.log(`Fetching [${start}-${end}]`);
 
       return getFrameRangeData(projectId, start, end);
     },
@@ -480,11 +479,9 @@ export default function DynamicVideo({
       const key = `${start}-${end}`;
       if (!data) {
         pendingRangesRef.current.delete(key);
-        console.log("  No data returned from mutation");
+        // console.log("  No data returned from mutation");
         return;
       }
-
-      console.log(data);
 
       const loadedAnnotations: Annotation[] = [];
       const newTrajectoryFrames: TrajectoryFrame[] = [];
@@ -509,10 +506,10 @@ export default function DynamicVideo({
       // merge annotations, still avoid duplicates per (object_id, frame_id)
       setAnnotations((prev) => {
         const existingIds = new Set(
-          prev.map((a) => `${a.object_id}-${a.frame_id}`)
+          prev.map((a) => `${a.object_id}-${a.frame_id}`),
         );
         const newOnes = loadedAnnotations.filter(
-          (a) => !existingIds.has(`${a.object_id}-${a.frame_id}`)
+          (a) => !existingIds.has(`${a.object_id}-${a.frame_id}`),
         );
         return [...prev, ...newOnes];
       });
@@ -536,9 +533,9 @@ export default function DynamicVideo({
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
 
-      console.log(
-        `Annotations loaded for ${key} (${loadedAnnotations.length} new)`
-      );
+      // console.log(
+      //   `Annotations loaded for ${key} (${loadedAnnotations.length} new)`
+      // );
     },
 
     onError: (error, variables) => {
@@ -546,7 +543,7 @@ export default function DynamicVideo({
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
       setIsLoadingAnnotations(false);
-      console.error(`Failed to load annotations for ${key}:`, error);
+      // console.error(`Failed to load annotations for ${key}:`, error);
     },
   });
 
@@ -577,8 +574,6 @@ export default function DynamicVideo({
     },
     onSuccess: (response) => {
       setDownloadUrl(response.data.download_url);
-      console.log("Export response:", response);
-      console.log("setDownloadUrl:", downloadUrl);
       setTrkVersion(response.data.trk_version);
       setIsExporting(false);
     },
@@ -619,9 +614,9 @@ export default function DynamicVideo({
           end: windowEnd,
         });
       } else {
-        console.log(
-          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-        );
+        // console.log(
+        //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+        // );
         setIsLoadingAnnotations(false);
       }
     };
@@ -642,237 +637,11 @@ export default function DynamicVideo({
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
-  //OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
-  useEffect(() => {
-    const loadVideoAndFrames = async () => {
-      const projectId =
-        typeof window !== "undefined"
-          ? sessionStorage.getItem("projectId")
-          : null;
-
-      if (!projectId) return;
-
-      try {
-        console.log("  Starting optimized video load...");
-        const startTime = performance.now();
-
-        //Use direct API URL
-        const apiUrl = `${API_BASE}/api/v1/videos/${projectId}/project-stream/`;
-
-        const vid = document.createElement("video");
-        vid.crossOrigin = "anonymous";
-        vid.src = apiUrl;
-        vid.loop = true;
-        vid.muted = true;
-        vid.playsInline = true; // Important for mobile compatibility
-
-        vid.onloadedmetadata = async () => {
-          // STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
-          const firstBatch = await runCancelableExtraction(
-            async () => {
-              console.log("Extracting initial frames (2 sec)...");
-              return await extractFramesFromVideo(
-                vid,
-                0,
-                INITIAL_FRAME_DURATION
-              );
-            },
-            "Initial",
-            0,
-            0,
-            INITIAL_FRAME_DURATION
-          );
-          setFrames(firstBatch);
-          console.log(`Initial frames loaded: ${firstBatch.length} frames`);
-
-          //STEP 2: Fetch initial annotations (Non-blocking)
-          const initialStart = 0;
-          const initialEnd = Math.min(
-            Math.round(ANNO_WINDOW_SECONDS * fps),
-            Math.floor(duration * fps)
-          );
-
-          console.log(
-            `Fetching initial annotations: ${initialStart}-${initialEnd}`
-          );
-          setIsLoadingAnnotations(true);
-          chunkMutation.mutate({
-            start: Math.max(0, initialStart),
-            end: initialEnd,
-          });
-
-          const endTime = performance.now();
-          console.log(
-            `Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`
-          );
-        };
-
-        vid.onerror = () => {
-          // console.error("Video load error");
-          toast({
-            title: "Error loading video",
-            variant: "destructive",
-          });
-        };
-
-        // FIXED: Set video state after it's fully loaded
-        setVideo(vid);
-      } catch (error) {
-        console.error("Failed to load video:", error);
-        toast({
-          title: "Failed to load video",
-          variant: "destructive",
-        });
-      }
-    };
-
-    loadVideoAndFrames();
-  }, []);
-
-  const scale =
-    videoWidth && videoHeight
-      ? Math.min(STAGE_WIDTH / videoWidth, STAGE_HEIGHT / videoHeight)
-      : 1;
-
-  const displayWidth = videoWidth ? videoWidth * scale : STAGE_WIDTH;
-  const displayHeight = videoHeight ? videoHeight * scale : STAGE_HEIGHT;
-
-  const offsetX = (STAGE_WIDTH - displayWidth) / 2;
-  const offsetY = (STAGE_HEIGHT - displayHeight) / 2;
-
-  const mapX = (x: number) => offsetX + x * scale;
-  const mapY = (y: number) => offsetY + y * scale;
-
-  const undoMutation = useMutation({
-    mutationFn: () => undoAction(projectId!),
-    onSuccess: () => {
-      toast({
-        title: "Undo successful",
-        description: "Reverted last action",
-        duration: 1500,
-        className: "text-green-600",
-      });
-      if (!video) return;
-      const vid = video;
-      const frameId = Math.round(vid.currentTime * fps);
-
-      window.dispatchEvent(
-        new CustomEvent("operationComplete", {
-          detail: { frameId: Number(frameId) },
-        })
-      );
-    },
-    onError: (error) => {
-      console.error("Undo failed", error);
-      toast({
-        title: "Undo failed",
-        description: "Unable to undo the last action",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const redoMutation = useMutation({
-    mutationFn: () => redoAction(projectId!),
-    onSuccess: () => {
-      toast({
-        title: "Redo successful",
-        description: "Reapplied last undone action",
-        duration: 1500,
-        className: "text-green-600",
-      });
-      if (!video) return;
-      const vid = video;
-      const frameId = Math.round(vid.currentTime * fps);
-      window.dispatchEvent(
-        new CustomEvent("operationComplete", {
-          detail: { frameId: Number(frameId) },
-        })
-      );
-    },
-    onError: (error) => {
-      console.error("Redo failed", error);
-      toast({
-        title: "Redo failed",
-        description: "Unable to redo the last action",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Keyboard shortcuts for undo/redo
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "z" && canUndo) {
-        e.preventDefault();
-        undoMutation.mutate();
-      }
-
-      if (
-        e.ctrlKey &&
-        (e.key === "y" || (e.shiftKey && e.key === "Z")) &&
-        canRedo
-      ) {
-        e.preventDefault();
-        redoMutation.mutate();
-      }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [canUndo, canRedo]);
-
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
-
-  useEffect(() => {
-    if (video) video.playbackRate = playbackRate;
-  }, [video, playbackRate]);
-
-  // CANCELABLE EXTRACTION WITH EARLY ABORT
-  const runCancelableExtraction = async (
-    fn: () => Promise<Frame[]>,
-    type: "Initial" | "Scroll" | "Slider",
-    chunk: number,
-    startSec: number,
-    durationSec: number
-  ) => {
-    extractionAbort.current = true;
-    if (ongoingExtraction.current) {
-      console.log(`Aborting ongoing ${currentTaskType.current} extraction`);
-      await ongoingExtraction.current;
-    }
-    extractionAbort.current = false;
-
-    currentTaskType.current = type;
-    setLoading(true);
-
-    const promise = (async () => {
-      const result = await fn();
-      if (extractionAbort.current) {
-        console.log(`Extraction aborted: ${type}`);
-        return [];
-      }
-      return result;
-    })();
-
-    ongoingExtraction.current = promise;
-    const result = await promise;
-    ongoingExtraction.current = null;
-    currentTaskType.current = null;
-    setLoading(false);
-
-    return result;
-  };
-
   // EXTRACT FRAMES FROM VIDEO
   const extractFramesFromVideo = async (
     videoElement: HTMLVideoElement,
     startSec: number,
-    durationSec: number
+    durationSec: number,
   ): Promise<Frame[]> => {
     try {
       // Create a video element for frame extraction
@@ -922,14 +691,247 @@ export default function DynamicVideo({
     }
   };
 
+  //OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
+  useEffect(() => {
+    const loadVideoAndFrames = async () => {
+      const projectId =
+        typeof window !== "undefined"
+          ? sessionStorage.getItem("projectId")
+          : null;
+
+      if (!projectId) return;
+
+      try {
+        // console.log("  Starting optimized video load...");
+        const startTime = performance.now();
+
+        //Use direct API URL
+        const apiUrl = `${API_BASE}/api/v1/videos/${projectId}/project-stream/`;
+
+        const vid = document.createElement("video");
+        vid.crossOrigin = "anonymous";
+        vid.src = apiUrl;
+        vid.loop = true;
+        vid.muted = true;
+        vid.playsInline = true; // Important for mobile compatibility
+
+        vid.onloadedmetadata = async () => {
+          // STEP 1: Extract only FIRST 2 SECONDS immediately (Fast UI)
+          const firstBatch = await runCancelableExtraction(
+            async () => {
+              console.log("Extracting initial frames (2 sec)...");
+              return await extractFramesFromVideo(
+                vid,
+                0,
+                INITIAL_FRAME_DURATION,
+              );
+            },
+            "Initial",
+            0,
+            0,
+            INITIAL_FRAME_DURATION,
+          );
+          setFrames(firstBatch);
+          console.log(`Initial frames loaded: ${firstBatch.length} frames`);
+
+          //STEP 2: Fetch initial annotations (Non-blocking)
+          const initialStart = 0;
+          const initialEnd = Math.min(
+            Math.round(ANNO_WINDOW_SECONDS * fps),
+            Math.floor(duration * fps),
+          );
+
+          // console.log(
+          //   `Fetching initial annotations: ${initialStart}-${initialEnd}`
+          // );
+          setIsLoadingAnnotations(true);
+          chunkMutation.mutate({
+            start: Math.max(0, initialStart),
+            end: initialEnd,
+          });
+
+          const endTime = performance.now();
+          console.log(
+            `Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`,
+          );
+        };
+
+        vid.onerror = () => {
+          // console.error("Video load error");
+          toast({
+            title: "Error loading video",
+            variant: "destructive",
+          });
+        };
+
+        // FIXED: Set video state after it's fully loaded
+        setVideo(vid);
+      } catch (error) {
+        // console.error("Failed to load video:", error);
+        toast({
+          title: "Failed to load video",
+          variant: "destructive",
+        });
+      }
+    };
+
+    loadVideoAndFrames();
+  }, []);
+
+  const scale =
+    videoWidth && videoHeight
+      ? Math.min(STAGE_WIDTH / videoWidth, STAGE_HEIGHT / videoHeight)
+      : 1;
+
+  const displayWidth = videoWidth ? videoWidth * scale : STAGE_WIDTH;
+  const displayHeight = videoHeight ? videoHeight * scale : STAGE_HEIGHT;
+
+  const offsetX = (STAGE_WIDTH - displayWidth) / 2;
+  const offsetY = (STAGE_HEIGHT - displayHeight) / 2;
+
+  const mapX = (x: number) => offsetX + x * scale;
+  const mapY = (y: number) => offsetY + y * scale;
+
+  const undoMutation = useMutation({
+    mutationFn: () => undoAction(projectId!),
+    onSuccess: () => {
+      toast({
+        title: "Undo successful",
+        description: "Reverted last action",
+        duration: 1500,
+        className: "text-green-600",
+      });
+      if (!video) return;
+      const vid = video;
+      const frameId = Math.round(vid.currentTime * fps);
+
+      window.dispatchEvent(
+        new CustomEvent("operationComplete", {
+          detail: { frameId: Number(frameId) },
+        }),
+      );
+    },
+    onError: (error) => {
+      // console.error("Undo failed", error);
+      toast({
+        title: "Undo failed",
+        description: "Unable to undo the last action",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const redoMutation = useMutation({
+    mutationFn: () => redoAction(projectId!),
+    onSuccess: () => {
+      toast({
+        title: "Redo successful",
+        description: "Reapplied last undone action",
+        duration: 1500,
+        className: "text-green-600",
+      });
+      if (!video) return;
+      const vid = video;
+      const frameId = Math.round(vid.currentTime * fps);
+      window.dispatchEvent(
+        new CustomEvent("operationComplete", {
+          detail: { frameId: Number(frameId) },
+        }),
+      );
+    },
+    onError: (error) => {
+      // console.error("Redo failed", error);
+      toast({
+        title: "Redo failed",
+        description: "Unable to redo the last action",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "z" && canUndo) {
+        e.preventDefault();
+        undoMutation.mutate();
+      }
+
+      if (
+        e.ctrlKey &&
+        (e.key === "y" || (e.shiftKey && e.key === "Z")) &&
+        canRedo
+      ) {
+        e.preventDefault();
+        redoMutation.mutate();
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [canUndo, canRedo]);
+
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  useEffect(() => {
+    if (video) video.playbackRate = playbackRate;
+  }, [video, playbackRate]);
+
+  // CANCELABLE EXTRACTION WITH EARLY ABORT
+  const runCancelableExtraction = async (
+    fn: () => Promise<Frame[]>,
+    type: "Initial" | "Scroll" | "Slider",
+    chunk: number,
+    startSec: number,
+    durationSec: number,
+  ) => {
+    extractionAbort.current = true;
+    if (ongoingExtraction.current) {
+      console.log(`Aborting ongoing ${currentTaskType.current} extraction`);
+      await ongoingExtraction.current;
+    }
+    extractionAbort.current = false;
+
+    currentTaskType.current = type;
+    setLoading(true);
+
+    const promise = (async () => {
+      const result = await fn();
+      if (extractionAbort.current) {
+        console.log(`Extraction aborted: ${type}`);
+        return [];
+      }
+      return result;
+    })();
+
+    ongoingExtraction.current = promise;
+    const result = await promise;
+    ongoingExtraction.current = null;
+    currentTaskType.current = null;
+    setLoading(false);
+
+    return result;
+  };
+
   // CONTINUOUS CANVAS RENDERING
   useEffect(() => {
     if (!video || !layerRef.current) return;
+    let animationFrameId: number;
     const update = () => {
+      if (!layerRef.current) return;
       layerRef.current.batchDraw();
-      requestAnimationFrame(update);
+      animationFrameId = requestAnimationFrame(update);
     };
     update();
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [video]);
 
   // VIDEO EVENT HANDLERS
@@ -964,9 +966,9 @@ export default function DynamicVideo({
             // Check if already loading
             const key = `${nextStart}-${nextEnd}`;
             if (!loadedRangesRef.current.has(key)) {
-              console.log(
-                `Progressive prefetch: frames ${nextStart}-${nextEnd}`
-              );
+              // console.log(
+              //   `Progressive prefetch: frames ${nextStart}-${nextEnd}`
+              // );
               chunkMutation.mutate({
                 start: Math.max(0, nextStart),
                 end: nextEnd,
@@ -980,12 +982,12 @@ export default function DynamicVideo({
 
     const handlePlay = () => {
       setIsPlaying(true);
-      console.log("Video started playing");
+      // console.log("Video started playing");
     };
 
     const handlePause = () => {
       setIsPlaying(false);
-      console.log("Video paused");
+      // console.log("Video paused");
       if (!video) return;
       const frameNumber = Math.round(video.currentTime * fps);
       sessionStorage.setItem("frameId", frameNumber.toString());
@@ -1051,9 +1053,9 @@ export default function DynamicVideo({
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
     } else {
-      console.log(
-        `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-      );
+      // console.log(
+      //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+      // );
       setIsLoadingAnnotations(false);
     }
     nextPrefetchFrameRef.current = null;
@@ -1064,7 +1066,7 @@ export default function DynamicVideo({
     if (startSec >= video.duration) return;
     const durationSec = Math.min(
       FRAME_CHUNK_DURATION,
-      video.duration - startSec
+      video.duration - startSec,
     );
 
     const newFrames = await runCancelableExtraction(
@@ -1074,7 +1076,7 @@ export default function DynamicVideo({
       "Slider",
       chunk,
       startSec,
-      durationSec
+      durationSec,
     );
     setFrames(newFrames);
     lastExtractedChunk.current = chunk;
@@ -1107,7 +1109,7 @@ export default function DynamicVideo({
       if (startSec >= video.duration) return;
       const durationSec = Math.min(
         FRAME_CHUNK_DURATION,
-        video.duration - startSec
+        video.duration - startSec,
       );
 
       const newFrames = await runCancelableExtraction(
@@ -1117,7 +1119,7 @@ export default function DynamicVideo({
         "Scroll",
         nextChunk,
         startSec,
-        durationSec
+        durationSec,
       );
       setFrames(newFrames);
       lastExtractedChunk.current = nextChunk;
@@ -1131,7 +1133,7 @@ export default function DynamicVideo({
 
     const newTime = Math.min(
       Math.max(video.currentTime + seconds, 0),
-      video.duration
+      video.duration,
     );
 
     video.currentTime = newTime;
@@ -1150,9 +1152,9 @@ export default function DynamicVideo({
 
     const key = `${windowStart}-${windowEnd}`;
     if (!loadedRangesRef.current.has(key)) {
-      console.log(
-        `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
-      );
+      // console.log(
+      //   `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
+      // );
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({
@@ -1160,9 +1162,9 @@ export default function DynamicVideo({
           end: windowEnd,
         });
       } else {
-        console.log(
-          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-        );
+        // console.log(
+        //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+        // );
         setIsLoadingAnnotations(false);
       }
     }
@@ -1173,7 +1175,7 @@ export default function DynamicVideo({
       const currentFrame = Math.round(video.currentTime * fps);
       const nextFrame = Math.min(
         Math.max(currentFrame + direction, 0),
-        Math.floor(video.duration * fps)
+        Math.floor(video.duration * fps),
       );
       const nextTime = nextFrame / fps;
 
@@ -1236,9 +1238,9 @@ export default function DynamicVideo({
     const windowStart = Math.max(0, seekFrameNumber);
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
-    console.log(
-      `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
-    );
+    // console.log(
+    //   `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
+    // );
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({
@@ -1246,9 +1248,9 @@ export default function DynamicVideo({
         end: windowEnd,
       });
     } else {
-      console.log(
-        `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-      );
+      // console.log(
+      //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+      // );
       setIsLoadingAnnotations(false);
     }
     nextPrefetchFrameRef.current = null;
@@ -1259,7 +1261,7 @@ export default function DynamicVideo({
     if (startSec >= video.duration) return;
     const durationSec = Math.min(
       FRAME_CHUNK_DURATION,
-      video.duration - startSec
+      video.duration - startSec,
     );
 
     const newFrames = await runCancelableExtraction(
@@ -1269,7 +1271,7 @@ export default function DynamicVideo({
       "Slider",
       chunk,
       startSec,
-      durationSec
+      durationSec,
     );
     setFrames(newFrames);
     lastExtractedChunk.current = chunk;
@@ -1410,7 +1412,7 @@ export default function DynamicVideo({
                 allObjectIds.map((objectId) => {
                   const points = getTrajectoryPointsUpToCurrent(
                     objectId,
-                    currentFrame+50
+                    currentFrame + 50,
                   );
                   if (points.length < 2) return null;
 
@@ -1436,7 +1438,7 @@ export default function DynamicVideo({
                   const color = getObjectColor(a.object_id);
 
                   const isSelected = selectedObjects.some(
-                    (obj) => obj.object_id === a.object_id
+                    (obj) => obj.object_id === a.object_id,
                   );
 
                   const xs = a.coordinates.map(([x]) => mapX(x));
@@ -1455,7 +1457,7 @@ export default function DynamicVideo({
                       key={`${a.object_id}-${a.frame_id}`}
                       onClick={() => {
                         const alreadySelected = selectedObjects.find(
-                          (obj) => obj.object_id === a.object_id
+                          (obj) => obj.object_id === a.object_id,
                         );
 
                         if (alreadySelected) {
@@ -1469,7 +1471,7 @@ export default function DynamicVideo({
                         }
 
                         if (selectedObjects.length >= 2) {
-                          console.log("  Maximum 2 selections allowed");
+                          // console.log("  Maximum 2 selections allowed");
                           toast({
                             title: "  Maximum 2 selections allowed.",
                             description: "",
@@ -1480,7 +1482,7 @@ export default function DynamicVideo({
                         }
 
                         if (!projectId) {
-                          console.log("Project ID not available");
+                          // console.log("Project ID not available");
                           return;
                         }
 
@@ -1512,9 +1514,9 @@ export default function DynamicVideo({
                                 duration: 1000,
                               });
 
-                              console.log("Object selected:", newSelection);
+                              // console.log("Object selected:", newSelection);
                             },
-                          }
+                          },
                         );
                       }}>
                       {a.coordinates.map(([x, y], idx) => (
@@ -1560,114 +1562,73 @@ export default function DynamicVideo({
           <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
             {(stageScale.x * 100).toFixed(0)}%
           </div>
-
-          {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-            <Button
-              className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-              disabled={!projectId || exportMutation.isPending}
-              onClick={() => exportMutation.mutate()}
-            >
-              <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-              {exportMutation.isPending ? "Exporting..." : "Export"}
-              <Image
-                src="/images/exportDownArrow.svg"
-                alt="Export Down Arrow"
-                width={13}
-                height={7}
-              />
-            </Button>
-          </div> */}
-
-        
-
-        {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-          {downloadUrl ? (
-            // Download button
-            <Button
-              className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
-              onClick={() => {
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                // Optional: Reset after download
-                setDownloadUrl(null);
-              }}
-            >
-              <Image src="/images/download.svg" alt="Download" width={15} height={15} />
-              Download TRK
-              <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
-            </Button>
-          ) : (
-            // Original export button
-            <Button
-              className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-              disabled={!projectId || isExporting}
-              onClick={() => exportMutation.mutate()}
-            >
-              <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-              {isExporting ? "Exporting..." : "Export"}
-              <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
-            </Button>
-          )}
-        </div> */}
-
-        <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-  {downloadUrl ? (
-    // Download button
-    <Button
-      className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
-      onClick={() => {
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `project_${projectId}_v${trkVersion}.trk`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setDownloadUrl(null);
-      }}
-    >
-      <Image src="/images/download.svg" alt="Download" width={15} height={15} />
-      Download TRK
-      <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
-    </Button>
-  ) : isExporting ? (
-    // ✅ CANCEL BUTTON - New state
-    <div className="flex items-center gap-2">
-      <Button
-        variant="destructive"
-        size="sm"
-        onClick={() => {
-          // Cancel the export mutation
-          exportMutation.reset(); // or exportController.abort() if using AbortController
-          setDownloadUrl(null); // Reset any pending URL
-          setIsExporting(false);
-        }}
-        disabled={false}
-      >
-        Cancel
-      </Button>
-      <div className="text-[13px] text-white/90">Exporting...</div>
-    </div>
-  ) : (
-    // Original export button
-    <Button
-      className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-      disabled={!projectId}
-      onClick={() => exportMutation.mutate()}
-    >
-      <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-      Export
-      <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
-    </Button>
-  )}
-</div>
-
-
-
-
+          <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+            {downloadUrl ? (
+              // Download button
+              <Button
+                className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
+                onClick={() => {
+                  const link = document.createElement("a");
+                  link.href = downloadUrl;
+                  link.download = `project_${projectId}_v${trkVersion}.trk`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  setDownloadUrl(null);
+                }}>
+                <Image
+                  src="/images/download.svg"
+                  alt="Download"
+                  width={15}
+                  height={15}
+                />
+                Download TRK
+                <Image
+                  src="/images/downArrow.svg"
+                  alt="Down Arrow"
+                  width={13}
+                  height={7}
+                />
+              </Button>
+            ) : isExporting ? (
+              // ✅ CANCEL BUTTON - New state
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    // Cancel the export mutation
+                    exportMutation.reset(); // or exportController.abort() if using AbortController
+                    setDownloadUrl(null); // Reset any pending URL
+                    setIsExporting(false);
+                  }}
+                  disabled={false}>
+                  Cancel
+                </Button>
+                <div className="text-[13px] text-white/90">Exporting...</div>
+              </div>
+            ) : (
+              // Original export button
+              <Button
+                className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
+                disabled={!projectId}
+                onClick={() => exportMutation.mutate()}>
+                <Image
+                  src="/images/rightArrow.svg"
+                  alt="Right Arrow"
+                  width={15}
+                  height={15}
+                />
+                Export
+                <Image
+                  src="/images/exportDownArrow.svg"
+                  alt="Export Down Arrow"
+                  width={13}
+                  height={7}
+                />
+              </Button>
+            )}
+          </div>
 
           {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
             {downloadUrl ? (
