@@ -52,6 +52,9 @@ export default function CreateProjectModal({
 
   const queryClient = useQueryClient();
 
+  const existingProjects =
+    (queryClient.getQueryData(["project-list"]) as any)?.data ?? [];
+
   const mutation = useMutation({
     mutationFn: (formData: FormData) => createProject(formData),
     onSuccess: (data) => {
@@ -95,7 +98,20 @@ export default function CreateProjectModal({
       setErrors(fieldErrors);
       return;
     }
+    const isDuplicate = existingProjects.some(
+      (p: any) => p.project_name?.trim() === projectName.trim(),
+    );
+
     onClose();
+    if (isDuplicate) {
+      toast({
+        title: "Project name already exists",
+        description: "Please choose a different project name.",
+        variant: "destructive",
+        duration: 2500,
+      });
+      return;
+    }
     const body = new FormData();
     body.append("project_name", projectName);
     if (fileUpload?.[0]) body.append("video_file", fileUpload[0]);
