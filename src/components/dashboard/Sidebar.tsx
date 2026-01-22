@@ -4,7 +4,7 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
-import { useQuery} from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, useCallback } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
@@ -14,8 +14,9 @@ import { breakObjects } from "@/lib/api/breakObjects";
 import { useToast } from "@/components/hooks/use-toast";
 import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
-import {SelectedObjectProps} from "@/types";
-import { ArrowLeft } from 'lucide-react';
+import { SelectedObjectProps } from "@/types";
+import { ArrowLeft } from "lucide-react";
+import { formatFileName } from "@/lib/utils/formatFileName";
 
 export default function Sidebar({
   selectedObjects,
@@ -35,7 +36,7 @@ export default function Sidebar({
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
     const [value, setValue] = useState<string | null>(
-      typeof window !== "undefined" ? sessionStorage.getItem(key) : null
+      typeof window !== "undefined" ? sessionStorage.getItem(key) : null,
     );
 
     useEffect(() => {
@@ -99,7 +100,7 @@ export default function Sidebar({
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
-        })
+        }),
       );
     },
   });
@@ -124,7 +125,7 @@ export default function Sidebar({
         window.dispatchEvent(
           new CustomEvent("operationComplete", {
             detail: { frameId: currentFrameId },
-          })
+          }),
         );
       }
 
@@ -160,7 +161,7 @@ export default function Sidebar({
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
-        })
+        }),
       );
     },
   });
@@ -181,7 +182,7 @@ export default function Sidebar({
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
-        })
+        }),
       );
     },
   });
@@ -207,11 +208,11 @@ export default function Sidebar({
     if (data) {
       setExpandedIds(new Set());
       console.log(
-        `Frame ${frameId}: ${data.data.objects?.length || 0} objects loaded`
+        `Frame ${frameId}: ${data.data.objects?.length || 0} objects loaded`,
       );
       console.log(
         "Sample coordinates (Object 0):",
-        data.objects?.[0]?.coordinates?.slice(0, 2)
+        data.objects?.[0]?.coordinates?.slice(0, 2),
       );
       setInitialLoadComplete(true);
       setPreviousFrameId(Number(frameId));
@@ -397,7 +398,7 @@ export default function Sidebar({
                               {obj.coordinates.map(
                                 (
                                   point: [number, number],
-                                  pointIndex: number
+                                  pointIndex: number,
                                 ) => {
                                   const [x, y] = point;
                                   return (
@@ -419,7 +420,7 @@ export default function Sidebar({
                                       </div>
                                     </li>
                                   );
-                                }
+                                },
                               )}
                             </ul>
                           ) : (
@@ -452,7 +453,7 @@ export default function Sidebar({
                                       {conf}
                                     </span>
                                   </span>
-                                )
+                                ),
                               )}
                             </div>
                           ) : (
@@ -479,18 +480,16 @@ export default function Sidebar({
         <div className="bg-[#D9D9D9] h-10 w-10 rounded" />
         <div>
           <div className="flex items-center gap-3">
-             <h2 className="text-[#595959] text-[16px] font-medium">
+            <h2 className="text-[#595959] text-[16px] font-medium">
               Animal Annotation
             </h2>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => window.history.back()}
-              className="h-8 w-8 text-[#595959] hover:text-[#333] hover:bg-gray-100"
-            >
+              className="h-8 w-8 text-[#595959] hover:text-[#333] hover:bg-gray-100">
               <ArrowLeft className="h-4 w-4" />
             </Button>
-           
           </div>
           <p className="text-[#9F9F9F] text-[12px]">PROJECT</p>
         </div>
@@ -499,11 +498,19 @@ export default function Sidebar({
       <CardContent className="p-3">
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
-          <span className="text-[#404040] text-[13px]">{videoName}</span>
+          <span
+            className="text-[#404040] text-[13px] truncate"
+            title={videoName ?? ""}>
+            {formatFileName(videoName ?? "")}
+          </span>
         </div>
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
-          <span className="text-[#404040] text-[13px]">{trkFileName}</span>
+          <span
+            className="text-[#404040] text-[13px] truncate"
+            title={trkFileName ?? ""}>
+            {formatFileName(trkFileName ?? "")}
+          </span>
         </div>
       </CardContent>
 
@@ -559,7 +566,7 @@ export default function Sidebar({
               <button
                 onClick={() => {
                   setSelectedObjects((prev) =>
-                    prev.filter((o) => o.object_id !== obj.object_id)
+                    prev.filter((o) => o.object_id !== obj.object_id),
                   );
                   toast({
                     title: "🗑️ Removed",
