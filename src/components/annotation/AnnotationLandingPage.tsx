@@ -30,21 +30,7 @@ import { getProjectList } from "@/lib/api/getProjectList";
 import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
-
-const formatFileName = (name?: string, maxLength = 30) => {
-  if (!name) return "-";
-  if (name.length <= maxLength) return name;
-
-  const lastDot = name.lastIndexOf(".");
-  if (lastDot === -1) {
-    return name.slice(0, maxLength) + "...";
-  }
-
-  const ext = name.slice(lastDot); // .mp4 / .trk
-  const base = name.slice(0, maxLength - ext.length - 3);
-
-  return `${base}...${ext}`;
-};
+import { formatFileName } from "@/lib/utils/formatFileName";
 
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -70,7 +56,7 @@ export default function AnnotationLandingPage() {
         title: "Project Deleted",
         description: "Project deleted successfully",
         duration: 3000,
-        className: "text-green-600",
+        className: "text-red-600",
       });
 
       queryClient.invalidateQueries({ queryKey: ["project-list"] });

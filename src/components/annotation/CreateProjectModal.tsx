@@ -15,6 +15,7 @@ import { createProject } from "@/lib/api/createProject";
 import { CreateProjectModalProps } from "@/types";
 import { Loader2 } from "lucide-react";
 import { Spinner } from "../feedback/Spinner";
+import { formatFileName } from "@/lib/utils/formatFileName";
 
 const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
 
@@ -36,20 +37,6 @@ const projectSchema = z.object({
     ),
   trackingFile: z.any().optional(),
 });
-
-const formatFileName = (name: string, maxLength = 35) => {
-  if (name.length <= maxLength) return name;
-
-  const extIndex = name.lastIndexOf(".");
-  if (extIndex === -1) {
-    return name.slice(0, maxLength) + "...";
-  }
-
-  const ext = name.slice(extIndex);
-  const base = name.slice(0, maxLength - ext.length - 3);
-
-  return `${base}...${ext}`;
-};
 
 export default function CreateProjectModal({
   open,
@@ -108,7 +95,7 @@ export default function CreateProjectModal({
       setErrors(fieldErrors);
       return;
     }
-
+    onClose();
     const body = new FormData();
     body.append("project_name", projectName);
     if (fileUpload?.[0]) body.append("video_file", fileUpload[0]);
@@ -130,10 +117,12 @@ export default function CreateProjectModal({
   return (
     <>
       {mutation.isPending && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <Loader2 className="h-14 w-14 animate-spin text-white" />
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white rounded-lg px-6 py-4 flex items-center gap-3 shadow-lg">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <span className="text-sm font-medium">Creating project…</span>
+          </div>
         </div>
-        // <Spinner/>
       )}
 
       <Dialog
