@@ -698,7 +698,7 @@ export default function DynamicVideo({
           setIsLoadingAnnotations(true);
           chunkMutation.mutate({
             start: initialStart,
-            end: 60,
+            end: 150,
           });
 
           const endTime = performance.now();
@@ -1049,7 +1049,7 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: Math.max(0, windowStart), end: windowEnd });
+      chunkMutation.mutate({ start: Math.max(0, windowStart-100), end: windowEnd });
     } else {
       console.log(
         `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
@@ -1156,7 +1156,7 @@ export default function DynamicVideo({
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({
-          start: Math.max(0, windowStart),
+          start: Math.max(0, windowStart-100),
           end: windowEnd,
         });
       } else {
@@ -1180,14 +1180,36 @@ export default function DynamicVideo({
       video.currentTime = nextTime;
       setCurrentTime(nextTime);
       setSelectedFrameIndex(nextFrame);
-
       sessionStorage.setItem("frameId", nextFrame.toString());
+
+      // FETCH ANNOTATIONS for stepped frame (same as handleFrameJump)
+        const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+        const totalFrames = Math.floor(video.duration * fps);
+        const windowStart = Math.max(0, nextFrame);
+        const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
+
+        console.log(
+            `Step to frame ${nextFrame} (${formatTime(nextTime)}): loading frames ${windowStart}-${windowEnd}`
+        );
+        setIsLoadingAnnotations(true);
+        if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+            chunkMutation.mutate({
+                start: Math.max(0, windowStart - 100),
+                end: windowEnd,
+            });
+        } else {
+            console.log(
+                `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+            );
+            setIsLoadingAnnotations(false);
+        }
     }
   };
 
   // HANDLE FRAME CLICK
   const handleFrameClick = async (frame: Frame) => {
     if (!video) return;
+    loadedRangesRef.current.clear();
 
     video.pause();
     setIsPlaying(false);
@@ -1560,59 +1582,7 @@ export default function DynamicVideo({
           <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
             {(stageScale.x * 100).toFixed(0)}%
           </div>
-
-          {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-            <Button
-              className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-              disabled={!projectId || exportMutation.isPending}
-              onClick={() => exportMutation.mutate()}
-            >
-              <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-              {exportMutation.isPending ? "Exporting..." : "Export"}
-              <Image
-                src="/images/exportDownArrow.svg"
-                alt="Export Down Arrow"
-                width={13}
-                height={7}
-              />
-            </Button>
-          </div> */}
-
-        
-
-        {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-          {downloadUrl ? (
-            // Download button
-            <Button
-              className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
-              onClick={() => {
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                // Optional: Reset after download
-                setDownloadUrl(null);
-              }}
-            >
-              <Image src="/images/download.svg" alt="Download" width={15} height={15} />
-              Download TRK
-              <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
-            </Button>
-          ) : (
-            // Original export button
-            <Button
-              className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-              disabled={!projectId || isExporting}
-              onClick={() => exportMutation.mutate()}
-            >
-              <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-              {isExporting ? "Exporting..." : "Export"}
-              <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
-            </Button>
-          )}
-        </div> */}
+          {/* EXPORT / DOWNLOAD BUTTONS */}
 
         <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
   {downloadUrl ? (
@@ -1664,62 +1634,6 @@ export default function DynamicVideo({
     </Button>
   )}
 </div>
-
-
-
-
-
-          {/* <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-            {downloadUrl ? (
-              // Download button
-              <Button
-                className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
-                onClick={() => {
-                  const link = document.createElement("a");
-                  link.href = downloadUrl;
-                  link.download = `project_${projectId}_v${trkVersion}.trk`; // Dynamic filename
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  // Optional: Reset after download
-                  setDownloadUrl(null);
-                }}>
-                <Image
-                  src="/images/download.svg"
-                  alt="Download"
-                  width={15}
-                  height={15}
-                />
-                Download TRK
-                <Image
-                  src="/images/downArrow.svg"
-                  alt="Down Arrow"
-                  width={13}
-                  height={7}
-                />
-              </Button>
-            ) : (
-              // Original export button
-              <Button
-                className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-                disabled={!projectId || isExporting}
-                onClick={() => exportMutation.mutate()}>
-                <Image
-                  src="/images/rightArrow.svg"
-                  alt="Right Arrow"
-                  width={15}
-                  height={15}
-                />
-                {isExporting ? "Exporting..." : "Export"}
-                <Image
-                  src="/images/exportDownArrow.svg"
-                  alt="Export Down Arrow"
-                  width={13}
-                  height={7}
-                />
-              </Button>
-            )}
-          </div> */}
 
           {/* FRAME NUMBER DISPLAY */}
           <div className="absolute top-2 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
