@@ -697,8 +697,8 @@ export default function DynamicVideo({
           );
           setIsLoadingAnnotations(true);
           chunkMutation.mutate({
-            start: Math.max(0, initialStart),
-            end: initialEnd,
+            start: initialStart,
+            end: 60,
           });
 
           const endTime = performance.now();
