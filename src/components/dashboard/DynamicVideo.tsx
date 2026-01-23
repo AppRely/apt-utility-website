@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
@@ -8,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/hooks/use-toast";
+import { Loader2 } from "lucide-react";
 import {
   Play,
   Pause,
@@ -58,7 +58,7 @@ export default function DynamicVideo({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number | null>(
-    null
+    null,
   );
 
   const [loading, setLoading] = useState(false);
@@ -86,14 +86,13 @@ export default function DynamicVideo({
 
   const [showSpeed, setShowSpeed] = useState(false);
 
-  const [exportData, setExportData] = useState<ExportResponse | null>(null);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
   const [trkVersion, setTrkVersion] = useState(null);
 
   const ANNO_WINDOW_SECONDS = 6;
   const ANNO_PREFETCH_THRESHOLD = Math.round(
-    (30 / 100) * ANNO_WINDOW_SECONDS * 30
+    (30 / 100) * ANNO_WINDOW_SECONDS * 30,
   );
 
   const STAGE_WIDTH = 900;
@@ -116,7 +115,7 @@ export default function DynamicVideo({
   const hasAutoPlayedRef = useRef(false);
 
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(
-    null
+    null,
   );
   const lastAnnoLoadTs = useRef<number>(0);
   const nextPrefetchFrameRef = useRef<number | null>(null);
@@ -180,9 +179,9 @@ export default function DynamicVideo({
     for (const pendingKey of pendingRangesRef.current) {
       const [pStart, pEnd] = pendingKey.split("-").map(Number);
       if (!(end <= pStart || start >= pEnd)) {
-        console.log(
-          `Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`
-        );
+        // console.log(
+        //   `Range [${start}, ${end}] overlaps with pending [${pStart}, ${pEnd}]`
+        // );
         return true;
       }
     }
@@ -201,10 +200,10 @@ export default function DynamicVideo({
         .play()
         .then(() => {
           setIsPlaying(true);
-          console.log("▶️ Video playing");
+          // console.log("▶️ Video playing");
         })
         .catch((error) => {
-          console.warn("  Autoplay prevented:", error);
+          // console.warn("  Autoplay prevented:", error);
           toast({
             title: "Click the play button to start video",
             description: "Some browsers require user interaction",
@@ -214,7 +213,7 @@ export default function DynamicVideo({
     } else {
       video.pause();
       setIsPlaying(false);
-      console.log("⏸️ Video paused");
+      // console.log("⏸️ Video paused");
     }
   }, [video, toast]);
 
@@ -266,7 +265,7 @@ export default function DynamicVideo({
 
       return points;
     },
-    [trajectoryMap, fps]
+    [trajectoryMap, fps],
   );
 
   // GET ALL OBJECT IDS
@@ -307,7 +306,6 @@ export default function DynamicVideo({
       direction > 0 ? oldScale * ZOOM_SPEED : oldScale / ZOOM_SPEED;
     const clampedScale = Math.min(Math.max(newScale, MIN_ZOOM), MAX_ZOOM);
     setCurrentZoom(clampedScale);
-    
 
     const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
@@ -319,16 +317,16 @@ export default function DynamicVideo({
   }, []);
 
   const getRadiusBasedOnZoom = (zoom: number): number => {
-  if (zoom >= 1 && zoom <= 2) {
+    if (zoom >= 1 && zoom <= 2) {
+      return 2;
+    } else if (zoom >= 3 && zoom <= 5) {
+      return 1.5;
+    } else if (zoom >= 6 && zoom <= 10) {
+      return 1;
+    }
+    // Default fallback
     return 2;
-  } else if (zoom >= 3 && zoom <= 5) {
-    return 1.5;
-  } else if (zoom >= 6 && zoom <= 10) {
-    return 1;
-  }
-  // Default fallback
-  return 2;
-};
+  };
 
   // MOUSE DOWN HANDLER
   const handleMouseDown = (e: any) => {
@@ -470,7 +468,7 @@ export default function DynamicVideo({
 
       const key = `${start}-${end}`;
       pendingRangesRef.current.add(key);
-      console.log(`Fetching [${start}-${end}]`);
+      // console.log(`Fetching [${start}-${end}]`);
 
       return getFrameRangeData(projectId, start, end);
     },
@@ -480,11 +478,9 @@ export default function DynamicVideo({
       const key = `${start}-${end}`;
       if (!data) {
         pendingRangesRef.current.delete(key);
-        console.log("  No data returned from mutation");
+        // console.log("  No data returned from mutation");
         return;
       }
-
-      console.log(data);
 
       const loadedAnnotations: Annotation[] = [];
       const newTrajectoryFrames: TrajectoryFrame[] = [];
@@ -509,10 +505,10 @@ export default function DynamicVideo({
       // merge annotations, still avoid duplicates per (object_id, frame_id)
       setAnnotations((prev) => {
         const existingIds = new Set(
-          prev.map((a) => `${a.object_id}-${a.frame_id}`)
+          prev.map((a) => `${a.object_id}-${a.frame_id}`),
         );
         const newOnes = loadedAnnotations.filter(
-          (a) => !existingIds.has(`${a.object_id}-${a.frame_id}`)
+          (a) => !existingIds.has(`${a.object_id}-${a.frame_id}`),
         );
         return [...prev, ...newOnes];
       });
@@ -536,9 +532,9 @@ export default function DynamicVideo({
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
 
-      console.log(
-        `Annotations loaded for ${key} (${loadedAnnotations.length} new)`
-      );
+      // console.log(
+      //   `Annotations loaded for ${key} (${loadedAnnotations.length} new)`
+      // );
     },
 
     onError: (error, variables) => {
@@ -546,7 +542,7 @@ export default function DynamicVideo({
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
       setIsLoadingAnnotations(false);
-      console.error(`Failed to load annotations for ${key}:`, error);
+      // console.error(`Failed to load annotations for ${key}:`, error);
     },
   });
 
@@ -577,14 +573,24 @@ export default function DynamicVideo({
     },
     onSuccess: (response) => {
       setDownloadUrl(response.data.download_url);
-      console.log("Export response:", response);
-      console.log("setDownloadUrl:", downloadUrl);
       setTrkVersion(response.data.trk_version);
       setIsExporting(false);
+      toast({
+        title: "Export Completed",
+        description: "TRK file exported successfully.",
+        duration: 3000,
+        className: "text-green-600",
+      });
     },
     onError: () => {
       setIsExporting(false);
       setDownloadUrl(null);
+      toast({
+        title: "Export Failed",
+        description: "Something went wrong while exporting.",
+        variant: "destructive",
+        duration: 3000,
+      });
     },
   });
 
@@ -619,9 +625,9 @@ export default function DynamicVideo({
           end: windowEnd,
         });
       } else {
-        console.log(
-          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-        );
+        // console.log(
+        //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+        // );
         setIsLoadingAnnotations(false);
       }
     };
@@ -642,6 +648,67 @@ export default function DynamicVideo({
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
+  // EXTRACT FRAMES FROM VIDEO
+  const extractFramesFromVideo = async (
+    videoElement: HTMLVideoElement,
+    startSec: number,
+    durationSec: number,
+  ): Promise<Frame[]> => {
+    try {
+      // Create a video element for frame extraction
+      const tempVideo = document.createElement("video");
+      tempVideo.src = videoElement.src;
+      tempVideo.crossOrigin = "anonymous";
+
+      // Wait for video to load
+      await new Promise((resolve, reject) => {
+        tempVideo.onloadedmetadata = resolve;
+        tempVideo.onerror = reject;
+      });
+
+      // Create canvas for frame capture
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return [];
+
+      canvas.width = videoElement.videoWidth;
+      canvas.height = videoElement.videoHeight;
+
+      const frames: Frame[] = [];
+      const frameInterval = 1 / fps;
+
+      // Extract frames at FPS rate
+      for (let i = 0; i < durationSec * fps; i++) {
+        if (extractionAbort.current) {
+          console.warn(`[FRAME LOOP STOPPED]`, {
+            type: currentTaskType.current,
+            frameIndex: i,
+          });
+          break;
+        }
+        const currentSec = startSec + i * frameInterval;
+        tempVideo.currentTime = currentSec;
+
+        await new Promise((resolve) => {
+          tempVideo.onseeked = () => {
+            ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+            frames.push({
+              index: Math.round(currentSec * fps),
+              src: dataUrl,
+            });
+            resolve(null);
+          };
+        });
+      }
+
+      return frames;
+    } catch (error) {
+      console.error("Error extracting frames:", error);
+      return [];
+    }
+  };
+
   //OPTIMIZED: DIRECT API URL + LAZY FRAME EXTRACTION
   useEffect(() => {
     const loadVideoAndFrames = async () => {
@@ -653,7 +720,7 @@ export default function DynamicVideo({
       if (!projectId) return;
 
       try {
-        console.log("  Starting optimized video load...");
+        // console.log("  Starting optimized video load...");
         const startTime = performance.now();
 
         //Use direct API URL
@@ -674,13 +741,13 @@ export default function DynamicVideo({
               return await extractFramesFromVideo(
                 vid,
                 0,
-                INITIAL_FRAME_DURATION
+                INITIAL_FRAME_DURATION,
               );
             },
             "Initial",
             0,
             0,
-            INITIAL_FRAME_DURATION
+            INITIAL_FRAME_DURATION,
           );
           setFrames(firstBatch);
           console.log(`Initial frames loaded: ${firstBatch.length} frames`);
@@ -689,12 +756,12 @@ export default function DynamicVideo({
           const initialStart = 0;
           const initialEnd = Math.min(
             Math.round(ANNO_WINDOW_SECONDS * fps),
-            Math.floor(duration * fps)
+            Math.floor(duration * fps),
           );
 
-          console.log(
-            `Fetching initial annotations: ${initialStart}-${initialEnd}`
-          );
+          // console.log(
+          //   `Fetching initial annotations: ${initialStart}-${initialEnd}`
+          // );
           setIsLoadingAnnotations(true);
           chunkMutation.mutate({
             start: initialStart,
@@ -703,7 +770,7 @@ export default function DynamicVideo({
 
           const endTime = performance.now();
           console.log(
-            `Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`
+            `Total setup time: ${((endTime - startTime) / 1000).toFixed(2)}s`,
           );
         };
 
@@ -718,7 +785,7 @@ export default function DynamicVideo({
         // FIXED: Set video state after it's fully loaded
         setVideo(vid);
       } catch (error) {
-        console.error("Failed to load video:", error);
+        // console.error("Failed to load video:", error);
         toast({
           title: "Failed to load video",
           variant: "destructive",
@@ -759,11 +826,11 @@ export default function DynamicVideo({
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
-        })
+        }),
       );
     },
     onError: (error) => {
-      console.error("Undo failed", error);
+      // console.error("Undo failed", error);
       toast({
         title: "Undo failed",
         description: "Unable to undo the last action",
@@ -787,11 +854,11 @@ export default function DynamicVideo({
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
-        })
+        }),
       );
     },
     onError: (error) => {
-      console.error("Redo failed", error);
+      // console.error("Redo failed", error);
       toast({
         title: "Redo failed",
         description: "Unable to redo the last action",
@@ -832,104 +899,82 @@ export default function DynamicVideo({
     if (video) video.playbackRate = playbackRate;
   }, [video, playbackRate]);
 
-  // CANCELABLE EXTRACTION WITH EARLY ABORT
   const runCancelableExtraction = async (
-    fn: () => Promise<Frame[]>,
-    type: "Initial" | "Scroll" | "Slider",
+    task: () => Promise<Frame[]>,
+    taskType: "Initial" | "Scroll" | "Slider",
     chunk: number,
     startSec: number,
-    durationSec: number
-  ) => {
-    extractionAbort.current = true;
+    durationSec: number,
+  ): Promise<Frame[]> => {
+    // Abort previous extraction if running
     if (ongoingExtraction.current) {
-      console.log(`Aborting ongoing ${currentTaskType.current} extraction`);
-      await ongoingExtraction.current;
+      extractionAbort.current = true;
+
+      console.warn(`[EXTRACTION ABORTED]`, {
+        prevTask: currentTaskType.current,
+        prevChunk: lastExtractedChunk.current,
+      });
     }
+
     extractionAbort.current = false;
+    currentTaskType.current = taskType;
 
-    currentTaskType.current = type;
-    setLoading(true);
+    console.log(`[EXTRACTION START]`, {
+      type: taskType,
+      chunk,
+      startSec,
+      durationSec,
+    });
 
-    const promise = (async () => {
-      const result = await fn();
+    const extractionPromise = (async () => {
+      const frames = await task();
+
       if (extractionAbort.current) {
-        console.log(`Extraction aborted: ${type}`);
+        console.warn(`[EXTRACTION SKIPPED]`, {
+          type: taskType,
+          chunk,
+          reason: "Aborted by newer extraction",
+        });
         return [];
       }
-      return result;
-    })();
 
-    ongoingExtraction.current = promise;
-    const result = await promise;
-    ongoingExtraction.current = null;
-    currentTaskType.current = null;
-    setLoading(false);
-
-    return result;
-  };
-
-  // EXTRACT FRAMES FROM VIDEO
-  const extractFramesFromVideo = async (
-    videoElement: HTMLVideoElement,
-    startSec: number,
-    durationSec: number
-  ): Promise<Frame[]> => {
-    try {
-      // Create a video element for frame extraction
-      const tempVideo = document.createElement("video");
-      tempVideo.src = videoElement.src;
-      tempVideo.crossOrigin = "anonymous";
-
-      // Wait for video to load
-      await new Promise((resolve, reject) => {
-        tempVideo.onloadedmetadata = resolve;
-        tempVideo.onerror = reject;
+      console.log(`[EXTRACTION DONE]`, {
+        type: taskType,
+        chunk,
+        frames: frames.length,
       });
 
-      // Create canvas for frame capture
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return [];
-
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
-
-      const frames: Frame[] = [];
-      const frameInterval = 1 / fps;
-
-      // Extract frames at FPS rate
-      for (let i = 0; i < durationSec * fps; i++) {
-        const currentSec = startSec + i * frameInterval;
-        tempVideo.currentTime = currentSec;
-
-        await new Promise((resolve) => {
-          tempVideo.onseeked = () => {
-            ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-            frames.push({
-              index: Math.round(currentSec * fps),
-              src: dataUrl,
-            });
-            resolve(null);
-          };
-        });
-      }
-
       return frames;
-    } catch (error) {
-      console.error("Error extracting frames:", error);
-      return [];
+    })();
+
+    ongoingExtraction.current = extractionPromise;
+
+    const result = await extractionPromise;
+
+    // Clear only if this task is still the active one
+    if (ongoingExtraction.current === extractionPromise) {
+      ongoingExtraction.current = null;
+      currentTaskType.current = null;
     }
+
+    return result;
   };
 
   // CONTINUOUS CANVAS RENDERING
   useEffect(() => {
     if (!video || !layerRef.current) return;
+    let animationFrameId: number;
     const update = () => {
+      if (!layerRef.current) return;
       layerRef.current.batchDraw();
-      requestAnimationFrame(update);
+      animationFrameId = requestAnimationFrame(update);
     };
     update();
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [video]);
 
   // VIDEO EVENT HANDLERS
@@ -964,9 +1009,9 @@ export default function DynamicVideo({
             // Check if already loading
             const key = `${nextStart}-${nextEnd}`;
             if (!loadedRangesRef.current.has(key)) {
-              console.log(
-                `Progressive prefetch: frames ${nextStart}-${nextEnd}`
-              );
+              // console.log(
+              //   `Progressive prefetch: frames ${nextStart}-${nextEnd}`
+              // );
               chunkMutation.mutate({
                 start: Math.max(0, nextStart),
                 end: nextEnd,
@@ -980,12 +1025,12 @@ export default function DynamicVideo({
 
     const handlePlay = () => {
       setIsPlaying(true);
-      console.log("Video started playing");
+      // console.log("Video started playing");
     };
 
     const handlePause = () => {
       setIsPlaying(false);
-      console.log("Video paused");
+      // console.log("Video paused");
       if (!video) return;
       const frameNumber = Math.round(video.currentTime * fps);
       sessionStorage.setItem("frameId", frameNumber.toString());
@@ -1051,9 +1096,9 @@ export default function DynamicVideo({
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: Math.max(0, windowStart-100), end: windowEnd });
     } else {
-      console.log(
-        `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-      );
+      // console.log(
+      //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+      // );
       setIsLoadingAnnotations(false);
     }
     nextPrefetchFrameRef.current = null;
@@ -1064,7 +1109,7 @@ export default function DynamicVideo({
     if (startSec >= video.duration) return;
     const durationSec = Math.min(
       FRAME_CHUNK_DURATION,
-      video.duration - startSec
+      video.duration - startSec,
     );
 
     const newFrames = await runCancelableExtraction(
@@ -1074,7 +1119,7 @@ export default function DynamicVideo({
       "Slider",
       chunk,
       startSec,
-      durationSec
+      durationSec,
     );
     setFrames(newFrames);
     lastExtractedChunk.current = chunk;
@@ -1107,7 +1152,7 @@ export default function DynamicVideo({
       if (startSec >= video.duration) return;
       const durationSec = Math.min(
         FRAME_CHUNK_DURATION,
-        video.duration - startSec
+        video.duration - startSec,
       );
 
       const newFrames = await runCancelableExtraction(
@@ -1117,7 +1162,7 @@ export default function DynamicVideo({
         "Scroll",
         nextChunk,
         startSec,
-        durationSec
+        durationSec,
       );
       setFrames(newFrames);
       lastExtractedChunk.current = nextChunk;
@@ -1131,7 +1176,7 @@ export default function DynamicVideo({
 
     const newTime = Math.min(
       Math.max(video.currentTime + seconds, 0),
-      video.duration
+      video.duration,
     );
 
     video.currentTime = newTime;
@@ -1150,9 +1195,9 @@ export default function DynamicVideo({
 
     const key = `${windowStart}-${windowEnd}`;
     if (!loadedRangesRef.current.has(key)) {
-      console.log(
-        `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
-      );
+      // console.log(
+      //   `  Skip: fetching annotations for ${windowStart}-${windowEnd}`
+      // );
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({
@@ -1160,9 +1205,9 @@ export default function DynamicVideo({
           end: windowEnd,
         });
       } else {
-        console.log(
-          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-        );
+        // console.log(
+        //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+        // );
         setIsLoadingAnnotations(false);
       }
     }
@@ -1173,7 +1218,7 @@ export default function DynamicVideo({
       const currentFrame = Math.round(video.currentTime * fps);
       const nextFrame = Math.min(
         Math.max(currentFrame + direction, 0),
-        Math.floor(video.duration * fps)
+        Math.floor(video.duration * fps),
       );
       const nextTime = nextFrame / fps;
 
@@ -1258,9 +1303,9 @@ export default function DynamicVideo({
     const windowStart = Math.max(0, seekFrameNumber);
     const windowEnd = Math.min(seekFrameNumber + windowFrames, totalFrames);
 
-    console.log(
-      `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
-    );
+    // console.log(
+    //   `Jump to frame ${safeFrame} (${formatTime(safeTime)}): loading frames ${windowStart}-${windowEnd}`
+    // );
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({
@@ -1268,9 +1313,9 @@ export default function DynamicVideo({
         end: windowEnd,
       });
     } else {
-      console.log(
-        `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-      );
+      // console.log(
+      //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
+      // );
       setIsLoadingAnnotations(false);
     }
     nextPrefetchFrameRef.current = null;
@@ -1281,7 +1326,7 @@ export default function DynamicVideo({
     if (startSec >= video.duration) return;
     const durationSec = Math.min(
       FRAME_CHUNK_DURATION,
-      video.duration - startSec
+      video.duration - startSec,
     );
 
     const newFrames = await runCancelableExtraction(
@@ -1291,7 +1336,7 @@ export default function DynamicVideo({
       "Slider",
       chunk,
       startSec,
-      durationSec
+      durationSec,
     );
     setFrames(newFrames);
     lastExtractedChunk.current = chunk;
@@ -1380,529 +1425,538 @@ export default function DynamicVideo({
   ]);
 
   return (
-    <div className="flex flex-col gap-2 w-full">
-      <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
-        {/* VIDEO CANVAS AREA */}
-        <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
-          {isLoadingAnnotations && (
-            <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mb-4 mx-auto"></div>
-                <p className="text-white text-lg font-semibold">
-                  Loading annotations...
-                </p>
-                <p className="text-gray-300 text-sm mt-2">
-                  Frame: {currentFrame}
-                </p>
-              </div>
-            </div>
-          )}
-
-          <Stage
-            ref={stageRef}
-            width={STAGE_WIDTH}
-            height={STAGE_HEIGHT}
-            scaleX={stageScale.x}
-            scaleY={stageScale.y}
-            x={stagePos.x}
-            y={stagePos.y}
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
-            onContextMenu={handleContextMenu}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            draggable={false}>
-            <Layer ref={layerRef}>
-              {video && (
-                <KonvaImage
-                  image={video}
-                  x={offsetX}
-                  y={offsetY}
-                  width={displayWidth}
-                  height={displayHeight}
-                  listening={false}
-                />
-              )}
-
-              {/* TRAJECTORY LINES */}
-              {showTrajectory &&
-                allObjectIds.map((objectId) => {
-                  const points = getTrajectoryPointsUpToCurrent(
-                    objectId,
-                    currentFrame+50
-                  );
-                  if (points.length < 2) return null;
-
-                  return (
-                    <Line
-                      key={`trajectory-${objectId}`}
-                      points={points.map((p, idx) => {
-                        return idx % 2 === 0 ? mapX(p) : mapY(p);
-                      })}
-                      stroke={getObjectColor(objectId)}
-                      strokeWidth={2}
-                      opacity={0.6}
-                      lineCap="round"
-                      lineJoin="round"
-                    />
-                  );
-                })}
-
-              {/* ANNOTATIONS FOR CURRENT FRAME */}
-              {annotations
-                .filter((a) => a.frame_id === currentFrame)
-                .map((a) => {
-                  const color = getObjectColor(a.object_id);
-
-                  const isSelected = selectedObjects.some(
-                    (obj) => obj.object_id === a.object_id
-                  );
-
-                  const xs = a.coordinates.map(([x]) => mapX(x));
-                  const ys = a.coordinates.map(([, y]) => mapY(y));
-
-                  const minX = Math.min(...xs);
-                  const minY = Math.min(...ys);
-                  const maxX = Math.max(...xs);
-                  const maxY = Math.max(...ys);
-
-                  const boxWidth = maxX - minX;
-                  const boxHeight = maxY - minY;
-
-                  return (
-                    <Group
-                      key={`${a.object_id}-${a.frame_id}`}
-                      onClick={() => {
-                        const alreadySelected = selectedObjects.find(
-                          (obj) => obj.object_id === a.object_id
-                        );
-
-                        if (alreadySelected) {
-                          toast({
-                            title: "Object is already selected!",
-                            description: "",
-                            variant: "default",
-                            duration: 1000,
-                          });
-                          return;
-                        }
-
-                        if (selectedObjects.length >= 2) {
-                          console.log("  Maximum 2 selections allowed");
-                          toast({
-                            title: "  Maximum 2 selections allowed.",
-                            description: "",
-                            variant: "default",
-                            duration: 1000,
-                          });
-                          return;
-                        }
-
-                        if (!projectId) {
-                          console.log("Project ID not available");
-                          return;
-                        }
-
-                        objectMutation.mutate(
-                          {
-                            projectId: Number(projectId),
-                            objectId: a.object_id,
-                            frameId: a.frame_id,
-                          },
-                          {
-                            onSuccess: (meta) => {
-                              const newSelection = {
-                                object_id: a.object_id,
-                                frame_id: a.frame_id,
-                                start_frame: meta.data.start_frame,
-                                end_frame: meta.data.end_frame,
-                                is_inside: meta.data.is_inside,
-                              };
-
-                              setSelectedObjects((prev) => [
-                                ...prev,
-                                newSelection,
-                              ]);
-
-                              toast({
-                                title: "Object selected",
-                                description: `Object ID: ${a.object_id}`,
-                                variant: "default",
-                                duration: 1000,
-                              });
-
-                              console.log("Object selected:", newSelection);
-                            },
-                          }
-                        );
-                      }}>
-                      {a.coordinates.map(([x, y], idx) => (
-                        <Circle
-                          key={`${a.object_id}-${idx}`}
-                          x={mapX(x)}
-                          y={mapY(y)}
-                          radius={getRadiusBasedOnZoom(currentZoom)}
-                          fill={color}
-                        />
-                      ))}
-
-                      <Text
-                        x={mapX(a.coordinates[0][0]) + 12}
-                        y={mapY(a.coordinates[0][1]) - 12}
-                        text={`id:${a.object_id}`}
-                        fontSize={16}
-                        fill={color}
-                        fontStyle="bold"
-                        shadowColor="black"
-                        shadowBlur={2}
-                      />
-
-                      {isSelected && (
-                        <Rect
-                          x={minX - 5}
-                          y={minY - 5}
-                          width={boxWidth + 10}
-                          height={boxHeight + 10}
-                          stroke={color}
-                          strokeWidth={2}
-                          cornerRadius={4}
-                          dash={[6, 4]}
-                        />
-                      )}
-                    </Group>
-                  );
-                })}
-            </Layer>
-          </Stage>
-
-          {/* ZOOM LEVEL INDICATOR */}
-          <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-            {(stageScale.x * 100).toFixed(0)}%
+    <>
+      {isExporting && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white rounded-lg px-6 py-4 flex items-center gap-3 shadow-lg">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <span className="text-sm font-medium">Exporting TRK file…</span>
           </div>
-          {/* EXPORT / DOWNLOAD BUTTONS */}
-
-        <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
-  {downloadUrl ? (
-    // Download button
-    <Button
-      className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-700"
-      onClick={() => {
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `project_${projectId}_v${trkVersion}.trk`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setDownloadUrl(null);
-      }}
-    >
-      <Image src="/images/download.svg" alt="Download" width={15} height={15} />
-      Download TRK
-      <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
-    </Button>
-  ) : isExporting ? (
-    // ✅ CANCEL BUTTON - New state
-    <div className="flex items-center gap-2">
-      <Button
-        variant="destructive"
-        size="sm"
-        onClick={() => {
-          // Cancel the export mutation
-          exportMutation.reset(); // or exportController.abort() if using AbortController
-          setDownloadUrl(null); // Reset any pending URL
-          setIsExporting(false);
-        }}
-        disabled={false}
-      >
-        Cancel
-      </Button>
-      <div className="text-[13px] text-white/90">Exporting...</div>
-    </div>
-  ) : (
-    // Original export button
-    <Button
-      className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
-      disabled={!projectId}
-      onClick={() => exportMutation.mutate()}
-    >
-      <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} />
-      Export
-      <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
-    </Button>
-  )}
-</div>
-
-          {/* FRAME NUMBER DISPLAY */}
-          <div className="absolute top-2 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
-            Frame: {currentFrame}
-          </div>
-
-          {/* TRAJECTORY STATUS */}
-          <div className="absolute top-8 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
-            Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"}
-          </div>
-
-          {/* PAN MODE INDICATOR */}
-          {isPanMode && (
-            <div className="absolute top-14 left-2 bg-blue-500 text-white px-3 py-1 rounded text-xs font-semibold">
-              🤚 Panning...
-            </div>
-          )}
         </div>
+      )}
 
-        <Separator />
-        <div className="flex flex-col pt-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => undoMutation.mutate()}
-              disabled={!canUndo || !projectId || undoMutation.isPending}
-              title="Undo">
-              <Undo className="w-4 h-4" />
-            </Button>
+      <div className="flex flex-col gap-2 w-full">
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
+          {/* VIDEO CANVAS AREA */}
+          <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
+            {isLoadingAnnotations && (
+              <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mb-4 mx-auto"></div>
+                  <p className="text-white text-lg font-semibold">
+                    Loading annotations...
+                  </p>
+                  <p className="text-gray-300 text-sm mt-2">
+                    Frame: {currentFrame}
+                  </p>
+                </div>
+              </div>
+            )}
 
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => redoMutation.mutate()}
-              disabled={!canRedo || !projectId || redoMutation.isPending}
-              title="Redo">
-              <Redo className="w-4 h-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => handleFrameStep(-1)}
-              title="Previous Frame">
-              <SkipBack />
-            </Button>
+            <Stage
+              ref={stageRef}
+              width={STAGE_WIDTH}
+              height={STAGE_HEIGHT}
+              scaleX={stageScale.x}
+              scaleY={stageScale.y}
+              x={stagePos.x}
+              y={stagePos.y}
+              onWheel={handleWheel}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+              onContextMenu={handleContextMenu}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              draggable={false}>
+              <Layer ref={layerRef}>
+                {video && (
+                  <KonvaImage
+                    image={video}
+                    x={offsetX}
+                    y={offsetY}
+                    width={displayWidth}
+                    height={displayHeight}
+                    listening={false}
+                  />
+                )}
 
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={togglePlayPause}
-              disabled={!video}
-              title="Play/Pause">
-              {isPlaying ? <Pause /> : <Play />}
-            </Button>
+                {/* TRAJECTORY LINES */}
+                {showTrajectory &&
+                  allObjectIds.map((objectId) => {
+                    const points = getTrajectoryPointsUpToCurrent(
+                      objectId,
+                      currentFrame + 50,
+                    );
+                    if (points.length < 2) return null;
 
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => handleFrameStep(1)}
-              title="Next Frame">
-              <SkipForward />
-            </Button>
+                    return (
+                      <Line
+                        key={`trajectory-${objectId}`}
+                        points={points.map((p, idx) => {
+                          return idx % 2 === 0 ? mapX(p) : mapY(p);
+                        })}
+                        stroke={getObjectColor(objectId)}
+                        strokeWidth={2}
+                        opacity={0.6}
+                        lineCap="round"
+                        lineJoin="round"
+                      />
+                    );
+                  })}
 
-            <Slider
-              value={[dragTime ?? currentTime]}
-              max={duration || 100}
-              step={0.01}
-              onValueChange={handleSliderChange}
-              onValueCommit={(val) => {
-                handleSeek(val[0]);
-                setDragTime(null);
-              }}
-              className="flex-1 min-w-[240px]"
-            />
+                {/* ANNOTATIONS FOR CURRENT FRAME */}
+                {annotations
+                  .filter((a) => a.frame_id === currentFrame)
+                  .map((a) => {
+                    const color = getObjectColor(a.object_id);
 
-            <span className="text-[11px] text-[#5A5A5A] px-2 whitespace-nowrap tabular-nums">
-              {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
-            </span>
+                    const isSelected = selectedObjects.some(
+                      (obj) => obj.object_id === a.object_id,
+                    );
 
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={handleZoomOut}
-              title="Zoom Out">
-              <ZoomOut className="w-3 h-3" />
-            </Button>
+                    const xs = a.coordinates.map(([x]) => mapX(x));
+                    const ys = a.coordinates.map(([, y]) => mapY(y));
 
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleResetZoom}
-              title="Reset Zoom"
-              className="px-2 text-xs font-semibold">
-              Reset
-            </Button>
+                    const minX = Math.min(...xs);
+                    const minY = Math.min(...ys);
+                    const maxX = Math.max(...xs);
+                    const maxY = Math.max(...ys);
 
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={handleZoomIn}
-              title="Zoom In">
-              <ZoomIn className="w-3 h-3" />
-            </Button>
+                    const boxWidth = maxX - minX;
+                    const boxHeight = maxY - minY;
 
-            <Button
-              size="sm"
-              variant={showTrajectory ? "default" : "ghost"}
-              onClick={() => setShowTrajectory(!showTrajectory)}
-              title="Toggle Trajectory"
-              className="px-2 text-xs font-semibold">
-              Track
-            </Button>
+                    return (
+                      <Group
+                        key={`${a.object_id}-${a.frame_id}`}
+                        onClick={() => {
+                          const alreadySelected = selectedObjects.find(
+                            (obj) => obj.object_id === a.object_id,
+                          );
 
-            {/* Frame jump */}
-            <div className="flex items-center gap-1 ml-1">
-              <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">
-                Frame
-              </span>
-              <Input
-                type="number"
-                placeholder="0"
-                min="0"
-                max={
-                  video?.duration ? Math.floor(video.duration * fps) : undefined
-                }
-                className="w-20 h-8 text-xs px-2"
-                value={frameInput}
-                onChange={(e) => setFrameInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const frame = parseInt(e.currentTarget.value, 10);
-                    if (!isNaN(frame)) handleFrameJump(frame);
-                  }
-                }}
-              />
+                          if (alreadySelected) {
+                            toast({
+                              title: "Object is already selected!",
+                              description: "",
+                              variant: "default",
+                              duration: 1000,
+                            });
+                            return;
+                          }
+
+                          if (selectedObjects.length >= 2) {
+                            // console.log("  Maximum 2 selections allowed");
+                            toast({
+                              title: "  Maximum 2 selections allowed.",
+                              description: "",
+                              variant: "default",
+                              duration: 1000,
+                            });
+                            return;
+                          }
+
+                          if (!projectId) {
+                            // console.log("Project ID not available");
+                            return;
+                          }
+
+                          objectMutation.mutate(
+                            {
+                              projectId: Number(projectId),
+                              objectId: a.object_id,
+                              frameId: a.frame_id,
+                            },
+                            {
+                              onSuccess: (meta) => {
+                                const newSelection = {
+                                  object_id: a.object_id,
+                                  frame_id: a.frame_id,
+                                  start_frame: meta.data.start_frame,
+                                  end_frame: meta.data.end_frame,
+                                  is_inside: meta.data.is_inside,
+                                };
+
+                                setSelectedObjects((prev) => [
+                                  ...prev,
+                                  newSelection,
+                                ]);
+
+                                toast({
+                                  title: "Object selected",
+                                  description: `Object ID: ${a.object_id}`,
+                                  variant: "default",
+                                  duration: 1000,
+                                });
+
+                                // console.log("Object selected:", newSelection);
+                              },
+                            },
+                          );
+                        }}>
+                        {a.coordinates.map(([x, y], idx) => (
+                          <Circle
+                            key={`${a.object_id}-${idx}`}
+                            x={mapX(x)}
+                            y={mapY(y)}
+                            radius={getRadiusBasedOnZoom(currentZoom)}
+                            fill={color}
+                          />
+                        ))}
+
+                        <Text
+                          x={mapX(a.coordinates[0][0]) + 12}
+                          y={mapY(a.coordinates[0][1]) - 12}
+                          text={`id:${a.object_id}`}
+                          fontSize={16}
+                          fill={color}
+                          fontStyle="bold"
+                          shadowColor="black"
+                          shadowBlur={2}
+                        />
+
+                        {isSelected && (
+                          <Rect
+                            x={minX - 5}
+                            y={minY - 5}
+                            width={boxWidth + 10}
+                            height={boxHeight + 10}
+                            stroke={color}
+                            strokeWidth={2}
+                            cornerRadius={4}
+                            dash={[6, 4]}
+                          />
+                        )}
+                      </Group>
+                    );
+                  })}
+              </Layer>
+            </Stage>
+
+            {/* ZOOM LEVEL INDICATOR */}
+            <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+              {(stageScale.x * 100).toFixed(0)}%
+            </div>
+            <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+              {downloadUrl ? (
+                // Download button
+                <Button
+                  className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-600"
+                  onClick={() => {
+                    const link = document.createElement("a");
+                    link.href = downloadUrl;
+                    link.download = `project_${projectId}_v${trkVersion}.trk`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setDownloadUrl(null);
+                  }}>
+                  <Image
+                    src="/images/download.svg"
+                    alt="Download"
+                    width={15}
+                    height={15}
+                  />
+                  Download TRK
+                  <Image
+                    src="/images/downArrow.svg"
+                    alt="Down Arrow"
+                    width={13}
+                    height={7}
+                  />
+                </Button>
+              ) :(
+                // Original export button
+                <Button
+                  className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
+                  disabled={!projectId}
+                  onClick={() => exportMutation.mutate()}>
+                  <Image
+                    src="/images/rightArrow.svg"
+                    alt="Right Arrow"
+                    width={15}
+                    height={15}
+                  />
+                  Export
+                  <Image
+                    src="/images/exportDownArrow.svg"
+                    alt="Export Down Arrow"
+                    width={13}
+                    height={7}
+                  />
+                </Button>
+              )}
+            </div>
+
+            {/* FRAME NUMBER DISPLAY */}
+            <div className="absolute top-2 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
+              Frame: {currentFrame}
+            </div>
+
+            {/* TRAJECTORY STATUS */}
+            <div className="absolute top-8 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
+              Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"}
+            </div>
+
+            {/* PAN MODE INDICATOR */}
+            {isPanMode && (
+              <div className="absolute top-14 left-2 bg-blue-500 text-white px-3 py-1 rounded text-xs font-semibold">
+                🤚 Panning...
+              </div>
+            )}
+          </div>
+
+          <Separator />
+          <div className="flex flex-col pt-1">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => {
-                  const frame = parseInt(frameInput, 10);
-                  if (!isNaN(frame)) handleFrameJump(frame);
-                }}
-                title="Jump to Frame"
-                className="h-8 w-8">
-                <SkipForward className="w-3 h-3" />
+                onClick={() => undoMutation.mutate()}
+                disabled={!canUndo || !projectId || undoMutation.isPending}
+                title="Undo">
+                <Undo className="w-4 h-4" />
               </Button>
-            </div>
 
-            {/* Playback speed */}
-            <div className="relative">
-              <button
-                className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-neutral-800 transition-colors"
-                title="Playback Speed"
-                onClick={() => setShowSpeed((v) => !v)}>
-                <Clock className="w-4 h-4" />
-                <span>{playbackRate.toFixed(2).replace(/\.00$/, "")}x</span>
-                <ChevronRight
-                  className={`w-3 h-3 transition-transform ${showSpeed ? "rotate-90" : ""}`}
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => redoMutation.mutate()}
+                disabled={!canRedo || !projectId || redoMutation.isPending}
+                title="Redo">
+                <Redo className="w-4 h-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => handleFrameStep(-1)}
+                title="Previous Frame">
+                <SkipBack />
+              </Button>
+
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={togglePlayPause}
+                disabled={!video}
+                title="Play/Pause">
+                {isPlaying ? <Pause /> : <Play />}
+              </Button>
+
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => handleFrameStep(1)}
+                title="Next Frame">
+                <SkipForward />
+              </Button>
+
+              <Slider
+                value={[dragTime ?? currentTime]}
+                max={duration || 100}
+                step={0.01}
+                onValueChange={handleSliderChange}
+                onValueCommit={(val) => {
+                  handleSeek(val[0]);
+                  setDragTime(null);
+                }}
+                className="flex-1 min-w-[240px]"
+              />
+
+              <span className="text-[11px] text-[#5A5A5A] px-2 whitespace-nowrap tabular-nums">
+                {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
+              </span>
+
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleZoomOut}
+                title="Zoom Out">
+                <ZoomOut className="w-3 h-3" />
+              </Button>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleResetZoom}
+                title="Reset Zoom"
+                className="px-2 text-xs font-semibold">
+                Reset
+              </Button>
+
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleZoomIn}
+                title="Zoom In">
+                <ZoomIn className="w-3 h-3" />
+              </Button>
+
+              <Button
+                size="sm"
+                variant={showTrajectory ? "default" : "ghost"}
+                onClick={() => setShowTrajectory(!showTrajectory)}
+                title="Toggle Trajectory"
+                className="px-2 text-xs font-semibold">
+                Track
+              </Button>
+
+              {/* Frame jump */}
+              <div className="flex items-center gap-1 ml-1">
+                <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">
+                  Frame
+                </span>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  min="0"
+                  max={
+                    video?.duration ? Math.floor(video.duration * fps) : undefined
+                  }
+                  className="w-20 h-8 text-xs px-2"
+                  value={frameInput}
+                  onChange={(e) => setFrameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const frame = parseInt(e.currentTarget.value, 10);
+                      if (!isNaN(frame)) handleFrameJump(frame);
+                    }
+                  }}
                 />
-              </button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    const frame = parseInt(frameInput, 10);
+                    if (!isNaN(frame)) handleFrameJump(frame);
+                  }}
+                  title="Jump to Frame"
+                  className="h-8 w-8">
+                  <SkipForward className="w-3 h-3" />
+                </Button>
+              </div>
 
-              {showSpeed && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center bg-[#181818] border border-gray-700 rounded-lg px-3 py-2 w-16 z-50 shadow-xl">
-                  <div className="text-white text-[11px] mb-1 font-bold">
-                    {playbackRate.toFixed(2).replace(/\.00$/, "")}x
-                  </div>
-
-                  <div className="relative h-32 flex items-center">
-                    <input
-                      type="range"
-                      min="0.25"
-                      max="16"
-                      step="0.25"
-                      value={playbackRate}
-                      onChange={(e) =>
-                        setPlaybackRate(parseFloat(e.target.value))
-                      }
-                      className="absolute top-0 left-1/2 -translate-x-1/2 h-32 w-6 appearance-none bg-transparent
-                    [writing-mode:vertical-lr] [direction:rtl]"
-                      style={{
-                        background: `linear-gradient(to top,
-              #3b82f6 0%,
-              #3b82f6 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%,
-              #374151 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%,
-              #374151 100%)`,
-                        borderRadius: "999px",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/*   FRAME STRIP SECTION */}
-      <Card className="flex flex-col border rounded-[7px] overflow-hidden p-3 pb-4">
-        {/*   STATS BAR */}
-        <div className="text-[13px] text-[#5A5A5A] font-medium pb-3 pl-2 pr-2 pt-1">
-          Frames: {frames.length} | Time:{" "}
-          {frames.length > 0
-            ? `${formatTime(frames[0].index / fps)} - ${formatTime(frames[frames.length - 1].index / fps)}`
-            : "0 - 0"}{" "}
-          | FPS: {fps} | Total: {video ? Math.floor(video.duration * fps) : 0} |
-          Current: {currentFrame}
-        </div>
-
-        {/*   RULER */}
-        <div className="relative w-full h-5 mb-3">
-          <div className="absolute top-0 left-0 right-0 h-[1px] bg-gray-500 ml-2 mr-2"></div>
-          <div className="absolute top-0 left-0 right-0 flex justify-between">
-            {Array.from({ length: tickCount }, (_, i) => {
-              const tickTime =
-                rulerStart + ((rulerEnd - rulerStart) / (tickCount - 1)) * i;
-              return (
-                <div key={i} className="flex flex-col items-center">
-                  <div
-                    className={`w-px ${
-                      i % 2 === 0 ? "h-2 bg-gray-500" : "h-1 bg-gray-500"
-                    }`}></div>
-                  <span className="mt-1 text-[10px] text-gray-500">
-                    {formatTime(tickTime)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/*   FRAME STRIP */}
-        <div className="w-full flex items-center pl-2 pr-1">
-          <Image
-            src="/images/verticalLine.svg"
-            alt="line"
-            width={6}
-            height={60}
-            className="opacity-100 flex-shrink-0 mr-2"
-          />
-          <div className="w-full">
-            <div
-              ref={containerRef}
-              onScroll={handleScroll}
-              className="w-full flex-1 flex space-x-4 overflow-x-auto border rounded-lg"
-              style={{ height: 100 }}>
-              {frames.length > 0 ? (
-                frames.map((f) => (
-                  <img
-                    key={f.index}
-                    src={f.src}
-                    alt={`Frame ${f.index}`}
-                    className={`h-full flex-shrink-0 cursor-pointer hover:opacity-75 transition ${
-                      selectedFrameIndex === f.index
-                        ? "border-2 border-blue-500"
-                        : ""
-                    }`}
-                    onClick={() => handleFrameClick(f)}
+              {/* Playback speed */}
+              <div className="relative">
+                <button
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-neutral-800 transition-colors"
+                  title="Playback Speed"
+                  onClick={() => setShowSpeed((v) => !v)}>
+                  <Clock className="w-4 h-4" />
+                  <span>{playbackRate.toFixed(2).replace(/\.00$/, "")}x</span>
+                  <ChevronRight
+                    className={`w-3 h-3 transition-transform ${showSpeed ? "rotate-90" : ""}`}
                   />
-                ))
-              ) : (
-                <div className="flex items-center justify-center w-full h-full text-gray-400">
-                  Loading frames...
-                </div>
-              )}
+                </button>
+
+                {showSpeed && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center bg-[#181818] border border-gray-700 rounded-lg px-3 py-2 w-16 z-50 shadow-xl">
+                    <div className="text-white text-[11px] mb-1 font-bold">
+                      {playbackRate.toFixed(2).replace(/\.00$/, "")}x
+                    </div>
+
+                    <div className="relative h-32 flex items-center">
+                      <input
+                        type="range"
+                        min="0.25"
+                        max="16"
+                        step="0.25"
+                        value={playbackRate}
+                        onChange={(e) =>
+                          setPlaybackRate(parseFloat(e.target.value))
+                        }
+                        className="absolute top-0 left-1/2 -translate-x-1/2 h-32 w-6 appearance-none bg-transparent
+                      [writing-mode:vertical-lr] [direction:rtl]"
+                        style={{
+                          background: `linear-gradient(to top,
+                #3b82f6 0%,
+                #3b82f6 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%,
+                #374151 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%,
+                #374151 100%)`,
+                          borderRadius: "999px",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </Card>
-    </div>
+        </Card>
+
+        {/*   FRAME STRIP SECTION */}
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-3 pb-4">
+          {/*   STATS BAR */}
+          <div className="text-[13px] text-[#5A5A5A] font-medium pb-3 pl-2 pr-2 pt-1">
+            Frames: {frames.length} | Time:{" "}
+            {frames.length > 0
+              ? `${formatTime(frames[0].index / fps)} - ${formatTime(frames[frames.length - 1].index / fps)}`
+              : "0 - 0"}{" "}
+            | FPS: {fps} | Total: {video ? Math.floor(video.duration * fps) : 0} |
+            Current: {currentFrame}
+          </div>
+
+          {/*   RULER */}
+          <div className="relative w-full h-5 mb-3">
+            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gray-500 ml-2 mr-2"></div>
+            <div className="absolute top-0 left-0 right-0 flex justify-between">
+              {Array.from({ length: tickCount }, (_, i) => {
+                const tickTime =
+                  rulerStart + ((rulerEnd - rulerStart) / (tickCount - 1)) * i;
+                return (
+                  <div key={i} className="flex flex-col items-center">
+                    <div
+                      className={`w-px ${
+                        i % 2 === 0 ? "h-2 bg-gray-500" : "h-1 bg-gray-500"
+                      }`}></div>
+                    <span className="mt-1 text-[10px] text-gray-500">
+                      {formatTime(tickTime)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/*   FRAME STRIP */}
+          <div className="w-full flex items-center pl-2 pr-1">
+            <Image
+              src="/images/verticalLine.svg"
+              alt="line"
+              width={6}
+              height={60}
+              className="opacity-100 flex-shrink-0 mr-2"
+            />
+            <div className="w-full">
+              <div
+                ref={containerRef}
+                onScroll={handleScroll}
+                className="w-full flex-1 flex space-x-4 overflow-x-auto border rounded-lg"
+                style={{ height: 100 }}>
+                {frames.length > 0 ? (
+                  frames.map((f) => (
+                    <img
+                      key={f.index}
+                      src={f.src}
+                      alt={`Frame ${f.index}`}
+                      className={`h-full flex-shrink-0 cursor-pointer hover:opacity-75 transition ${
+                        selectedFrameIndex === f.index
+                          ? "border-2 border-blue-500"
+                          : ""
+                      }`}
+                      onClick={() => handleFrameClick(f)}
+                    />
+                  ))
+                ) : (
+                  <div className="flex items-center justify-center w-full h-full text-gray-400">
+                    Loading frames...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </>
   );
 }

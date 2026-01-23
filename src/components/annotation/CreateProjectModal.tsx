@@ -15,6 +15,7 @@ import { createProject } from "@/lib/api/createProject";
 import { CreateProjectModalProps } from "@/types";
 import { Loader2 } from "lucide-react";
 import { Spinner } from "../feedback/Spinner";
+import { formatFileName } from "@/lib/utils/formatFileName";
 
 const API_BASE = `${process.env.NEXT_PUBLIC_SERVER_ENDPOINT}`;
 
@@ -32,7 +33,7 @@ const projectSchema = z.object({
         const fileExt = files[0].name.split(".").pop()?.toLowerCase();
         return allowed.includes(fileExt ?? "");
       },
-      { message: "Only .avi, .mp4, .mov, .ufmf files are allowed" }
+      { message: "Only .avi, .mp4, .mov, .ufmf files are allowed" },
     ),
   trackingFile: z.any().optional(),
 });
@@ -40,6 +41,9 @@ const projectSchema = z.object({
 export default function CreateProjectModal({
   open,
   onClose,
+  onProjectPending,
+  onProjectCreated,
+  onProjectFailed,
 }: CreateProjectModalProps) {
   const [projectName, setProjectName] = useState("");
   const [fileUpload, setFileUpload] = useState<FileList | null>(null);
@@ -50,6 +54,9 @@ export default function CreateProjectModal({
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   const queryClient = useQueryClient();
+
+  const existingProjects =
+    (queryClient.getQueryData(["project-list"]) as any)?.data ?? [];
 
   const mutation = useMutation({
     mutationFn: (formData: FormData) => createProject(formData),
@@ -81,26 +88,85 @@ export default function CreateProjectModal({
     },
   });
 
-  // Handle submit
   const handleSubmit = async () => {
-    const formData = { projectName, fileUpload, trackingFile };
-    const result = projectSchema.safeParse(formData);
+  const formData = { projectName, fileUpload, trackingFile };
+  const result = projectSchema.safeParse(formData);
 
-    if (!result.success) {
-      const fieldErrors: { [key: string]: string } = {};
-      result.error.errors.forEach((err) => {
-        if (err.path[0]) fieldErrors[err.path[0] as string] = err.message;
-      });
-      setErrors(fieldErrors);
-      return;
-    }
+  if (!result.success) {
+    const fieldErrors: { [key: string]: string } = {};
+    result.error.errors.forEach((err) => {
+      if (err.path[0]) fieldErrors[err.path[0] as string] = err.message;
+    });
+    setErrors(fieldErrors);
+    return;
+  }
 
-    const body = new FormData();
-    body.append("project_name", projectName);
-    if (fileUpload?.[0]) body.append("video_file", fileUpload[0]);
-    if (trackingFile?.[0]) body.append("tracking_file", trackingFile[0]);
-    mutation.mutate(body);
+  const isDuplicate = existingProjects.some(
+    (p: any) => p.project_name?.trim() === projectName.trim()
+  );
+
+  if (isDuplicate) {
+    toast({
+      title: "Project name already exists",
+      description: "Please choose a different project name.",
+      variant: "destructive",
+      duration: 2500,
+    });
+    return;
+  }
+
+  const tempProject = {
+    project_id: Date.now(), // temporary unique ID
+    project_name: projectName,
+    video_name: fileUpload?.[0]?.name ?? "",
+    trk_file_name: trackingFile?.[0]?.name ?? "",
+    project_status: "inprogress",
+    created_at: new Date().toISOString(),
+    video_path: "",
+    fps: "", width: "", height: "", duration: "", total_frames: "",
+    _isPending: true, // mark as pending
   };
+
+  onProjectPending?.(tempProject);
+
+  onClose();
+
+  const body = new FormData();
+  body.append("project_name", projectName);
+  if (fileUpload?.[0]) body.append("video_file", fileUpload[0]);
+  if (trackingFile?.[0]) body.append("tracking_file", trackingFile[0]);
+
+  mutation.mutate(body, {
+    onSuccess: (data) => {
+      // Replace pending project with API data
+      onProjectCreated?.(data);
+
+      toast({
+        title: "Project created successfully!",
+        variant: "default",
+        duration: 2000,
+        className: "text-green-600",
+      });
+
+      // Reset form fields
+      setErrors({});
+      setProjectName("");
+      setFileUpload(null);
+      setTrackingFile(null);
+    },
+    onError: (err) => {
+      // Remove the pending project if API fails
+      onProjectFailed?.(tempProject.project_id);
+
+      toast({
+        title: "Error creating project",
+        description: err.message,
+        variant: "destructive",
+        duration: 2500,
+      });
+    },
+  });
+};
 
   //Helper to clear error for a single field
   const clearError = (field: string) => {
@@ -115,21 +181,9 @@ export default function CreateProjectModal({
 
   return (
     <>
-      {/* {mutation.isPending && (
-        // <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-        //   <Loader2 className="h-14 w-14 animate-spin text-white" />
-        // </div>
-        // <Spinner/>
-        onClose();
-      )} */}
-
       <Dialog
         open={open}
-        onOpenChange={(value) => {
-          if (!mutation.isPending) {
-            onClose();
-          }
-        }}>
+        onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[800px] p-0 rounded-[12px] overflow-hidden">
           {/* Header */}
           <div className="px-8 py-7 border-b-[2px]">
@@ -182,14 +236,18 @@ export default function CreateProjectModal({
                       }}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
-                    <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
+                    <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4 flex items-center gap-2">
                       <label
                         htmlFor="fileUpload"
                         className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
                         Choose File
                       </label>
-                      <span className="text-[#929292] text-[17px] font-medium pl-2">
-                        {fileUpload?.[0]?.name ?? "No file chosen"}
+                      <span
+                        className="text-[#929292] text-[17px] font-medium flex-1 min-w-0 overflow-hidden"
+                        title={fileUpload?.[0]?.name}>
+                        {fileUpload?.[0]?.name
+                          ? formatFileName(fileUpload[0].name)
+                          : "No file chosen"}
                       </span>
                     </div>
                   </div>
@@ -218,14 +276,18 @@ export default function CreateProjectModal({
                     onChange={(e) => setTrackingFile(e.target.files)}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
-                  <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4">
+                  <div className="w-full border-[2px] rounded-[7px] border-[#D9D9D9] bg-[#F2F2F27A] px-4 py-4 flex items-center gap-2">
                     <label
                       htmlFor="trackingFile"
                       className="text-[#929292] text-[17px] font-medium border-[2px] rounded-[7px] border-[#929292] px-5 py-1 cursor-pointer">
                       Choose File
                     </label>
-                    <span className="text-[#929292] text-[17px] font-medium pl-2">
-                      {trackingFile?.[0]?.name ?? "No file chosen"}
+                    <span
+                      className="text-[#929292] text-[17px] font-medium flex-1 min-w-0 overflow-hidden"
+                      title={trackingFile?.[0]?.name}>
+                      {trackingFile?.[0]?.name
+                        ? formatFileName(trackingFile[0].name)
+                        : "No file chosen"}
                     </span>
                   </div>
                 </div>
