@@ -41,6 +41,9 @@ const projectSchema = z.object({
 export default function CreateProjectModal({
   open,
   onClose,
+  onProjectPending,
+  onProjectCreated,
+  onProjectFailed,
 }: CreateProjectModalProps) {
   const [projectName, setProjectName] = useState("");
   const [fileUpload, setFileUpload] = useState<FileList | null>(null);
@@ -85,39 +88,85 @@ export default function CreateProjectModal({
     },
   });
 
-  // Handle submit
   const handleSubmit = async () => {
-    const formData = { projectName, fileUpload, trackingFile };
-    const result = projectSchema.safeParse(formData);
+  const formData = { projectName, fileUpload, trackingFile };
+  const result = projectSchema.safeParse(formData);
 
-    if (!result.success) {
-      const fieldErrors: { [key: string]: string } = {};
-      result.error.errors.forEach((err) => {
-        if (err.path[0]) fieldErrors[err.path[0] as string] = err.message;
-      });
-      setErrors(fieldErrors);
-      return;
-    }
-    const isDuplicate = existingProjects.some(
-      (p: any) => p.project_name?.trim() === projectName.trim(),
-    );
+  if (!result.success) {
+    const fieldErrors: { [key: string]: string } = {};
+    result.error.errors.forEach((err) => {
+      if (err.path[0]) fieldErrors[err.path[0] as string] = err.message;
+    });
+    setErrors(fieldErrors);
+    return;
+  }
 
-    onClose();
-    if (isDuplicate) {
+  const isDuplicate = existingProjects.some(
+    (p: any) => p.project_name?.trim() === projectName.trim()
+  );
+
+  if (isDuplicate) {
+    toast({
+      title: "Project name already exists",
+      description: "Please choose a different project name.",
+      variant: "destructive",
+      duration: 2500,
+    });
+    return;
+  }
+
+  const tempProject = {
+    project_id: Date.now(), // temporary unique ID
+    project_name: projectName,
+    video_name: fileUpload?.[0]?.name ?? "",
+    trk_file_name: trackingFile?.[0]?.name ?? "",
+    project_status: "inprogress",
+    created_at: new Date().toISOString(),
+    video_path: "",
+    fps: "", width: "", height: "", duration: "", total_frames: "",
+    _isPending: true, // mark as pending
+  };
+
+  onProjectPending?.(tempProject);
+
+  onClose();
+
+  const body = new FormData();
+  body.append("project_name", projectName);
+  if (fileUpload?.[0]) body.append("video_file", fileUpload[0]);
+  if (trackingFile?.[0]) body.append("tracking_file", trackingFile[0]);
+
+  mutation.mutate(body, {
+    onSuccess: (data) => {
+      // Replace pending project with API data
+      onProjectCreated?.(data);
+
       toast({
-        title: "Project name already exists",
-        description: "Please choose a different project name.",
+        title: "Project created successfully!",
+        variant: "default",
+        duration: 2000,
+        className: "text-green-600",
+      });
+
+      // Reset form fields
+      setErrors({});
+      setProjectName("");
+      setFileUpload(null);
+      setTrackingFile(null);
+    },
+    onError: (err) => {
+      // Remove the pending project if API fails
+      onProjectFailed?.(tempProject.project_id);
+
+      toast({
+        title: "Error creating project",
+        description: err.message,
         variant: "destructive",
         duration: 2500,
       });
-      return;
-    }
-    const body = new FormData();
-    body.append("project_name", projectName);
-    if (fileUpload?.[0]) body.append("video_file", fileUpload[0]);
-    if (trackingFile?.[0]) body.append("tracking_file", trackingFile[0]);
-    mutation.mutate(body);
-  };
+    },
+  });
+};
 
   //Helper to clear error for a single field
   const clearError = (field: string) => {
@@ -132,22 +181,9 @@ export default function CreateProjectModal({
 
   return (
     <>
-      {mutation.isPending && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-white rounded-lg px-6 py-4 flex items-center gap-3 shadow-lg">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-            <span className="text-sm font-medium">Creating project…</span>
-          </div>
-        </div>
-      )}
-
       <Dialog
         open={open}
-        onOpenChange={(value) => {
-          if (!mutation.isPending) {
-            onClose();
-          }
-        }}>
+        onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[800px] p-0 rounded-[12px] overflow-hidden">
           {/* Header */}
           <div className="px-8 py-7 border-b-[2px]">

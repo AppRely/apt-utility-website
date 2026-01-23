@@ -38,6 +38,7 @@ export default function AnnotationLandingPage() {
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
+  const [pendingProjects, setPendingProjects] = useState<any[]>([]);
 
   const router = useRouter();
   const { toast } = useToast();
@@ -61,14 +62,35 @@ export default function AnnotationLandingPage() {
 
       queryClient.invalidateQueries({ queryKey: ["project-list"] });
       setDeleteOpen(false);
+      setDeleteProjectId(null);
+    },
+    onError: () => {
+      toast({
+        title: "Delete Failed",
+        description: "Something went wrong while deleting the project",
+        variant: "destructive",
+      });
+      setDeleteOpen(false);
+      setDeleteProjectId(null);
     },
   });
 
-  const handleDeleteClick = () => {
-    if (deleteProjectId) {
-      deleteMutation.mutate(deleteProjectId);
-    }
+  // Add new pending project
+  const handlePendingProject = (project: any) => {
+    setPendingProjects((prev) => [...prev, project]);
   };
+
+  // Remove pending project after successful creation
+  const handleProjectCreated = (createdProject: any) => {
+    setPendingProjects((prev) => prev.filter((p) => !p._isPending));
+    queryClient.invalidateQueries({ queryKey: ["project-list"] });
+  };
+
+  // Remove pending project if creation fails
+  const handleProjectFailed = (tempId: number) => {
+    setPendingProjects((prev) => prev.filter((p) => p.project_id !== tempId));
+  };
+
   const NoData = ({ message }: { message: string }) => (
     <p className="text-center py-6 text-gray-500">{message}</p>
   );
@@ -80,15 +102,28 @@ export default function AnnotationLandingPage() {
       : [];
 
   // SAFE: Only filter if projects is array (always true now)
-  const inProgress = projects.filter(
-    (p: any) => p.project_status?.toLowerCase() === "inprogress",
-  );
+  const inProgress = [
+    ...projects.filter(
+      (p: any) => p.project_status?.toLowerCase() === "inprogress",
+    ),
+    ...pendingProjects,
+  ]; // <-- merge pending projects
 
   const completed = projects.filter(
     (p: any) => p.project_status.toLowerCase() === "completed",
   );
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (project: any) => {
+    if (project._isPending) {
+      return (
+        <Badge className="bg-gray-100 text-gray-700 hover:bg-gray-100">
+          Creating...
+        </Badge>
+      );
+    }
+
+    const status = project.project_status.toLowerCase();
+
     if (status === "inprogress")
       return (
         <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
@@ -130,6 +165,8 @@ export default function AnnotationLandingPage() {
           const isDeletingRow =
             deleteMutation.isPending && deleteProjectId === p.project_id;
 
+          const isPendingProject = p._isPending;
+
           return (
             <TableRow key={p.project_id}>
               <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
@@ -149,16 +186,14 @@ export default function AnnotationLandingPage() {
 
               <TableCell>{p.created_at.split("T")[0]}</TableCell>
 
-              <TableCell>
-                {getStatusBadge(p.project_status.toLowerCase())}
-              </TableCell>
+              <TableCell>{getStatusBadge(p)}</TableCell>
 
               {/* ACTION BUTTONS */}
               <TableCell className="flex gap-2">
                 {/* Edit */}
                 <Button
                   size="sm"
-                  disabled={isDeletingRow}
+                  disabled={isDeletingRow || isPendingProject}
                   className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
                   onClick={() => {
                     sessionStorage.setItem("projectId", p.project_id);
@@ -179,7 +214,7 @@ export default function AnnotationLandingPage() {
                 {/* Audit */}
                 <Button
                   size="sm"
-                  disabled={isDeletingRow}
+                  disabled={isDeletingRow || isPendingProject}
                   className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
                   onClick={() => {
                     setAuditOpen(true);
@@ -191,7 +226,7 @@ export default function AnnotationLandingPage() {
                 {/* Delete */}
                 <Button
                   size="sm"
-                  disabled={isDeletingRow}
+                  disabled={isDeletingRow || isPendingProject}
                   className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
                   onClick={() => {
                     setDeleteOpen(true);
@@ -295,6 +330,9 @@ export default function AnnotationLandingPage() {
       <CreateProjectModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
+        onProjectPending={handlePendingProject}
+        onProjectCreated={handleProjectCreated}
+        onProjectFailed={handleProjectFailed}
       />
       {auditOpen && (
         <AuditModal
@@ -322,8 +360,12 @@ export default function AnnotationLandingPage() {
             </Button>
             <Button
               variant="destructive"
-              onClick={() => handleDeleteClick()}
-              disabled={deleteMutation.isPending}>
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (!deleteProjectId) return;
+
+                deleteMutation.mutate(deleteProjectId);
+              }}>
               {deleteMutation.isPending ? "Deleting..." : "Delete Project"}
             </Button>
           </div>
