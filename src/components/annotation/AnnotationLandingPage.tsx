@@ -226,7 +226,7 @@ export default function AnnotationLandingPage() {
                 {/* Delete */}
                 <Button
                   size="sm"
-                  disabled={isDeletingRow || isPendingProject}
+                  disabled={deleteMutation.isPending|| isPendingProject}
                   className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
                   onClick={() => {
                     setDeleteOpen(true);
