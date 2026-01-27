@@ -248,7 +248,7 @@ export default function DynamicVideo({
       if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
       // const twoMinFrames = 2 * 60 * fps; // 7200 frames at 30fps
-      const twoMinFrames = 60 * fps;
+      const twoMinFrames = 5*fps;
       const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
 
       const sortedFrames = Array.from(frameTrajectory.keys())
