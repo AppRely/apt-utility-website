@@ -126,7 +126,7 @@ export default function DynamicVideo({
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 10;
   const ZOOM_SPEED = 1.1;
-  const [currentZoom, setCurrentZoom] = useState<number>(2);
+  const [currentZoom, setCurrentZoom] = useState<number>(1);
 
   const { toast } = useToast();
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
@@ -316,17 +316,35 @@ export default function DynamicVideo({
     setStagePos(newPos);
   }, []);
 
-  const getRadiusBasedOnZoom = (zoom: number): number => {
-    if (zoom >= 1 && zoom <= 2) {
-      return 2;
-    } else if (zoom >= 3 && zoom <= 5) {
-      return 1.5;
-    } else if (zoom >= 6 && zoom <= 10) {
-      return 1;
-    }
-    // Default fallback
-    return 2;
+  // const getRadiusBasedOnZoom = (zoom: number): number => {
+  //   if (zoom >= 1 && zoom <= 2) {
+  //     return 2;
+  //   } else if (zoom >= 3 && zoom <= 5) {
+  //     return 1.5;
+  //   } else if (zoom >= 6 && zoom <= 10) {
+  //     return 1;
+  //   }
+  //   // Default fallback
+  //   return 2;
+  // };
+
+  const getCircleRadius = () => {
+    return Math.max(0.5, 2 * (1 / currentZoom));
   };
+
+  const getTrajectoryWidth = () => {
+    return Math.max(0.5, 2 * (1 / currentZoom));
+  };
+
+  const getIdFontSize = () => {
+    return Math.max(6, 12 * (1 / currentZoom));
+  };
+
+  const getBBoxStrokeWidth = () => {
+    return Math.max(0.5, 2 * (1 / currentZoom));
+  };
+
+  const getLabelOffset = () => 8 * (1 / currentZoom);
 
   // MOUSE DOWN HANDLER
   const handleMouseDown = (e: any) => {
@@ -459,6 +477,7 @@ export default function DynamicVideo({
   const handleResetZoom = () => {
     setStageScale({ x: 1, y: 1 });
     setStagePos({ x: 0, y: 0 });
+    setCurrentZoom(1);
     setCursorStyle("grab");
   };
 
@@ -1094,7 +1113,10 @@ export default function DynamicVideo({
 
     setIsLoadingAnnotations(true);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: Math.max(0, windowStart-100), end: windowEnd });
+      chunkMutation.mutate({
+        start: Math.max(0, windowStart - 100),
+        end: windowEnd,
+      });
     } else {
       // console.log(
       //   `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
@@ -1201,7 +1223,7 @@ export default function DynamicVideo({
       setIsLoadingAnnotations(true);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({
-          start: Math.max(0, windowStart-100),
+          start: Math.max(0, windowStart - 100),
           end: windowEnd,
         });
       } else {
@@ -1228,26 +1250,26 @@ export default function DynamicVideo({
       sessionStorage.setItem("frameId", nextFrame.toString());
 
       // FETCH ANNOTATIONS for stepped frame (same as handleFrameJump)
-        const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-        const totalFrames = Math.floor(video.duration * fps);
-        const windowStart = Math.max(0, nextFrame);
-        const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
+      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+      const totalFrames = Math.floor(video.duration * fps);
+      const windowStart = Math.max(0, nextFrame);
+      const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
 
+      console.log(
+        `Step to frame ${nextFrame} (${formatTime(nextTime)}): loading frames ${windowStart}-${windowEnd}`,
+      );
+      setIsLoadingAnnotations(true);
+      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+        chunkMutation.mutate({
+          start: Math.max(0, windowStart - 100),
+          end: windowEnd,
+        });
+      } else {
         console.log(
-            `Step to frame ${nextFrame} (${formatTime(nextTime)}): loading frames ${windowStart}-${windowEnd}`
+          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`,
         );
-        setIsLoadingAnnotations(true);
-        if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-            chunkMutation.mutate({
-                start: Math.max(0, windowStart - 100),
-                end: windowEnd,
-            });
-        } else {
-            console.log(
-                `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`
-            );
-            setIsLoadingAnnotations(false);
-        }
+        setIsLoadingAnnotations(false);
+      }
     }
   };
 
@@ -1498,7 +1520,7 @@ export default function DynamicVideo({
                           return idx % 2 === 0 ? mapX(p) : mapY(p);
                         })}
                         stroke={getObjectColor(objectId)}
-                        strokeWidth={2}
+                        strokeWidth={getTrajectoryWidth()}
                         opacity={0.6}
                         lineCap="round"
                         lineJoin="round"
@@ -1599,16 +1621,16 @@ export default function DynamicVideo({
                             key={`${a.object_id}-${idx}`}
                             x={mapX(x)}
                             y={mapY(y)}
-                            radius={getRadiusBasedOnZoom(currentZoom)}
+                            radius={getCircleRadius()}
                             fill={color}
                           />
                         ))}
 
                         <Text
-                          x={mapX(a.coordinates[0][0]) + 12}
-                          y={mapY(a.coordinates[0][1]) - 12}
+                          x={mapX(a.coordinates[0][0]) + getLabelOffset()}
+                          y={mapY(a.coordinates[0][1]) - getLabelOffset()}
                           text={`id:${a.object_id}`}
-                          fontSize={16}
+                          fontSize={getIdFontSize()}
                           fill={color}
                           fontStyle="bold"
                           shadowColor="black"
@@ -1622,7 +1644,7 @@ export default function DynamicVideo({
                             width={boxWidth + 10}
                             height={boxHeight + 10}
                             stroke={color}
-                            strokeWidth={2}
+                            strokeWidth={getBBoxStrokeWidth()}
                             cornerRadius={4}
                             dash={[6, 4]}
                           />
@@ -1665,7 +1687,7 @@ export default function DynamicVideo({
                     height={7}
                   />
                 </Button>
-              ) :(
+              ) : (
                 // Original export button
                 <Button
                   className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]"
@@ -1811,7 +1833,9 @@ export default function DynamicVideo({
                   placeholder="0"
                   min="0"
                   max={
-                    video?.duration ? Math.floor(video.duration * fps) : undefined
+                    video?.duration
+                      ? Math.floor(video.duration * fps)
+                      : undefined
                   }
                   className="w-20 h-8 text-xs px-2"
                   value={frameInput}
@@ -1892,8 +1916,8 @@ export default function DynamicVideo({
             {frames.length > 0
               ? `${formatTime(frames[0].index / fps)} - ${formatTime(frames[frames.length - 1].index / fps)}`
               : "0 - 0"}{" "}
-            | FPS: {fps} | Total: {video ? Math.floor(video.duration * fps) : 0} |
-            Current: {currentFrame}
+            | FPS: {fps} | Total: {video ? Math.floor(video.duration * fps) : 0}{" "}
+            | Current: {currentFrame}
           </div>
 
           {/*   RULER */}
