@@ -1415,7 +1415,7 @@ export default function DynamicVideo({
         case "ArrowUp": // faster
           e.preventDefault();
           if (e.shiftKey) {
-            setPlaybackRate((r) => Math.min(16, +(r + 0.25).toFixed(2)));
+            setPlaybackRate((r) => Math.min(16, +(r + 0.1).toFixed(2)));
           } else {
             // Jump +10 frames
             handleFrameStep(10);
@@ -1426,7 +1426,7 @@ export default function DynamicVideo({
           e.preventDefault();
           if (e.shiftKey) {
             // Playback speed ↓
-            setPlaybackRate((r) => Math.max(0.25, +(r - 0.25).toFixed(2)));
+            setPlaybackRate((r) => Math.max(0.1, +(r - 0.1).toFixed(2)));
           } else {
             // Jump -10 frames
             handleFrameStep(-10);
@@ -1922,7 +1922,7 @@ export default function DynamicVideo({
               {/* Playback speed */}
               <div className="relative">
                 <button
-                  className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-neutral-800 transition-colors"
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded"
                   title="Playback Speed"
                   onClick={() => setShowSpeed((v) => !v)}>
                   <Clock className="w-4 h-4" />
@@ -1941,9 +1941,9 @@ export default function DynamicVideo({
                     <div className="relative h-32 flex items-center">
                       <input
                         type="range"
-                        min="0.25"
+                        min="0.1"
                         max="16"
-                        step="0.25"
+                        step="0.1"
                         value={playbackRate}
                         onChange={(e) =>
                           setPlaybackRate(parseFloat(e.target.value))
@@ -1953,8 +1953,8 @@ export default function DynamicVideo({
                         style={{
                           background: `linear-gradient(to top,
                 #3b82f6 0%,
-                #3b82f6 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%,
-                #374151 ${((playbackRate - 0.25) / (16 - 0.25)) * 100}%,
+                #3b82f6 ${((playbackRate - 0.1) / (16 - 0.1)) * 100}%,
+                #374151 ${((playbackRate - 0.1) / (16 - 0.1)) * 100}%,
                 #374151 100%)`,
                           borderRadius: "999px",
                         }}
