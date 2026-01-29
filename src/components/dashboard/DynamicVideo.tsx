@@ -208,6 +208,7 @@ export default function DynamicVideo({
             title: "Click the play button to start video",
             description: "Some browsers require user interaction",
             variant: "default",
+            duration: 1500,
           });
         });
     } else {
@@ -248,7 +249,7 @@ export default function DynamicVideo({
       if (!frameTrajectory || frameTrajectory.size < 2) return [];
 
       // const twoMinFrames = 2 * 60 * fps; // 7200 frames at 30fps
-      const twoMinFrames = 5*fps;
+      const twoMinFrames = 5 * fps;
       const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
 
       const sortedFrames = Array.from(frameTrajectory.keys())
@@ -597,7 +598,7 @@ export default function DynamicVideo({
       toast({
         title: "Export Completed",
         description: "TRK file exported successfully.",
-        duration: 3000,
+        duration: 1500,
         className: "text-green-600",
       });
     },
@@ -608,7 +609,7 @@ export default function DynamicVideo({
         title: "Export Failed",
         description: "Something went wrong while exporting.",
         variant: "destructive",
-        duration: 3000,
+        duration: 1500,
       });
     },
   });
@@ -798,6 +799,7 @@ export default function DynamicVideo({
           toast({
             title: "Error loading video",
             variant: "destructive",
+            duration: 1500,
           });
         };
 
@@ -808,6 +810,7 @@ export default function DynamicVideo({
         toast({
           title: "Failed to load video",
           variant: "destructive",
+          duration: 1500,
         });
       }
     };
@@ -854,6 +857,7 @@ export default function DynamicVideo({
         title: "Undo failed",
         description: "Unable to undo the last action",
         variant: "destructive",
+        duration: 1500,
       });
     },
   });
@@ -882,6 +886,7 @@ export default function DynamicVideo({
         title: "Redo failed",
         description: "Unable to redo the last action",
         variant: "destructive",
+        duration: 1500,
       });
     },
   });
@@ -1235,11 +1240,11 @@ export default function DynamicVideo({
     }
   };
 
-  const handleFrameStep = (direction: 1 | -1) => {
+  const handleFrameStep = (step: number) => {
     if (video) {
       const currentFrame = Math.round(video.currentTime * fps);
       const nextFrame = Math.min(
-        Math.max(currentFrame + direction, 0),
+        Math.max(currentFrame + step, 0),
         Math.floor(video.duration * fps),
       );
       const nextTime = nextFrame / fps;
@@ -1409,12 +1414,23 @@ export default function DynamicVideo({
           break;
         case "ArrowUp": // faster
           e.preventDefault();
-          setPlaybackRate((r) => Math.min(16, +(r + 0.25).toFixed(2)));
+          if (e.shiftKey) {
+            setPlaybackRate((r) => Math.min(16, +(r + 0.25).toFixed(2)));
+          } else {
+            // Jump +10 frames
+            handleFrameStep(10);
+          }
           break;
 
         case "ArrowDown": // slower
           e.preventDefault();
-          setPlaybackRate((r) => Math.max(0.25, +(r - 0.25).toFixed(2)));
+          if (e.shiftKey) {
+            // Playback speed ↓
+            setPlaybackRate((r) => Math.max(0.25, +(r - 0.25).toFixed(2)));
+          } else {
+            // Jump -10 frames
+            handleFrameStep(-10);
+          }
           break;
 
         case "Equal":
@@ -1432,6 +1448,49 @@ export default function DynamicVideo({
           e.preventDefault();
           setShowTrajectory((prev) => !prev);
           break;
+
+        case "KeyS": {
+          e.preventDefault();
+
+          if (selectedObjects.length === 0) {
+            toast({
+              title: "⚠️ No object selected",
+              description:
+                "Please select an object to jump to its start frame.",
+              variant: "default",
+              duration: 1500,
+            });
+            return;
+          }
+
+          const obj = selectedObjects[selectedObjects.length - 1];
+
+          if (obj.start_frame != null) {
+            handleFrameJump(obj.start_frame);
+          }
+          break;
+        }
+
+        case "KeyE": {
+          e.preventDefault();
+
+          if (selectedObjects.length === 0) {
+            toast({
+              title: "⚠️ No object selected",
+              description: "Please select an object to jump to its end frame.",
+              variant: "default",
+              duration: 1500,
+            });
+            return;
+          }
+
+          const obj = selectedObjects[selectedObjects.length - 1];
+
+          if (obj.end_frame != null) {
+            handleFrameJump(obj.end_frame);
+          }
+          break;
+        }
       }
     };
 
@@ -1562,7 +1621,7 @@ export default function DynamicVideo({
                               title: "Object is already selected!",
                               description: "",
                               variant: "default",
-                              duration: 1000,
+                              duration: 1500,
                             });
                             return;
                           }
@@ -1573,7 +1632,7 @@ export default function DynamicVideo({
                               title: "  Maximum 2 selections allowed.",
                               description: "",
                               variant: "default",
-                              duration: 1000,
+                              duration: 1500,
                             });
                             return;
                           }
@@ -1608,7 +1667,7 @@ export default function DynamicVideo({
                                   title: "Object selected",
                                   description: `Object ID: ${a.object_id}`,
                                   variant: "default",
-                                  duration: 1000,
+                                  duration: 1500,
                                 });
 
                                 // console.log("Object selected:", newSelection);
