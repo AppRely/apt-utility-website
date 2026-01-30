@@ -468,11 +468,13 @@ export default function DynamicVideo({
   const handleZoomIn = () => {
     const newScale = Math.min(stageScale.x * ZOOM_SPEED, MAX_ZOOM);
     setStageScale({ x: newScale, y: newScale });
+    setCurrentZoom(newScale);
   };
 
   const handleZoomOut = () => {
     const newScale = Math.max(stageScale.x / ZOOM_SPEED, MIN_ZOOM);
     setStageScale({ x: newScale, y: newScale });
+    setCurrentZoom(newScale);
   };
 
   const handleResetZoom = () => {
