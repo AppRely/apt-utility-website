@@ -1242,43 +1242,93 @@ export default function DynamicVideo({
     }
   };
 
-  const handleFrameStep = (step: number) => {
-    if (video) {
-      const currentFrame = Math.round(video.currentTime * fps);
-      const nextFrame = Math.min(
-        Math.max(currentFrame + step, 0),
-        Math.floor(video.duration * fps),
-      );
-      const nextTime = nextFrame / fps;
+  // const handleFrameStep = (step: number) => {
+  //   if (video) {
+  //     const currentFrame = Math.round(video.currentTime * fps);
+  //     const nextFrame = Math.min(
+  //       Math.max(currentFrame + step, 0),
+  //       Math.floor(video.duration * fps),
+  //     );
+  //     const nextTime = nextFrame / fps;
 
-      video.currentTime = nextTime;
-      setCurrentTime(nextTime);
-      setSelectedFrameIndex(nextFrame);
-      sessionStorage.setItem("frameId", nextFrame.toString());
+  //     video.currentTime = nextTime;
+  //     setCurrentTime(nextTime);
+  //     setSelectedFrameIndex(nextFrame);
+  //     sessionStorage.setItem("frameId", nextFrame.toString());
 
-      // FETCH ANNOTATIONS for stepped frame (same as handleFrameJump)
-      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-      const totalFrames = Math.floor(video.duration * fps);
-      const windowStart = Math.max(0, nextFrame);
-      const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
+  //     // FETCH ANNOTATIONS for stepped frame (same as handleFrameJump)
+  //     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+  //     const totalFrames = Math.floor(video.duration * fps);
+  //     const windowStart = Math.max(0, nextFrame);
+  //     const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
 
-      console.log(
-        `Step to frame ${nextFrame} (${formatTime(nextTime)}): loading frames ${windowStart}-${windowEnd}`,
-      );
+  //     console.log(
+  //       `Step to frame ${nextFrame} (${formatTime(nextTime)}): loading frames ${windowStart}-${windowEnd}`,
+  //     );
+  //     setIsLoadingAnnotations(true);
+  //     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+  //       chunkMutation.mutate({
+  //         start: Math.max(0, windowStart - 100),
+  //         end: windowEnd,
+  //       });
+  //     } else {
+  //       console.log(
+  //         `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`,
+  //       );
+  //       setIsLoadingAnnotations(false);
+  //     }
+  //   }
+  // };
+
+  const handleFrameStep = useCallback((step: number) => {
+  if (!video) return;
+  
+  const currentFrame = Math.round(video.currentTime * fps);
+  let nextFrame = Math.min(
+    Math.max(currentFrame + step, 0),
+    Math.floor(video.duration * fps)
+  );
+  
+  // For multi-frame jumps (10 frames), we need to ensure we don't exceed boundaries
+  if (Math.abs(step) > 1) {
+    // Snap to nearest frame boundary to maintain consistency
+    nextFrame = Math.min(
+      Math.max(nextFrame, 0),
+      Math.floor(video.duration * fps)
+    );
+  }
+  
+  const nextTime = nextFrame / fps;
+  
+  // Check if we already have annotations for this frame
+  const hasAnnotationsForFrame = annotations.some(a => a.frame_id === nextFrame);
+  
+  // Update video without full re-fetch if possible
+  video.currentTime = nextTime;
+  setCurrentTime(nextTime);
+  setSelectedFrameIndex(nextFrame);
+  sessionStorage.setItem("frameId", nextFrame.toString());
+  
+  // Only fetch annotations if we don't have them for this frame range
+  if (!hasAnnotationsForFrame && !isLoadingAnnotations) {
+    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
+    const totalFrames = Math.floor(video.duration * fps);
+    const windowStart = Math.max(0, nextFrame - 50); // Smaller window for frame steps
+    const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
+    
+    // Check if range is already loaded or loading
+    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+      console.log(`Step ${step} frames to ${nextFrame}: fetching missing annotations`);
       setIsLoadingAnnotations(true);
-      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({
-          start: Math.max(0, windowStart - 100),
-          end: windowEnd,
-        });
-      } else {
-        console.log(
-          `Skipping [${windowStart}-${windowEnd}] - already loading/loaded`,
-        );
-        setIsLoadingAnnotations(false);
-      }
+      chunkMutation.mutate({
+        start: windowStart,
+        end: windowEnd,
+      });
     }
-  };
+  } else {
+    console.log(`Step ${step} frames to ${nextFrame}: using cached annotations`);
+  }
+}, [video, fps, annotations, isLoadingAnnotations, chunkMutation]);
 
   // HANDLE FRAME CLICK
   const handleFrameClick = async (frame: Frame) => {
