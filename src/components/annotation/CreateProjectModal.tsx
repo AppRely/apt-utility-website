@@ -29,11 +29,11 @@ const projectSchema = z.object({
     .refine(
       (files) => {
         if (!(files instanceof FileList) || files.length === 0) return false;
-        const allowed = ["avi", "mp4", "mov", "ufmf"];
+        const allowed = ["avi", "mp4", "mov", "ufmf","mjpeg", "mjpg"];
         const fileExt = files[0].name.split(".").pop()?.toLowerCase();
         return allowed.includes(fileExt ?? "");
       },
-      { message: "Only .avi, .mp4, .mov, .ufmf files are allowed" },
+      { message: "Only .avi, .mp4, .mov, .ufmf, .mjpeg, .mjpg files are allowed" },
     ),
   trackingFile: z.any().optional(),
 });
