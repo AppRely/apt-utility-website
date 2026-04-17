@@ -79,12 +79,12 @@ export default function Sidebar({
   const totalFrames = useSessionStorage("totalFrames");
 
   // QUERY WITH PROPER CACHE INVALIDATION
-  const { data, isLoading, error, refetch } = useQuery({
+    const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", projectId, frameId],
     queryFn: () => getFrameData(Number(projectId!), Number(frameId!)),
-    enabled: !!(projectId && frameId),
+    enabled: !!(projectId && frameId && !objectsCollapsed),
     staleTime: 0,
-    gcTime: 0, // Disable caching
+    gcTime: 0,
   });
 
   const swapMutation = useMutation({
@@ -370,7 +370,7 @@ export default function Sidebar({
                 <div className="flex items-center">
                   <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
                   <span className="font-semibold text-[13px] leading-[13px]">
-                    Object {index + 1}: Fly
+                    Object {index + 1}: Animal
                   </span>
                 </div>
                 <span className="font-medium text-[13px] leading-[13px]">
