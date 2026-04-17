@@ -33,6 +33,9 @@ export default function Sidebar({
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
+  // State for collapsing the object list - default to true (collapsed)
+  const [objectsCollapsed, setObjectsCollapsed] = useState(true);
+
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
     const [value, setValue] = useState<string | null>(
@@ -303,7 +306,7 @@ export default function Sidebar({
     if (selectedObjects.length !== 1) {
       toast({
         title: "⚠️ Invalid Selection",
-        description: "Please select exactly 1 object to delete.", // Fixed message
+        description: "Please select exactly 1 object to delete.",
         variant: "destructive",
         duration: 3000,
       });
@@ -649,11 +652,29 @@ export default function Sidebar({
 
       <Separator />
 
+      {/* Collapsible Objects Section - collapsed by default */}
       <CardContent className="p-3 flex-1 flex flex-col">
-        <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
-          Objects ({data?.data?.objects?.length || 0})
-        </p>
-        {renderObjectsSection()}
+        <div className="flex items-center justify-between flex-shrink-0 pt-2 pb-3">
+          <p className="text-[#494949] text-[13px] leading-[13px] font-medium">
+            Objects ({data?.data?.objects?.length || 0})
+          </p>
+          <button
+            onClick={() => setObjectsCollapsed(!objectsCollapsed)}
+            className="text-gray-500 hover:text-gray-700 focus:outline-none"
+            aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}
+          >
+            {objectsCollapsed ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+            )}
+          </button>
+        </div>
+        {!objectsCollapsed && renderObjectsSection()}
       </CardContent>
 
       {/* LINK CONFIRM DIALOG */}
