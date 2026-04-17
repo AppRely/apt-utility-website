@@ -90,6 +90,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
   const nextPrefetchFrameRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const { toast } = useToast();
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
@@ -258,10 +259,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (!projectId) return null;
       const key = `${start}-${end}`;
       pendingRangesRef.current.add(key);
-      console.log(`[API REQUEST] ${start}-${end}`);
-      return getFrameRangeData(projectId, start, end);
+
+      //  CANCEL previous request
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      console.log(`[CANCEL PREVIOUS + NEW API] ${start}-${end}`);
+      return getFrameRangeData(projectId, start, end, controller.signal);
     },
     onSuccess: (data, { start, end }) => {
+      if (!data) return; // ignore cancelled response
       const key = `${start}-${end}`;
       if (!data) { pendingRangesRef.current.delete(key); return; }
       addLoadedRange(start, end);
@@ -899,3 +910,4 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     </>
   );
 }
+
