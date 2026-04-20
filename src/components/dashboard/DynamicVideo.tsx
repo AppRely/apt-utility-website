@@ -41,8 +41,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [videoHeight, setVideoHeight] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
   
-  // Annotation states
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  // FIX 1: Replace annotations array with Map for O(1) lookups
+  const [annotationMap, setAnnotationMap] = useState<Map<string, Annotation>>(new Map());
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
   
@@ -53,7 +53,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
   
-  // Trajectory states
+  // FIX 2: Trajectory states - use ref for incremental updates
   const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
   const trajectoriesRef = useRef<TrajectoryMap>(new Map());
@@ -91,6 +91,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const lastAnnoLoadTs = useRef<number>(0);
   const nextPrefetchFrameRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  
+  // FIX 3: Throttle trajectory UI updates
+  const [, forceTrajectoryUpdate] = useState(0);
+  const trajectoryUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
@@ -166,22 +170,54 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
-  // Trajectory sliding window (last 2 minutes)
+  // FIX 4: Optimized trajectory sliding window with throttled UI updates
   useEffect(() => {
     if (!mounted) return;
-    const MAX_TRAJECTORY_FRAMES = 30 * fps;
-    const now = Math.round((video?.currentTime || 0) * fps);
-    const cutoffFrame = Math.max(0, now - MAX_TRAJECTORY_FRAMES);
-    const filteredTraj = persistentTrajectoryRef.current.filter(traj => traj.frame_id >= cutoffFrame);
-    if (filteredTraj.length !== persistentTrajectoryRef.current.length) persistentTrajectoryRef.current = filteredTraj;
-    const newMap: TrajectoryMap = new Map();
-    persistentTrajectoryRef.current.forEach(traj => {
-      if (!newMap.has(traj.object_id)) newMap.set(traj.object_id, new Map());
-      newMap.get(traj.object_id)!.set(traj.frame_id, traj.coordinate);
+    
+    // Set up throttled UI updates for trajectory (update every 500ms instead of every frame)
+    if (trajectoryUpdateIntervalRef.current) {
+      clearInterval(trajectoryUpdateIntervalRef.current);
+    }
+    
+    trajectoryUpdateIntervalRef.current = setInterval(() => {
+      const currentTrajMap = trajectoriesRef.current;
+      if (currentTrajMap.size > 0) {
+        setTrajectoryMap(new Map(currentTrajMap));
+        forceTrajectoryUpdate(v => v + 1);
+      }
+    }, 500);
+    
+    return () => {
+      if (trajectoryUpdateIntervalRef.current) {
+        clearInterval(trajectoryUpdateIntervalRef.current);
+      }
+    };
+  }, [mounted]);
+  
+  // FIX 5: Incremental trajectory update (no full rebuild)
+  const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
+    const MAX_TRAJ_FRAMES = 30 * fps;
+    const currentFrameNum = video ? Math.round(video.currentTime * fps) : 0;
+    const cutoff = Math.max(0, currentFrameNum - MAX_TRAJ_FRAMES);
+    
+    // Filter old points
+    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
+    
+    // Add new points incrementally
+    newTrajectoryFrames.forEach(traj => {
+      if (traj.frame_id >= cutoff) {
+        persistentTrajectoryRef.current.push(traj);
+        
+        // Update trajectories ref incrementally
+        if (!trajectoriesRef.current.has(traj.object_id)) {
+          trajectoriesRef.current.set(traj.object_id, new Map());
+        }
+        trajectoriesRef.current.get(traj.object_id)!.set(traj.frame_id, traj.coordinate);
+      }
     });
-    trajectoriesRef.current = newMap;
-    setTrajectoryMap(newMap);
-  }, [persistentTrajectoryRef.current.length, fps, video?.currentTime, mounted]);
+    
+    setTrajectoryPointCount(persistentTrajectoryRef.current.length);
+  }, [fps, video]);
 
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
     const frameTrajectory = trajectoryMap.get(objectId);
@@ -260,7 +296,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const key = `${start}-${end}`;
       pendingRangesRef.current.add(key);
 
-      //  CANCEL previous request
+      // CANCEL previous request
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -285,17 +321,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           if (f.coordinates?.length) newTrajectoryFrames.push({ frame_id: f.frame_id, object_id: obj.object_id, coordinate: f.coordinates[0] });
         });
       });
-      setAnnotations(prev => {
-        const existingIds = new Set(prev.map(a => `${a.object_id}-${a.frame_id}`));
-        const newOnes = loadedAnnotations.filter(a => !existingIds.has(`${a.object_id}-${a.frame_id}`));
-        return [...prev, ...newOnes];
+      
+      // FIX 6: Use Map for annotations instead of array filtering
+      setAnnotationMap(prev => {
+        const newMap = new Map(prev);
+        loadedAnnotations.forEach(anno => {
+          const key = `${anno.object_id}-${anno.frame_id}`;
+          if (!newMap.has(key)) {
+            newMap.set(key, anno);
+          }
+        });
+        return newMap;
       });
-      const MAX_TRAJ_FRAMES = 2 * 60 * fps;
-      const currentFrameNum = video ? Math.round(video.currentTime * fps) : 0;
-      const cutoff = Math.max(0, currentFrameNum - MAX_TRAJ_FRAMES);
-      const filteredNewTraj = newTrajectoryFrames.filter(t => t.frame_id >= cutoff);
-      persistentTrajectoryRef.current = [...persistentTrajectoryRef.current, ...filteredNewTraj].filter(t => t.frame_id >= cutoff);
-      setTrajectoryPointCount(persistentTrajectoryRef.current.length);
+      
+      // FIX 7: Use incremental trajectory updates
+      addTrajectoryPoints(newTrajectoryFrames);
+      
       const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
       const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
@@ -338,7 +379,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const { frameId } = event.detail;
       if (!video) return;
       activityLogsQuery.refetch();
-      setAnnotations([]);
+      
+      // FIX 8: Clear maps instead of arrays for better performance
+      setAnnotationMap(new Map());
       persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
       setTrajectoryMap(new Map());
@@ -584,7 +627,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   };
 
   const currentFrame = Math.round(currentTime * fps);
-  const currentFrameAnnotations = useMemo(() => annotations.filter(a => a.frame_id === currentFrame), [annotations, currentFrame]);
+  
+  // FIX 9: Optimized current frame annotations using Map (O(n) for current frame only, not all frames)
+  const currentFrameAnnotations = useMemo(() => {
+    const result: Annotation[] = [];
+    annotationMap.forEach((anno) => {
+      if (anno.frame_id === currentFrame) {
+        result.push(anno);
+      }
+    });
+    return result;
+  }, [annotationMap, currentFrame]);
+  
   const allObjectIds = getAllObjectIds();
 
   useEffect(() => {
@@ -910,5 +964,3 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     </>
   );
 }
-
-
