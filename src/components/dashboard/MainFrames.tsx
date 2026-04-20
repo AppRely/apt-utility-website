@@ -6,9 +6,9 @@ import { SelectedObject } from "@/types/selection";
 export function MainFrames() {
   const [selectedObjects, setSelectedObjects] = useState<SelectedObject[]>([]);
   return (
-    <main className="flex flex-1 overflow-hidden pt-3 pl-3 gap-3">
+    <main className="flex flex-1 overflow-hidden pt-3 pl-3 gap-3 h-full">
       <Sidebar selectedObjects={selectedObjects} setSelectedObjects={setSelectedObjects}/>
-      <div className="flex flex-1 flex-col gap-2 overflow-hidden">
+      <div className="flex flex-1 flex-col gap-2 overflow-hidden h-full">
         <DynamicVideo selectedObjects={selectedObjects} setSelectedObjects={setSelectedObjects}/>
       </div>
     </main>

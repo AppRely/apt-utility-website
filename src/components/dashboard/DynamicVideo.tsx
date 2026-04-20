@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
@@ -77,7 +77,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const ANNO_WINDOW_SECONDS = 6;
   const ANNO_PREFETCH_THRESHOLD = Math.round((30 / 100) * ANNO_WINDOW_SECONDS * 30);
   const STAGE_WIDTH = 900;
-  const STAGE_HEIGHT = 650;
+  const STAGE_HEIGHT = 850;
   const ANNO_THROTTLE_MS = 500;
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 10;
@@ -169,7 +169,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   // Trajectory sliding window (last 2 minutes)
   useEffect(() => {
     if (!mounted) return;
-    const MAX_TRAJECTORY_FRAMES = 2 * 60 * fps;
+    const MAX_TRAJECTORY_FRAMES = 30 * fps;
     const now = Math.round((video?.currentTime || 0) * fps);
     const cutoffFrame = Math.max(0, now - MAX_TRAJECTORY_FRAMES);
     const filteredTraj = persistentTrajectoryRef.current.filter(traj => traj.frame_id >= cutoffFrame);
@@ -614,9 +614,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   // This ensures server and client render the exact same thing initially
   if (!mounted) {
     return (
-      <div className="flex flex-col gap-2 w-full">
-        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
-          <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black rounded-lg">
+      <div className="flex flex-col gap-2 w-full h-full">
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-full">
+          <div className="relative flex items-center justify-center mb-2 w-full h-full bg-black rounded-lg">
             <div className="text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mb-4 mx-auto"></div>
               <p className="text-white text-lg font-semibold">Loading video player...</p>
@@ -637,9 +637,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </div>
       )}
-      <div className="flex flex-col gap-2 w-full">
-        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2">
-          <div className="relative flex items-center justify-center mb-2 w-full h-[650px] bg-black">
+      <div className="flex flex-col gap-2 w-full h-full">
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-full">
+          <div className="relative flex items-center justify-center mb-2 w-full h-[calc(100%-80px)] bg-black">
             {isLoadingAnnotations && (
               <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
                 <div className="text-center">
@@ -910,4 +910,5 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     </>
   );
 }
+
 

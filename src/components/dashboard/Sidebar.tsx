@@ -654,15 +654,13 @@ export default function Sidebar({
 
       {/* Collapsible Objects Section - collapsed by default */}
       <CardContent className="p-3 flex-1 flex flex-col">
-        <div className="flex items-center justify-between flex-shrink-0 pt-2 pb-3">
-          <p className="text-[#494949] text-[13px] leading-[13px] font-medium">
-            Objects ({data?.data?.objects?.length || 0})
-          </p>
+        <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button
             onClick={() => setObjectsCollapsed(!objectsCollapsed)}
-            className="text-gray-500 hover:text-gray-700 focus:outline-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-md focus:outline-none transition"
             aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}
           >
+            Object List
             {objectsCollapsed ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -674,6 +672,7 @@ export default function Sidebar({
             )}
           </button>
         </div>
+
         {!objectsCollapsed && renderObjectsSection()}
       </CardContent>
 
