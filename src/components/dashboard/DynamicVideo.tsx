@@ -25,10 +25,7 @@ import { exportTrk } from "@/lib/api/exportTrk";
 import { Frame, Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
-  // Mounted state for hydration - initialize as false
   const [mounted, setMounted] = useState(false);
-  
-  // Video states - initialize with default values, not from sessionStorage
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [fps, setFps] = useState(30);
@@ -41,26 +38,40 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [videoHeight, setVideoHeight] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
   
-  // FIX 1: Replace annotations array with Map for O(1) lookups
   const [annotationMap, setAnnotationMap] = useState<Map<string, Annotation>>(new Map());
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
   
-  // Canvas states
+  const [isSeeking, setIsSeeking] = useState(false);
+  const pendingFrameRef = useRef<number | null>(null);
+  const queuedStepsRef = useRef<number>(0);
+  const queuedBaseFrameRef = useRef<number | null>(null);
+  
+  // Track current frame independently
+  const [currentFrame, setCurrentFrame] = useState(0);
+  const currentDisplayFrameRef = useRef<number>(0);
+  
+  // Prevent duplicate seeks
+  const lastSeekFrameRef = useRef<number>(-1);
+  const lastSeekTimeRef = useRef<number>(-1);
+  const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // FPS Stability
+  const stableFpsRef = useRef<number>(40);
+  const originalFpsLoadedRef = useRef<boolean>(false);
+  
   const [stageScale, setStageScale] = useState({ x: 1, y: 1 });
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
   
-  // FIX 2: Trajectory states - use ref for incremental updates
   const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
   const trajectoriesRef = useRef<TrajectoryMap>(new Map());
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
   
-  // UI states
   const [frameInput, setFrameInput] = useState("");
   const [showSpeed, setShowSpeed] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
@@ -68,23 +79,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [trkVersion, setTrkVersion] = useState(null);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
-  // Range tracking
   const loadedRangesListRef = useRef<{ start: number; end: number }[]>([]);
   const pendingRangesRef = useRef<Set<string>>(new Set());
   const loadedRangesKeyRef = useRef<Set<string>>(new Set());
 
-  // Constants
   const ANNO_WINDOW_SECONDS = 6;
-  const ANNO_PREFETCH_THRESHOLD = Math.round((30 / 100) * ANNO_WINDOW_SECONDS * 30);
   const STAGE_WIDTH = 900;
   const STAGE_HEIGHT = 850;
   const ANNO_THROTTLE_MS = 500;
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 10;
 
-  // Refs
   const layerRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<any>(null);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
@@ -92,7 +98,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const nextPrefetchFrameRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   
-  // FIX 3: Throttle trajectory UI updates
   const [, forceTrajectoryUpdate] = useState(0);
   const trajectoryUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -100,12 +105,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   const OBJECT_COLORS = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
 
-  // Handle mounting - this ensures client-only code runs after hydration
+  const ANNO_PREFETCH_THRESHOLD = useMemo(() => {
+    return Math.round((stableFpsRef.current / 100) * ANNO_WINDOW_SECONDS * stableFpsRef.current);
+  }, []);
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Load data from sessionStorage only after mounting
   useEffect(() => {
     if (!mounted) return;
     
@@ -116,11 +123,28 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const storedDuration = sessionStorage.getItem("duration");
     
     if (storedProjectId) setProjectId(Number(storedProjectId));
-    if (storedFps) setFps(Number(storedFps));
+    
+    if (storedFps && !originalFpsLoadedRef.current) {
+      const originalFps = Number(storedFps);
+      stableFpsRef.current = originalFps;
+      setFps(originalFps);
+      originalFpsLoadedRef.current = true;
+      console.log(`[FPS LOCK] Original FPS locked at: ${originalFps}`);
+    }
+    
     if (storedWidth) setVideoWidth(Number(storedWidth));
     if (storedHeight) setVideoHeight(Number(storedHeight));
     if (storedDuration) setDuration(Number(storedDuration));
   }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || !originalFpsLoadedRef.current) return;
+    
+    if (fps !== stableFpsRef.current) {
+      console.error(`[FPS ERROR] ⚠️ FPS changed from ${stableFpsRef.current} to ${fps}! Resetting`);
+      setFps(stableFpsRef.current);
+    }
+  }, [fps, mounted]);
 
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
@@ -149,13 +173,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     }
     loadedRangesListRef.current = merged;
-    console.log(`[RANGE ADDED] ${start}-${end} → merged:`, JSON.stringify(merged));
   }, []);
 
   const clearLoadedRanges = useCallback(() => {
     loadedRangesListRef.current = [];
     loadedRangesKeyRef.current.clear();
-    console.log(`[RANGES CLEARED]`);
   }, []);
 
   const getObjectColor = (id: number) => OBJECT_COLORS[id % OBJECT_COLORS.length];
@@ -170,15 +192,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
-  // FIX 4: Optimized trajectory sliding window with throttled UI updates
   useEffect(() => {
     if (!mounted) return;
-    
-    // Set up throttled UI updates for trajectory (update every 500ms instead of every frame)
-    if (trajectoryUpdateIntervalRef.current) {
-      clearInterval(trajectoryUpdateIntervalRef.current);
-    }
-    
+    if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
     trajectoryUpdateIntervalRef.current = setInterval(() => {
       const currentTrajMap = trajectoriesRef.current;
       if (currentTrajMap.size > 0) {
@@ -186,50 +202,36 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         forceTrajectoryUpdate(v => v + 1);
       }
     }, 500);
-    
-    return () => {
-      if (trajectoryUpdateIntervalRef.current) {
-        clearInterval(trajectoryUpdateIntervalRef.current);
-      }
-    };
+    return () => { if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current); };
   }, [mounted]);
   
-  // FIX 5: Incremental trajectory update (no full rebuild)
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
-    const MAX_TRAJ_FRAMES = 30 * fps;
-    const currentFrameNum = video ? Math.round(video.currentTime * fps) : 0;
+    const MAX_TRAJ_SECONDS = 30;
+    const MAX_TRAJ_FRAMES = MAX_TRAJ_SECONDS * stableFpsRef.current;
+    const currentFrameNum = currentDisplayFrameRef.current;
     const cutoff = Math.max(0, currentFrameNum - MAX_TRAJ_FRAMES);
-    
-    // Filter old points
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
-    
-    // Add new points incrementally
     newTrajectoryFrames.forEach(traj => {
       if (traj.frame_id >= cutoff) {
         persistentTrajectoryRef.current.push(traj);
-        
-        // Update trajectories ref incrementally
-        if (!trajectoriesRef.current.has(traj.object_id)) {
-          trajectoriesRef.current.set(traj.object_id, new Map());
-        }
+        if (!trajectoriesRef.current.has(traj.object_id)) trajectoriesRef.current.set(traj.object_id, new Map());
         trajectoriesRef.current.get(traj.object_id)!.set(traj.frame_id, traj.coordinate);
       }
     });
-    
     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
-  }, [fps, video]);
+  }, []);
 
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
     const frameTrajectory = trajectoryMap.get(objectId);
     if (!frameTrajectory || frameTrajectory.size < 2) return [];
-    const twoMinFrames = 2 * 60 * fps;
+    const twoMinFrames = 2 * 60 * stableFpsRef.current;
     const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
     const sortedFrames = Array.from(frameTrajectory.keys()).sort((a,b)=>a-b).filter(fid => fid >= cutoffFrame && fid <= upToFrame);
     if (sortedFrames.length < 2) return [];
     const points: number[] = [];
     sortedFrames.forEach(fid => { const [x,y] = frameTrajectory.get(fid)!; points.push(x,y); });
     return points;
-  }, [trajectoryMap, fps]);
+  }, [trajectoryMap]);
 
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
@@ -295,22 +297,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (!projectId) return null;
       const key = `${start}-${end}`;
       pendingRangesRef.current.add(key);
-
-      // CANCEL previous request
-      if (abortRef.current) {
-        abortRef.current.abort();
-      }
-
+      if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-
-      console.log(`[CANCEL PREVIOUS + NEW API] ${start}-${end}`);
+      console.log(`[API DEBUG] Fetching frames ${start} to ${end}`);
       return getFrameRangeData(projectId, start, end, controller.signal);
     },
     onSuccess: (data, { start, end }) => {
-      if (!data) return; // ignore cancelled response
+      if (!data) return;
       const key = `${start}-${end}`;
-      if (!data) { pendingRangesRef.current.delete(key); return; }
+      pendingRangesRef.current.delete(key);
       addLoadedRange(start, end);
       loadedRangesKeyRef.current.add(key);
       const loadedAnnotations: Annotation[] = [];
@@ -321,39 +317,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           if (f.coordinates?.length) newTrajectoryFrames.push({ frame_id: f.frame_id, object_id: obj.object_id, coordinate: f.coordinates[0] });
         });
       });
-      
-      // FIX 6: Use Map for annotations instead of array filtering
       setAnnotationMap(prev => {
         const newMap = new Map(prev);
         loadedAnnotations.forEach(anno => {
           const key = `${anno.object_id}-${anno.frame_id}`;
-          if (!newMap.has(key)) {
-            newMap.set(key, anno);
-          }
+          if (!newMap.has(key)) newMap.set(key, anno);
         });
         return newMap;
       });
-      
-      // FIX 7: Use incremental trajectory updates
       addTrajectoryPoints(newTrajectoryFrames);
-      
       const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
       const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
-      pendingRangesRef.current.delete(key);
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      
-      // Auto-play video when initial annotations load
       if (!initialLoadComplete && video && video.paused && mounted) {
         setInitialLoadComplete(true);
         setTimeout(() => {
-          video.play().then(() => {
-            setIsPlaying(true);
-            console.log("[AUTO-PLAY] Video started playing after initial annotation load");
-          }).catch(err => {
-            console.log("[AUTO-PLAY] Could not auto-play:", err);
-          });
+          video.play().then(() => setIsPlaying(true)).catch(err => console.log("[AUTO-PLAY] Could not auto-play:", err));
         }, 100);
       }
     },
@@ -379,8 +360,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const { frameId } = event.detail;
       if (!video) return;
       activityLogsQuery.refetch();
-      
-      // FIX 8: Clear maps instead of arrays for better performance
       setAnnotationMap(new Map());
       persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
@@ -388,8 +367,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setTrajectoryPointCount(0);
       clearLoadedRanges();
       setIsLoadingAnnotations(true);
-      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-      const totalFrames = Math.floor(video.duration * fps);
+      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
+      const totalFrames = Math.floor(video.duration * stableFpsRef.current);
       const windowStart = Math.max(0, frameId);
       const windowEnd = Math.min(frameId + windowFrames, totalFrames);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
@@ -400,7 +379,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
     window.addEventListener("operationComplete", handleLinkingComplete);
     return () => window.removeEventListener("operationComplete", handleLinkingComplete);
-  }, [video, fps, activityLogsQuery, mounted]);
+  }, [video, activityLogsQuery, mounted]);
 
   const undoCount = activityLogsQuery.data?.data?.total_undo_can_perform ?? 0;
   const totalLength = activityLogsQuery.data?.data?.total_length ?? 0;
@@ -408,8 +387,151 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
+  const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
+    if (!video) return;
+    
+    const currentFps = stableFpsRef.current;
+    
+    let currentFrameNum: number;
+    if (baseFrame !== undefined) {
+      currentFrameNum = baseFrame;
+      console.log(`[STEP DEBUG] Using provided base frame: ${baseFrame}`);
+    } else {
+      currentFrameNum = currentDisplayFrameRef.current;
+      console.log(`[STEP DEBUG] Using ref frame: ${currentFrameNum}`);
+    }
+    
+    if (isSeeking) {
+      if (queuedBaseFrameRef.current === null) {
+        queuedBaseFrameRef.current = currentFrameNum;
+      }
+      queuedStepsRef.current += step;
+      console.log(`[STEP DEBUG] Queued step ${step}, total queued: ${queuedStepsRef.current}`);
+      return;
+    }
+    
+    const totalFrames = Math.floor(video.duration * currentFps);
+    let newFrame = currentFrameNum + step;
+    
+    newFrame = Math.min(Math.max(newFrame, 0), totalFrames);
+    
+    if (newFrame === currentFrameNum) {
+      console.log(`[STEP DEBUG] At boundary, cannot step`);
+      return;
+    }
+    
+    const newTime = newFrame / currentFps;
+    
+    console.log(`[STEP DEBUG] Seek initiated to frame ${newFrame}`);
+    
+    pendingFrameRef.current = newFrame;
+    setIsSeeking(true);
+    
+    currentDisplayFrameRef.current = newFrame;
+    setCurrentFrame(newFrame);
+    
+    video.currentTime = newTime;
+    
+    setCurrentTime(newTime);
+    setSelectedFrameIndex(newFrame);
+    sessionStorage.setItem("frameId", newFrame.toString());
+    
+  }, [video, isSeeking]);
+
+  // FIXED: Prevent duplicate seeks
+  const handleSeek = async (time: number) => {
+    if (!video) return;
+    
+    const safeTime = Math.min(Math.max(time, 0), video.duration);
+    const targetFrame = Math.round(safeTime * stableFpsRef.current);
+    
+    // Prevent duplicate seeks to the same frame
+    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) {
+      console.log(`[SEEK DEBUG] ⏭️ Skipping duplicate seek to frame ${targetFrame}`);
+      return;
+    }
+    
+    lastSeekFrameRef.current = targetFrame;
+    lastSeekTimeRef.current = safeTime;
+    
+    console.log(`[SEEK DEBUG] Seeking to frame ${targetFrame}`);
+    
+    if (isFrameLoaded(targetFrame)) {
+      video.pause();
+      setIsPlaying(false);
+      video.currentTime = safeTime;
+      setCurrentTime(safeTime);
+      setDragTime(null);
+      setSelectedFrameIndex(targetFrame);
+      currentDisplayFrameRef.current = targetFrame;
+      setCurrentFrame(targetFrame);
+      setIsLoadingAnnotations(false);
+      setAnnotationsReady(true);
+      return;
+    }
+    
+    video.pause();
+    setIsPlaying(false);
+    video.currentTime = safeTime;
+    setCurrentTime(safeTime);
+    setDragTime(null);
+    setSelectedFrameIndex(targetFrame);
+    currentDisplayFrameRef.current = targetFrame;
+    setCurrentFrame(targetFrame);
+    clearLoadedRanges();
+    setAnnotationsReady(false);
+    setIsLoadingAnnotations(true);
+    
+    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
+    const totalFrames = Math.floor(video.duration * stableFpsRef.current);
+    const windowStart = Math.max(0, targetFrame - 50);
+    const windowEnd = Math.min(targetFrame + windowFrames, totalFrames);
+    
+    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    } else {
+      setIsLoadingAnnotations(false);
+    }
+    nextPrefetchFrameRef.current = null;
+  };
+
+  // FIXED: Debounced slider change
+  const handleSliderChange = (val: number[]) => {
+    setDragTime(val[0]);
+    if (video && !video.paused) { video.pause(); setIsPlaying(false); }
+    
+    if (sliderTimeoutRef.current) {
+      clearTimeout(sliderTimeoutRef.current);
+    }
+    
+    sliderTimeoutRef.current = setTimeout(() => {
+      setAnnotationsReady(false);
+      setIsLoadingAnnotations(true);
+    }, 100);
+  };
+
+  const handleSkip = (seconds: number) => {
+    if (!video) return;
+    const newTime = Math.min(Math.max(video.currentTime + seconds, 0), video.duration);
+    const newFrame = Math.round(newTime * stableFpsRef.current);
+    handleSeek(newTime);
+  };
+
+  const handleFrameJump = async (targetFrame: number) => {
+    if (!video) return;
+    const totalFrames = Math.floor(video.duration * stableFpsRef.current);
+    const safeFrame = Math.min(Math.max(targetFrame, 0), totalFrames);
+    const safeTime = safeFrame / stableFpsRef.current;
+    video.pause();
+    setIsPlaying(false);
+    handleSeek(safeTime);
+    setFrameInput("");
+  };
+
+  // VIDEO INITIALIZATION
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !originalFpsLoadedRef.current) return;
+    
     const loadVideo = async () => {
       const pid = sessionStorage.getItem("projectId");
       if (!pid) return;
@@ -420,7 +542,59 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         vid.loop = true;
         vid.muted = true;
         vid.playsInline = true;
+        
+        const lockedFps = stableFpsRef.current;
+        
+        const handleSeeked = () => {
+          const actualTime = vid.currentTime;
+          const actualFrame = Math.round(actualTime * lockedFps);
+          const targetFrame = pendingFrameRef.current;
+          
+          console.log(`[SEEKED] Target: ${targetFrame}, Actual: ${actualFrame}`);
+          
+          if (targetFrame !== null && actualFrame !== targetFrame) {
+            console.log(`[SEEKED] ❌ MISMATCH! Retrying...`);
+            vid.currentTime = targetFrame / lockedFps;
+            return;
+          }
+          
+          setIsSeeking(false);
+          pendingFrameRef.current = null;
+          
+          currentDisplayFrameRef.current = actualFrame;
+          setCurrentFrame(actualFrame);
+          setCurrentTime(vid.currentTime);
+          setSelectedFrameIndex(actualFrame);
+          
+          if (layerRef.current) {
+            layerRef.current.batchDraw();
+          }
+          
+          if (!isFrameLoaded(actualFrame)) {
+            const windowFrames = Math.round(ANNO_WINDOW_SECONDS * lockedFps);
+            const totalFrames = Math.floor(vid.duration * lockedFps);
+            const windowStart = Math.max(0, actualFrame - 50);
+            const windowEnd = Math.min(actualFrame + windowFrames, totalFrames);
+            setIsLoadingAnnotations(true);
+            chunkMutation.mutate({ start: windowStart, end: windowEnd });
+          } else {
+            setAnnotationsReady(true);
+            setIsLoadingAnnotations(false);
+          }
+          
+          if (queuedStepsRef.current !== 0) {
+            const queued = queuedStepsRef.current;
+            const baseFrame = queuedBaseFrameRef.current !== null ? queuedBaseFrameRef.current : actualFrame;
+            queuedStepsRef.current = 0;
+            queuedBaseFrameRef.current = null;
+            setTimeout(() => handleFrameStep(queued, baseFrame), 10);
+          }
+        };
+        
+        vid.addEventListener('seeked', handleSeeked);
+        
         vid.onloadedmetadata = async () => {
+          console.log(`[VIDEO] Loaded - Duration: ${vid.duration}s, FPS: ${lockedFps}`);
           setIsLoadingAnnotations(true);
           setInitialLoadComplete(false);
           chunkMutation.mutate({ start: 0, end: 150 });
@@ -432,7 +606,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     };
     loadVideo();
-  }, [mounted]);
+  }, [mounted, originalFpsLoadedRef.current]);
 
   const scale = videoWidth && videoHeight ? Math.min(STAGE_WIDTH/videoWidth, STAGE_HEIGHT/videoHeight) : 1;
   const displayWidth = videoWidth ? videoWidth*scale : STAGE_WIDTH;
@@ -444,13 +618,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const undoMutation = useMutation({
     mutationFn: () => undoAction(projectId!),
-    onSuccess: () => { toast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Math.round(video.currentTime*fps) } })); },
+    onSuccess: () => { toast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
     onError: () => toast({ title: "Undo failed", variant: "destructive", duration: 1500 }),
   });
   
   const redoMutation = useMutation({
     mutationFn: () => redoAction(projectId!),
-    onSuccess: () => { toast({ title: "Redo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Math.round(video.currentTime*fps) } })); },
+    onSuccess: () => { toast({ title: "Redo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
     onError: () => toast({ title: "Redo failed", variant: "destructive", duration: 1500 }),
   });
 
@@ -467,24 +641,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const formatTime = (time: number) => `${Math.floor(time/60)}:${Math.floor(time%60).toString().padStart(2,"0")}`;
   
   useEffect(() => { if(video && mounted) video.playbackRate = playbackRate; }, [video, playbackRate, mounted]);
-  
   useEffect(() => { if(!video || !layerRef.current || !mounted) return; let id: number; const update = () => { layerRef.current?.batchDraw(); id = requestAnimationFrame(update); }; update(); return () => cancelAnimationFrame(id); }, [video, mounted]);
 
+  // Timeupdate event
   useEffect(() => {
     if (!video || !mounted) return;
     const vid = video;
     const handleTimeUpdate = () => {
+      const newFrame = Math.round(vid.currentTime * stableFpsRef.current);
+      currentDisplayFrameRef.current = newFrame;
+      setCurrentFrame(newFrame);
       setCurrentTime(vid.currentTime);
+      
       const now = performance.now();
       if (isPlaying && now - lastAnnoLoadTs.current > ANNO_THROTTLE_MS) {
-        const frameNumber = Math.round(vid.currentTime * fps);
         if (currentAnnoWindowRef.current) {
-          const totalFrames = Math.floor(duration * fps);
-          const windowSize = Math.round(ANNO_WINDOW_SECONDS * fps);
+          const totalFrames = Math.floor(duration * stableFpsRef.current);
+          const windowSize = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
           const prefetchPoint = currentAnnoWindowRef.current.start + ANNO_PREFETCH_THRESHOLD;
-          const nextStart = frameNumber;
-          const nextEnd = Math.min(frameNumber + windowSize, totalFrames);
-          if (frameNumber >= prefetchPoint && frameNumber + windowSize <= totalFrames && !isRangeAlreadyLoading(nextStart, nextEnd)) {
+          const nextStart = newFrame;
+          const nextEnd = Math.min(newFrame + windowSize, totalFrames);
+          if (newFrame >= prefetchPoint && newFrame + windowSize <= totalFrames && !isRangeAlreadyLoading(nextStart, nextEnd)) {
             if (!loadedRangesKeyRef.current.has(`${nextStart}-${nextEnd}`)) {
               chunkMutation.mutate({ start: Math.max(0, nextStart), end: nextEnd });
               lastAnnoLoadTs.current = now;
@@ -494,151 +671,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     };
     const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => { setIsPlaying(false); if(video) sessionStorage.setItem("frameId", Math.round(video.currentTime*fps).toString()); };
+    const handlePause = () => { setIsPlaying(false); sessionStorage.setItem("frameId", currentDisplayFrameRef.current.toString()); };
     vid.addEventListener("timeupdate", handleTimeUpdate);
     vid.addEventListener("play", handlePlay);
     vid.addEventListener("pause", handlePause);
     return () => { vid.removeEventListener("timeupdate", handleTimeUpdate); vid.removeEventListener("play", handlePlay); vid.removeEventListener("pause", handlePause); };
-  }, [video, fps, isPlaying, duration, mounted]);
+  }, [video, isPlaying, duration, mounted, ANNO_PREFETCH_THRESHOLD]);
 
-  const handleSeek = async (time: number) => {
-    if (!video) return;
-    const safeTime = Math.min(Math.max(time, 0), video.duration);
-    const targetFrame = Math.round(safeTime * fps);
-
-    if (isFrameLoaded(targetFrame)) {
-      console.log(`[SEEK] Frame ${targetFrame} already loaded, seeking without fetch`);
-      video.pause();
-      setIsPlaying(false);
-      video.currentTime = safeTime;
-      setCurrentTime(safeTime);
-      setDragTime(null);
-      setSelectedFrameIndex(targetFrame);
-      setIsLoadingAnnotations(false);
-      setAnnotationsReady(true);
-      return;
-    }
-
-    console.log(`[SEEK] Frame ${targetFrame} not loaded, clearing and fetching`);
-    video.pause();
-    setIsPlaying(false);
-    video.currentTime = safeTime;
-    setCurrentTime(safeTime);
-    setDragTime(null);
-    setSelectedFrameIndex(targetFrame);
-    clearLoadedRanges();
-    setAnnotationsReady(false);
-    setIsLoadingAnnotations(true);
-
-    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-    const totalFrames = Math.floor(video.duration * fps);
-    const windowStart = Math.max(0, targetFrame - 50);
-    const windowEnd = Math.min(targetFrame + windowFrames, totalFrames);
-    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    } else {
-      setIsLoadingAnnotations(false);
-    }
-    nextPrefetchFrameRef.current = null;
-  };
-
-  const handleSliderChange = (val: number[]) => {
-    setDragTime(val[0]);
-    if (video && !video.paused) { video.pause(); setIsPlaying(false); }
-    setAnnotationsReady(false);
-    setIsLoadingAnnotations(true);
-  };
-
-  const handleSkip = (seconds: number) => {
-    if (!video) return;
-    const newTime = Math.min(Math.max(video.currentTime + seconds, 0), video.duration);
-    video.currentTime = newTime;
-    setCurrentTime(newTime);
-    const newFrame = Math.round(newTime * fps);
-    setSelectedFrameIndex(newFrame);
-    sessionStorage.setItem("frameId", newFrame.toString());
-    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-    const totalFrames = Math.floor(video.duration * fps);
-    const windowStart = Math.max(0, newFrame - 50);
-    const windowEnd = Math.min(newFrame + windowFrames, totalFrames);
-    if (!isFrameLoaded(newFrame)) {
-      setIsLoadingAnnotations(true);
-      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({ start: windowStart, end: windowEnd });
-      } else {
-        setIsLoadingAnnotations(false);
-      }
-    }
-  };
-
-  const handleFrameStep = useCallback((step: number) => {
-    if (!video) return;
-    const currentFrameNum = Math.round(video.currentTime * fps);
-    let nextFrame = Math.min(Math.max(currentFrameNum + step, 0), Math.floor(video.duration * fps));
-    if (Math.abs(step) > 1) nextFrame = Math.min(Math.max(nextFrame, 0), Math.floor(video.duration * fps));
-    const nextTime = nextFrame / fps;
-
-    const alreadyLoaded = isFrameLoaded(nextFrame);
-    console.log(`[FRAME STEP] step=${step}, current=${currentFrameNum}, next=${nextFrame}, loaded=${alreadyLoaded}`);
-
-    video.currentTime = nextTime;
-    setCurrentTime(nextTime);
-    setSelectedFrameIndex(nextFrame);
-    sessionStorage.setItem("frameId", nextFrame.toString());
-
-    if (!alreadyLoaded && !isLoadingAnnotations) {
-      console.log(`[FRAME STEP] Frame ${nextFrame} not loaded, fetching`);
-      const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-      const totalFrames = Math.floor(video.duration * fps);
-      const windowStart = Math.max(0, nextFrame - 50);
-      const windowEnd = Math.min(nextFrame + windowFrames, totalFrames);
-      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        setIsLoadingAnnotations(true);
-        chunkMutation.mutate({ start: windowStart, end: windowEnd });
-      }
-    } else {
-      console.log(`[FRAME STEP] Frame ${nextFrame} already loaded, skipping fetch`);
-      setIsLoadingAnnotations(false);
-    }
-  }, [video, fps, isLoadingAnnotations, chunkMutation, isFrameLoaded]);
-
-  const handleFrameJump = async (targetFrame: number) => {
-    if (!video) return;
-    const totalFrames = Math.floor(video.duration * fps);
-    const safeFrame = Math.min(Math.max(targetFrame, 0), totalFrames);
-    const safeTime = safeFrame / fps;
-    video.pause();
-    setIsPlaying(false);
-    video.currentTime = safeTime;
-    setCurrentTime(safeTime);
-    setSelectedFrameIndex(safeFrame);
-    sessionStorage.setItem("frameId", safeFrame.toString());
-    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * fps);
-    const windowStart = Math.max(0, safeFrame - 50);
-    const windowEnd = Math.min(safeFrame + windowFrames, totalFrames);
-    setIsLoadingAnnotations(true);
-    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    } else {
-      setIsLoadingAnnotations(false);
-    }
-    nextPrefetchFrameRef.current = null;
-    setFrameInput("");
-  };
-
-  const currentFrame = Math.round(currentTime * fps);
-  
-  // FIX 9: Optimized current frame annotations using Map (O(n) for current frame only, not all frames)
-  const currentFrameAnnotations = useMemo(() => {
-    const result: Annotation[] = [];
-    annotationMap.forEach((anno) => {
-      if (anno.frame_id === currentFrame) {
-        result.push(anno);
-      }
-    });
-    return result;
-  }, [annotationMap, currentFrame]);
-  
   const allObjectIds = getAllObjectIds();
 
   useEffect(() => {
@@ -664,9 +703,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted]);
 
-  // Show loading state while mounting to prevent hydration errors
-  // This ensures server and client render the exact same thing initially
-  if (!mounted) {
+  if (!mounted || !originalFpsLoadedRef.current) {
     return (
       <div className="flex flex-col gap-2 w-full h-full">
         <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-full">
@@ -694,15 +731,21 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       <div className="flex flex-col gap-2 w-full h-full">
         <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-full">
           <div className="relative flex items-center justify-center mb-2 w-full h-[calc(100%-80px)] bg-black">
+            <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
+              FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
+              {isSeeking && " 🔄 SEEKING"}
+              {isLoadingAnnotations && " 📥 LOADING"}
+            </div>
+            
             {isLoadingAnnotations && (
               <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mb-4 mx-auto"></div>
                   <p className="text-white text-lg font-semibold">Loading annotations...</p>
-                  <p className="text-gray-300 text-sm mt-2">Frame: {currentFrame}</p>
                 </div>
               </div>
             )}
+            
             <Stage 
               ref={stageRef} 
               width={STAGE_WIDTH} 
@@ -747,8 +790,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     />
                   );
                 })}
-                {/* Fixed: Added unique keys for annotations to prevent duplicate key error */}
-                {currentFrameAnnotations.map((a, annotationIndex) => {
+                {Array.from(annotationMap.values())
+                  .filter(a => a.frame_id === currentFrame)
+                  .map((a, annotationIndex) => {
                   const color = getObjectColor(a.object_id);
                   const isSelected = selectedObjects.some(obj => obj.object_id === a.object_id);
                   const xs = a.coordinates.map(([x])=>mapX(x));
@@ -854,17 +898,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 </Button>
               )}
             </div>
-            <div className="absolute top-2 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
+            <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
               Frame: {currentFrame}
             </div>
-            <div className="absolute top-8 left-1 text-[24px] text-white px-2 py-1 rounded text-xs">
-              Trajectory: {showTrajectory ? "✓ ON" : "✗ OFF"}
-            </div>
-            {isPanMode && (
-              <div className="absolute top-14 left-2 bg-blue-500 text-white px-3 py-1 rounded text-xs font-semibold">
-                🤚 Panning...
-              </div>
-            )}
           </div>
           <Separator />
           <div className="flex flex-col pt-1">
@@ -913,7 +949,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   type="number" 
                   placeholder="0" 
                   min="0" 
-                  max={video?.duration ? Math.floor(video.duration*fps) : undefined} 
+                  max={video?.duration ? Math.floor(video.duration * stableFpsRef.current) : undefined} 
                   className="w-20 h-8 text-xs px-2" 
                   value={frameInput} 
                   onChange={(e) => setFrameInput(e.target.value)} 
