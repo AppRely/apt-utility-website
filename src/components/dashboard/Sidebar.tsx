@@ -33,6 +33,9 @@ export default function Sidebar({
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
+  // State for collapsing the object list - default to true (collapsed)
+  const [objectsCollapsed, setObjectsCollapsed] = useState(true);
+
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
     const [value, setValue] = useState<string | null>(
@@ -76,12 +79,12 @@ export default function Sidebar({
   const totalFrames = useSessionStorage("totalFrames");
 
   // QUERY WITH PROPER CACHE INVALIDATION
-  const { data, isLoading, error, refetch } = useQuery({
+    const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", projectId, frameId],
     queryFn: () => getFrameData(Number(projectId!), Number(frameId!)),
-    enabled: !!(projectId && frameId),
+    enabled: !!(projectId && frameId && !objectsCollapsed),
     staleTime: 0,
-    gcTime: 0, // Disable caching
+    gcTime: 0,
   });
 
   const swapMutation = useMutation({
@@ -303,7 +306,7 @@ export default function Sidebar({
     if (selectedObjects.length !== 1) {
       toast({
         title: "⚠️ Invalid Selection",
-        description: "Please select exactly 1 object to delete.", // Fixed message
+        description: "Please select exactly 1 object to delete.",
         variant: "destructive",
         duration: 3000,
       });
@@ -367,7 +370,7 @@ export default function Sidebar({
                 <div className="flex items-center">
                   <span className="w-2 h-2 rounded-full bg-blue-600 mr-2"></span>
                   <span className="font-semibold text-[13px] leading-[13px]">
-                    Object {index + 1}: Fly
+                    Object {index + 1}: Animal
                   </span>
                 </div>
                 <span className="font-medium text-[13px] leading-[13px]">
@@ -649,11 +652,28 @@ export default function Sidebar({
 
       <Separator />
 
+      {/* Collapsible Objects Section - collapsed by default */}
       <CardContent className="p-3 flex-1 flex flex-col">
-        <p className="text-[#494949] text-[13px] leading-[13px] pt-2 pb-3 font-medium flex-shrink-0">
-          Objects ({data?.data?.objects?.length || 0})
-        </p>
-        {renderObjectsSection()}
+        <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
+          <button
+            onClick={() => setObjectsCollapsed(!objectsCollapsed)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-md focus:outline-none transition"
+            aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}
+          >
+            Object List
+            {objectsCollapsed ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {!objectsCollapsed && renderObjectsSection()}
       </CardContent>
 
       {/* LINK CONFIRM DIALOG */}
