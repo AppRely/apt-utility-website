@@ -42,10 +42,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
   
-  const [isSeeking, setIsSeeking] = useState(false);
+  // Track if frame step is in progress to prevent loader
+  const isFrameStepRef = useRef(false);
+  const isFrameStepSequenceRef = useRef(false);
+  const frameStepTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // FIXED: Block race conditions with a simple lock
+  const isSeekingRef = useRef(false);
   const pendingFrameRef = useRef<number | null>(null);
-  const queuedStepsRef = useRef<number>(0);
-  const queuedBaseFrameRef = useRef<number | null>(null);
+  const [pendingFrameVisual, setPendingFrameVisual] = useState<number | null>(null); // Visual feedback
   
   // Track current frame independently
   const [currentFrame, setCurrentFrame] = useState(0);
@@ -109,6 +114,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return Math.round((stableFpsRef.current / 100) * ANNO_WINDOW_SECONDS * stableFpsRef.current);
   }, []);
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (frameStepTimerRef.current) {
+        clearTimeout(frameStepTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -141,7 +155,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (!mounted || !originalFpsLoadedRef.current) return;
     
     if (fps !== stableFpsRef.current) {
-      console.error(`[FPS ERROR] ⚠️ FPS changed from ${stableFpsRef.current} to ${fps}! Resetting`);
+      console.log(`[FPS ERROR] ⚠️ FPS changed from ${stableFpsRef.current} to ${fps}! Resetting`);
       setFps(stableFpsRef.current);
     }
   }, [fps, mounted]);
@@ -329,8 +343,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
       const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
-      setIsLoadingAnnotations(false);
+      
+      // Only hide loader if this isn't a frame step sequence
+      if (!isFrameStepSequenceRef.current) {
+        setIsLoadingAnnotations(false);
+      }
       setAnnotationsReady(true);
+      
       if (!initialLoadComplete && video && video.paused && mounted) {
         setInitialLoadComplete(true);
         setTimeout(() => {
@@ -341,7 +360,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     onError: (_, { start, end }) => {
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
-      setIsLoadingAnnotations(false);
+      if (!isFrameStepSequenceRef.current) {
+        setIsLoadingAnnotations(false);
+      }
     },
   });
 
@@ -387,8 +408,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
+  // Handle frame step with proper flag management
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
     if (!video) return;
+    
+    // Clear any existing timer
+    if (frameStepTimerRef.current) {
+      clearTimeout(frameStepTimerRef.current);
+    }
+    
+    // Set flag to prevent loader for this frame step and next few ms
+    isFrameStepRef.current = true;
+    isFrameStepSequenceRef.current = true;
+    
+    // Auto-reset after 500ms of no frame steps
+    frameStepTimerRef.current = setTimeout(() => {
+      isFrameStepRef.current = false;
+      isFrameStepSequenceRef.current = false;
+    }, 500);
     
     const currentFps = stableFpsRef.current;
     
@@ -401,12 +438,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       console.log(`[STEP DEBUG] Using ref frame: ${currentFrameNum}`);
     }
     
-    if (isSeeking) {
-      if (queuedBaseFrameRef.current === null) {
-        queuedBaseFrameRef.current = currentFrameNum;
-      }
-      queuedStepsRef.current += step;
-      console.log(`[STEP DEBUG] Queued step ${step}, total queued: ${queuedStepsRef.current}`);
+    // BLOCK: If currently seeking, queue this request
+    if (isSeekingRef.current) {
+      console.log(`[STEP BLOCKED] Currently seeking, queuing step ${step}`);
+      setPendingFrameVisual(currentFrameNum + step);
+      setTimeout(() => setPendingFrameVisual(null), 500);
+      pendingFrameRef.current = currentFrameNum + step;
       return;
     }
     
@@ -417,6 +454,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     
     if (newFrame === currentFrameNum) {
       console.log(`[STEP DEBUG] At boundary, cannot step`);
+      isFrameStepRef.current = false;
+      isFrameStepSequenceRef.current = false;
       return;
     }
     
@@ -424,8 +463,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     
     console.log(`[STEP DEBUG] Seek initiated to frame ${newFrame}`);
     
-    pendingFrameRef.current = newFrame;
-    setIsSeeking(true);
+    // LOCK: Set seeking flag to block new requests
+    isSeekingRef.current = true;
+    
+    // Clear any pending frame
+    pendingFrameRef.current = null;
     
     currentDisplayFrameRef.current = newFrame;
     setCurrentFrame(newFrame);
@@ -436,11 +478,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setSelectedFrameIndex(newFrame);
     sessionStorage.setItem("frameId", newFrame.toString());
     
-  }, [video, isSeeking]);
+    // Force hide loader for frame steps
+    setIsLoadingAnnotations(false);
+    setAnnotationsReady(true);
+    
+  }, [video]);
 
-  // FIXED: Prevent duplicate seeks
   const handleSeek = async (time: number) => {
     if (!video) return;
+    
+    // BLOCK: If currently seeking, queue this request
+    if (isSeekingRef.current) {
+      console.log(`[SEEK BLOCKED] Currently seeking, queuing time ${time}`);
+      const targetFrame = Math.round(time * stableFpsRef.current);
+      setPendingFrameVisual(targetFrame);
+      setTimeout(() => setPendingFrameVisual(null), 500);
+      pendingFrameRef.current = targetFrame;
+      return;
+    }
     
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const targetFrame = Math.round(safeTime * stableFpsRef.current);
@@ -456,6 +511,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     
     console.log(`[SEEK DEBUG] Seeking to frame ${targetFrame}`);
     
+    // LOCK: Set seeking flag to block new requests
+    isSeekingRef.current = true;
+    pendingFrameRef.current = null;
+    
     if (isFrameLoaded(targetFrame)) {
       video.pause();
       setIsPlaying(false);
@@ -465,6 +524,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setSelectedFrameIndex(targetFrame);
       currentDisplayFrameRef.current = targetFrame;
       setCurrentFrame(targetFrame);
+      // Hide loader for loaded frames
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
       return;
@@ -480,7 +540,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setCurrentFrame(targetFrame);
     clearLoadedRanges();
     setAnnotationsReady(false);
-    setIsLoadingAnnotations(true);
+    
+    // Only show loader if this is NOT a frame step sequence
+    if (!isFrameStepSequenceRef.current) {
+      setIsLoadingAnnotations(true);
+    }
     
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
     const totalFrames = Math.floor(video.duration * stableFpsRef.current);
@@ -495,7 +559,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     nextPrefetchFrameRef.current = null;
   };
 
-  // FIXED: Debounced slider change
   const handleSliderChange = (val: number[]) => {
     setDragTime(val[0]);
     if (video && !video.paused) { video.pause(); setIsPlaying(false); }
@@ -505,15 +568,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     
     sliderTimeoutRef.current = setTimeout(() => {
-      setAnnotationsReady(false);
-      setIsLoadingAnnotations(true);
+      // Only show loader if not in frame step sequence
+      if (!isFrameStepSequenceRef.current) {
+        setAnnotationsReady(false);
+        setIsLoadingAnnotations(true);
+      }
     }, 100);
   };
 
   const handleSkip = (seconds: number) => {
     if (!video) return;
     const newTime = Math.min(Math.max(video.currentTime + seconds, 0), video.duration);
-    const newFrame = Math.round(newTime * stableFpsRef.current);
     handleSeek(newTime);
   };
 
@@ -558,8 +623,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             return;
           }
           
-          setIsSeeking(false);
-          pendingFrameRef.current = null;
+          // UNLOCK: Release the lock so new seeks can happen
+          isSeekingRef.current = false;
           
           currentDisplayFrameRef.current = actualFrame;
           setCurrentFrame(actualFrame);
@@ -575,19 +640,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             const totalFrames = Math.floor(vid.duration * lockedFps);
             const windowStart = Math.max(0, actualFrame - 50);
             const windowEnd = Math.min(actualFrame + windowFrames, totalFrames);
-            setIsLoadingAnnotations(true);
+            
+            // Only show loader if NOT in frame step sequence
+            if (!isFrameStepSequenceRef.current) {
+              setIsLoadingAnnotations(true);
+            }
             chunkMutation.mutate({ start: windowStart, end: windowEnd });
           } else {
             setAnnotationsReady(true);
+            // Always hide loader when frame is loaded
             setIsLoadingAnnotations(false);
           }
           
-          if (queuedStepsRef.current !== 0) {
-            const queued = queuedStepsRef.current;
-            const baseFrame = queuedBaseFrameRef.current !== null ? queuedBaseFrameRef.current : actualFrame;
-            queuedStepsRef.current = 0;
-            queuedBaseFrameRef.current = null;
-            setTimeout(() => handleFrameStep(queued, baseFrame), 10);
+          // Check if there's a pending frame queued
+          if (pendingFrameRef.current !== null) {
+            const queuedFrame = pendingFrameRef.current;
+            pendingFrameRef.current = null;
+            console.log(`[SEEKED] Processing queued frame: ${queuedFrame}`);
+            setTimeout(() => {
+              const queuedTime = queuedFrame / lockedFps;
+              handleSeek(queuedTime);
+            }, 10);
           }
         };
         
@@ -733,11 +806,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           <div className="relative flex items-center justify-center mb-2 w-full h-[calc(100%-80px)] bg-black">
             <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
               FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
-              {isSeeking && " 🔄 SEEKING"}
+              {isSeekingRef.current && " 🔄 SEEKING"}
+              {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
               {isLoadingAnnotations && " 📥 LOADING"}
             </div>
             
-            {isLoadingAnnotations && (
+            {/* Show loader only when loading annotations and not in frame step sequence */}
+            {isLoadingAnnotations && !isFrameStepSequenceRef.current && (
               <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mb-4 mx-auto"></div>
