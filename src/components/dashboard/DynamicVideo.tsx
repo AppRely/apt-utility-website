@@ -10,7 +10,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
-  ZoomIn, ZoomOut, Undo, Redo,
+  ZoomIn, ZoomOut, Undo, Redo, Target,
 } from "lucide-react";
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
@@ -70,6 +70,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [isDragging, setIsDragging] = useState(false);
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
+  
+  // Auto-pan state
+  const [autoPanEnabled, setAutoPanEnabled] = useState(true);
+  const lastPanFrameRef = useRef<number>(-1);
   
   const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
@@ -305,6 +309,113 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleZoomIn = () => { const ns = Math.min(stageScale.x * 1.1, 10); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
   const handleZoomOut = () => { const ns = Math.max(stageScale.x / 1.1, 1); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
   const handleResetZoom = () => { setStageScale({x:1,y:1}); setStagePos({x:0,y:0}); setCurrentZoom(1); setCursorStyle("grab"); };
+
+  // Auto-pan function - keeps selected object in view when zoomed in
+  const panToSelectedObject = useCallback(() => {
+    // Only pan if: auto-pan enabled, exactly 1 object selected, zoomed in enough, and not currently dragging
+    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
+    if (!stageRef.current || !video) return;
+
+    const selectedObjectId = selectedObjects[0]?.object_id;
+    if (!selectedObjectId) return;
+
+    // Get current annotation for selected object
+    const currentAnnotation = Array.from(annotationMap.values()).find(
+      anno => anno.object_id === selectedObjectId && anno.frame_id === currentFrame
+    );
+
+    if (!currentAnnotation?.coordinates?.length) return;
+
+    // Prevent excessive panning on same frame
+    if (lastPanFrameRef.current === currentFrame) return;
+    lastPanFrameRef.current = currentFrame;
+
+    // Get object center in original coordinates
+    const objX = currentAnnotation.coordinates[0][0];
+    const objY = currentAnnotation.coordinates[0][1];
+
+    // Convert to stage coordinates
+    const stageObjX = mapX(objX);
+    const stageObjY = mapY(objY);
+
+    // Get current stage position and scale
+    const stage = stageRef.current;
+    const currentStageX = stage.x();
+    const currentStageY = stage.y();
+    const currentScale = stage.scaleX();
+
+    // Calculate visible viewport bounds
+    const margin = 80; // pixels margin before panning
+    const marginInStage = margin / currentScale;
+
+    const viewportLeft = -currentStageX / currentScale;
+    const viewportRight = (STAGE_WIDTH - currentStageX) / currentScale;
+    const viewportTop = -currentStageY / currentScale;
+    const viewportBottom = (STAGE_HEIGHT - currentStageY) / currentScale;
+
+    let needsPan = false;
+    let targetOffsetX = 0;
+    let targetOffsetY = 0;
+
+    // Check if object is near or outside viewport edges
+    if (stageObjX < viewportLeft + marginInStage) {
+      targetOffsetX = (stageObjX - (viewportLeft + marginInStage)) * currentScale;
+      needsPan = true;
+    } else if (stageObjX > viewportRight - marginInStage) {
+      targetOffsetX = (stageObjX - (viewportRight - marginInStage)) * currentScale;
+      needsPan = true;
+    }
+
+    if (stageObjY < viewportTop + marginInStage) {
+      targetOffsetY = (stageObjY - (viewportTop + marginInStage)) * currentScale;
+      needsPan = true;
+    } else if (stageObjY > viewportBottom - marginInStage) {
+      targetOffsetY = (stageObjY - (viewportBottom - marginInStage)) * currentScale;
+      needsPan = true;
+    }
+
+    if (needsPan) {
+      setStagePos({
+        x: currentStageX - targetOffsetX,
+        y: currentStageY - targetOffsetY
+      });
+    }
+  }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video]);
+
+  // Auto-pan on frame updates during playback
+  useEffect(() => {
+    if (!video || !mounted) return;
+    
+    const handleTimeUpdate = () => {
+      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
+        panToSelectedObject();
+      }
+    };
+    
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+
+  // Auto-pan when zoom changes
+  useEffect(() => {
+    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
+      setTimeout(() => panToSelectedObject(), 50);
+    }
+  }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
+
+  // Auto-pan when annotations are loaded
+  useEffect(() => {
+    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
+      panToSelectedObject();
+    }
+  }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+
+  // Auto-pan when frame changes via seeking
+  useEffect(() => {
+    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
+      panToSelectedObject();
+    }
+  }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
@@ -768,13 +879,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Equal": e.preventDefault(); handleZoomIn(); break;
         case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
+        case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled]);
 
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
@@ -809,6 +921,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               {isSeekingRef.current && " 🔄 SEEKING"}
               {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
               {isLoadingAnnotations && " 📥 LOADING"}
+              {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
             </div>
             
             {/* Show loader only when loading annotations and not in frame step sequence */}
@@ -901,7 +1014,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                               end_frame: meta.data.end_frame, 
                               is_inside: meta.data.is_inside 
                             }]); 
-                            toast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 }); 
+                            toast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 });
+                            // Auto-pan to newly selected object if zoomed in
+                            if (autoPanEnabled && currentZoom > 1.1) {
+                              setTimeout(() => panToSelectedObject(), 100);
+                            }
                           } 
                         });
                       }}
@@ -945,7 +1062,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
               {(stageScale.x*100).toFixed(0)}%
             </div>
-            <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+            <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm flex gap-2">
+              <Button 
+                variant={autoPanEnabled ? "default" : "ghost"} 
+                size="sm"
+                onClick={() => setAutoPanEnabled(!autoPanEnabled)}
+                className={`text-[11px] px-2 py-1 ${autoPanEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}
+                title="Auto-pan to selected object when zoomed in (Press 'A' key)"
+              >
+                <Target className="w-3 h-3 mr-1" />
+                {autoPanEnabled ? "Auto-Pan ON" : "Auto-Pan OFF"}
+              </Button>
               {downloadUrl ? (
                 <Button 
                   className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-600" 
