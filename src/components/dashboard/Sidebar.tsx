@@ -60,7 +60,7 @@ export default function Sidebar({
           console.log(`${key} changed to:`, newValue);
         }
       }, 200);
-
+      
       return () => {
         window.removeEventListener("storage", handleStorageChange);
         clearInterval(interval);
@@ -86,6 +86,10 @@ export default function Sidebar({
     staleTime: 0,
     gcTime: 0,
   });
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const swapMutation = useMutation({
     mutationFn: (formData: FormData) =>
@@ -189,7 +193,8 @@ export default function Sidebar({
       );
     },
   });
-
+  const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
+  
   // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
   useEffect(() => {
     const handleLinkingComplete = (event: any) => {
@@ -503,16 +508,17 @@ export default function Sidebar({
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
           <span
             className="text-[#404040] text-[13px] truncate"
-            title={videoName ?? ""}>
-            {formatFileName(videoName ?? "")}
+            title={mounted ? videoName ?? "" : ""}>
+            {mounted ? formatFileName(videoName ?? "") : "-"}
           </span>
         </div>
+
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
           <span
             className="text-[#404040] text-[13px] truncate"
-            title={trkFileName ?? ""}>
-            {formatFileName(trkFileName ?? "")}
+            title={mounted ? trkFileName ?? "" : ""}>
+            {mounted ? formatFileName(trkFileName ?? "") : "-"}
           </span>
         </div>
       </CardContent>
@@ -643,10 +649,7 @@ export default function Sidebar({
           Frame #{frameId}
         </p>
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
-          fps :{" "}
-          {typeof window !== "undefined"
-            ? sessionStorage.getItem("fps")
-            : "N/A"}
+          fps : {fpsValue}
         </p>
       </CardContent>
 

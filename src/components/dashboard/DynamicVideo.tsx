@@ -23,7 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { exportTrk } from "@/lib/api/exportTrk";
 import { Frame, Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
-
+import UniqueIdsModal from "@/components/dashboard/UniqueIdsModal";
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
@@ -117,6 +117,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => {
     return Math.round((stableFpsRef.current / 100) * ANNO_WINDOW_SECONDS * stableFpsRef.current);
   }, []);
+  const [showUniqueModal, setShowUniqueModal] = useState(false);
+  const projectName = sessionStorage.getItem("project_name") || undefined;
+  const videoName = sessionStorage.getItem("video_name") || undefined;
+  const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -882,12 +886,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
+        case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled]);
-
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
       <div className="flex flex-col gap-2 w-full h-full">
@@ -1199,6 +1203,64 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </Card>
       </div>
+      <UniqueIdsModal
+        open={showUniqueModal}
+        onClose={() => setShowUniqueModal(false)}
+        projectId={projectId}
+        projectName={projectName}
+        videoName={videoName}
+        trkFileName={trkFileName}
+
+        onSelectObject={(id, frame) => {
+          if (!video || !projectId) return;
+
+          handleFrameJump(frame);
+
+          objectMutation.mutate(
+            {
+              projectId,
+              objectId: id,
+              frameId: frame,
+            },
+            {
+              onSuccess: (meta) => {
+                // ✅ SINGLE SELECTION ONLY
+                setSelectedObjects((prev) => {
+                  // 🔁 toggle
+                  if (prev.some(obj => obj.object_id === id)) {
+                    return prev.filter(obj => obj.object_id !== id);
+                  }
+
+                  // max 2
+                  if (prev.length === 2) {
+                    return [
+                      prev[0],
+                      {
+                        object_id: id,
+                        frame_id: frame,
+                        start_frame: meta.data.start_frame,
+                        end_frame: meta.data.end_frame,
+                        is_inside: meta.data.is_inside,
+                      },
+                    ];
+                  }
+
+                  return [
+                    ...prev,
+                    {
+                      object_id: id,
+                      frame_id: frame,
+                      start_frame: meta.data.start_frame,
+                      end_frame: meta.data.end_frame,
+                      is_inside: meta.data.is_inside,
+                    },
+                  ];
+                });
+              },
+            }
+          );
+        }}
+      />
     </>
   );
 }
