@@ -35,16 +35,48 @@ export default function UniqueIdsModal({
   trkFileName,
   onSelectObject,
 }: Props) {
-  const { data, isLoading } = useQuery({
+
+  // ✅ QUERY
+  const {
+    data,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["unique-ids", projectId],
     queryFn: () => getUniqueIds(projectId!),
     enabled: open && !!projectId,
   });
 
-  const tableData: TrajectoryRow[] = data?.data?.objects || [];
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [linkedIds, setLinkedIds] = useState<number[]>([]);
+
+  const clearAll = () => {
+    setSelectedIds([]);
+    setLinkedIds([]);
+  };
+
+  // ✅ AUTO REFRESH TABLE
+  useEffect(() => {
+    const handleOperationComplete = () => {
+      refetch();
+      clearAll();
+    };
+
+    window.addEventListener(
+      "operationComplete",
+      handleOperationComplete
+    );
+
+    return () => {
+      window.removeEventListener(
+        "operationComplete",
+        handleOperationComplete
+      );
+    };
+  }, [refetch]);
+
+  const tableData: TrajectoryRow[] = data?.data?.objects || [];
 
   const rowRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
 
@@ -88,7 +120,7 @@ export default function UniqueIdsModal({
     };
   }, [dragging, resizing, offset, position]);
 
-  // 🔥 Reset only modal state
+  // 🔥 Reset modal state
   useEffect(() => {
     if (!open) {
       setSelectedIds([]);
@@ -138,22 +170,12 @@ export default function UniqueIdsModal({
     }
 
     const row = tableData.find((r) => r.id === id);
-    if (row) onSelectObject?.(id, row.start_frame);
-  };
 
-  const removeId = (id: number) => {
-    const newSelected = selectedIds.filter((x) => x !== id);
-    setSelectedIds(newSelected);
-
-    if (newSelected.length === 0) {
-      setLinkedIds([]);
+    if (row) {
+      onSelectObject?.(id, row.start_frame);
     }
   };
 
-  const clearAll = () => {
-    setSelectedIds([]);
-    setLinkedIds([]);
-  };
 
   const topIds = [
     ...selectedIds,
@@ -163,11 +185,17 @@ export default function UniqueIdsModal({
   return (
     <div
       className="fixed z-50"
-      style={{ top: position.y, left: position.x }}
+      style={{
+        top: position.y,
+        left: position.x,
+      }}
     >
       <Card
         className="bg-white p-3 rounded-xl shadow-xl flex flex-col relative"
-        style={{ width: size.width, height: size.height }}
+        style={{
+          width: size.width,
+          height: size.height,
+        }}
       >
 
         {/* HEADER */}
@@ -175,6 +203,7 @@ export default function UniqueIdsModal({
           className="flex justify-between items-center mb-2 bg-gray-100 p-2 rounded border cursor-move"
           onMouseDown={(e) => {
             setDragging(true);
+
             setOffset({
               x: e.clientX - position.x,
               y: e.clientY - position.y,
@@ -182,10 +211,15 @@ export default function UniqueIdsModal({
           }}
         >
           <div className="flex-1 text-center">
-            <p className="text-sm font-semibold">Trajectory Information</p>
+            <p className="text-sm font-semibold">
+              Trajectory Information
+            </p>
           </div>
 
-          <Button onClick={onClose} size="sm">
+          <Button
+            onClick={onClose}
+            size="sm"
+          >
             Close
           </Button>
         </div>
@@ -195,16 +229,33 @@ export default function UniqueIdsModal({
           <table className="w-full text-xs border-collapse">
             <tbody>
               <tr>
-                <td className="border px-2 py-1 font-medium">Project</td>
-                <td className="border px-2 py-1">{projectName || "-"}</td>
+                <td className="border px-2 py-1 font-medium">
+                  Project
+                </td>
+
+                <td className="border px-2 py-1">
+                  {projectName || "-"}
+                </td>
               </tr>
+
               <tr>
-                <td className="border px-2 py-1 font-medium">Video</td>
-                <td className="border px-2 py-1">{videoName || "-"}</td>
+                <td className="border px-2 py-1 font-medium">
+                  Video
+                </td>
+
+                <td className="border px-2 py-1">
+                  {videoName || "-"}
+                </td>
               </tr>
+
               <tr>
-                <td className="border px-2 py-1 font-medium">Track</td>
-                <td className="border px-2 py-1">{trkFileName || "-"}</td>
+                <td className="border px-2 py-1 font-medium">
+                  Track
+                </td>
+
+                <td className="border px-2 py-1">
+                  {trkFileName || "-"}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -216,7 +267,12 @@ export default function UniqueIdsModal({
             <span className="text-xs font-semibold">
               Selected & Suggested IDs
             </span>
-            <Button onClick={clearAll} size="sm" variant="outline">
+
+            <Button
+              onClick={clearAll}
+              size="sm"
+              variant="outline"
+            >
               Clear
             </Button>
           </div>
@@ -251,13 +307,6 @@ export default function UniqueIdsModal({
                         >
                           ID: {id}
                         </span>
-
-                        {/* <span
-                          className="text-red-500 cursor-pointer"
-                          onClick={() => removeId(id)}
-                        >
-                          ✕
-                        </span> */}
                       </td>
                     </tr>
                   ))
@@ -269,6 +318,7 @@ export default function UniqueIdsModal({
 
         {/* MAIN TABLE */}
         <div className="border rounded overflow-hidden flex flex-col flex-1">
+
           <div className="bg-gray-200 sticky top-0 z-10">
             <table className="w-full text-xs border-collapse">
               <thead>
@@ -285,7 +335,9 @@ export default function UniqueIdsModal({
 
           <div className="overflow-y-auto flex-1">
             {isLoading ? (
-              <p className="text-center py-3">Loading...</p>
+              <p className="text-center py-3">
+                Loading...
+              </p>
             ) : (
               <table className="w-full text-xs border-collapse">
                 <tbody>
@@ -306,11 +358,25 @@ export default function UniqueIdsModal({
                       }`}
                       onClick={() => handleSelection(row.id)}
                     >
-                      <td className="border px-2 py-1">{row.id}</td>
-                      <td className="border px-2 py-1">{row.N_frame}</td>
-                      <td className="border px-2 py-1">{row.trk_len}</td>
-                      <td className="border px-2 py-1">{row.start_frame}</td>
-                      <td className="border px-2 py-1">{row.end_frame}</td>
+                      <td className="border px-2 py-1">
+                        {row.id}
+                      </td>
+
+                      <td className="border px-2 py-1">
+                        {row.N_frame}
+                      </td>
+
+                      <td className="border px-2 py-1">
+                        {row.trk_len}
+                      </td>
+
+                      <td className="border px-2 py-1">
+                        {row.start_frame}
+                      </td>
+
+                      <td className="border px-2 py-1">
+                        {row.end_frame}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
