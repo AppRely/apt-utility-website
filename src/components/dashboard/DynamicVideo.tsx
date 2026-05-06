@@ -714,8 +714,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
     const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const windowStart = Math.max(0, targetFrame - 50);
-    const windowEnd = Math.min(targetFrame + windowFrames, totalFrames);
+    const TRAJECTORY_BUFFER = stableFpsRef.current * 30; // 30 sec history time
+
+    const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
+    const windowEnd = Math.min(
+      targetFrame + windowFrames + TRAJECTORY_BUFFER,
+      totalFrames
+    );
     
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
@@ -1158,13 +1163,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
              <Button
               size="icon"
               variant="ghost"
+              onClick={() => setShowUniqueModal(prev => !prev)}
+              className="bg-gradient-to-r from-green-500 to-green-600 text-white 
+                        hover:from-green-600 hover:to-green-700 
+                        shadow-md hover:shadow-lg 
+                        transition-all duration-200 rounded-full"
+            >
+              i
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
               onClick={() => setShowShortcutModal(true)}
               className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white 
                         hover:from-blue-600 hover:to-indigo-700 
                         shadow-md hover:shadow-lg 
                         transition-all duration-200 rounded-full"
             >
-              i
+              ?
             </Button>
             </div>
             <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
