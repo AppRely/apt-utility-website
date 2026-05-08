@@ -23,7 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { exportTrk } from "@/lib/api/exportTrk";
 import { Frame, Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
-
+import UniqueIdsModal from "@/components/dashboard/UniqueIdsModal";
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
@@ -112,11 +112,66 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const { toast } = useToast();
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
+  const [showShortcutModal, setShowShortcutModal] = useState(false);
+  // const [search, setSearch] = useState("");
+  const shortcuts = [
+    {
+      category: "Playback",
+      items: [
+        { action: "Play / Pause", key: "Space / P" },
+        { action: "Next Frame", key: "→" },
+        { action: "Previous Frame", key: "←" },
+        { action: "Skip +5 sec", key: "L" },
+        { action: "Skip -5 sec", key: "J" },
+      ],
+    },
+    {
+      category: "Navigation",
+      items: [
+        { action: "Jump +10 frames", key: "↑" },
+        { action: "Jump -10 frames", key: "↓" },
+        { action: "Go to Start", key: "S" },
+        { action: "Go to End", key: "E" },
+      ],
+    },
+    {
+      category: "View",
+      items: [
+        { action: "Zoom In", key: "=" },
+        { action: "Zoom Out", key: "-" },
+        { action: "Toggle Trajectory", key: "T" },
+        { action: "Auto Pan", key: "A" },
+      ],
+    },
+    {
+      category: "Panels",
+      items: [
+        { action: "Open ID Table", key: "M" },
+        { action: "Open Shortcuts", key: "?" },
+      ],
+    },
+  ];
+//   const filteredShortcuts = useMemo(() => {
+//   return shortcuts
+//     .map(group => ({
+//       ...group,
+//       items: group.items.filter(item =>
+//         item.action.toLowerCase().includes(search.toLowerCase()) ||
+//         item.key.toLowerCase().includes(search.toLowerCase())
+//       ),
+//     }))
+//     .filter(group => group.items.length > 0);
+// });
+// , [search]);
   const OBJECT_COLORS = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
 
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => {
     return Math.round((stableFpsRef.current / 100) * ANNO_WINDOW_SECONDS * stableFpsRef.current);
   }, []);
+  const [showUniqueModal, setShowUniqueModal] = useState(false);
+  const projectName = sessionStorage.getItem("project_name") || undefined;
+  const videoName = sessionStorage.getItem("video_name") || undefined;
+  const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -659,8 +714,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
     const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const windowStart = Math.max(0, targetFrame - 50);
-    const windowEnd = Math.min(targetFrame + windowFrames, totalFrames);
+    const TRAJECTORY_BUFFER = stableFpsRef.current * 30; // 30 sec history time
+
+    const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
+    const windowEnd = Math.min(
+      targetFrame + windowFrames + TRAJECTORY_BUFFER,
+      totalFrames
+    );
     
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
@@ -882,12 +942,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
+        case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
+        case "Slash":e.preventDefault(); setShowShortcutModal(prev => !prev);break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled]);
-
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
       <div className="flex flex-col gap-2 w-full h-full">
@@ -1099,6 +1160,28 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
                 </Button>
               )}
+             <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowUniqueModal(prev => !prev)}
+              className="bg-gradient-to-r from-green-500 to-green-600 text-white 
+                        hover:from-green-600 hover:to-green-700 
+                        shadow-md hover:shadow-lg 
+                        transition-all duration-200 rounded-full"
+            >
+              i
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowShortcutModal(true)}
+              className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white 
+                        hover:from-blue-600 hover:to-indigo-700 
+                        shadow-md hover:shadow-lg 
+                        transition-all duration-200 rounded-full"
+            >
+              ?
+            </Button>
             </div>
             <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
               Frame: {currentFrame}
@@ -1199,6 +1282,122 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </Card>
       </div>
+      {showShortcutModal && (
+        <div className="fixed inset-0 z-50 flex justify-end items-center">
+          
+          {/* Overlay */}
+          <div 
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowShortcutModal(false)}
+          />
+
+          {/* Right Side Popup */}
+          <div className="
+            relative
+            w-[400px]
+            max-h-[80vh]
+            mr-4
+            bg-white
+            rounded-xl
+            shadow-xl
+            flex flex-col
+            animate-slide-in
+          ">
+            
+            {/* HEADER */}
+            <div className="flex justify-between items-center p-3 border-b">
+              <p className="font-semibold text-sm">Keyboard Shortcuts</p>
+              <Button size="sm" onClick={() => setShowShortcutModal(false)}>
+                Close
+              </Button>
+            </div>
+
+            {/* CONTENT */}
+            <div className="overflow-y-auto p-3 space-y-4">
+              {shortcuts.map((group, i) => (
+                <div key={i}>
+                  <p className="text-xs font-semibold text-gray-500 mb-2">
+                    {group.category}
+                  </p>
+
+                  <div className="space-y-1">
+                    {group.items.map((item, j) => (
+                      <div
+                        key={j}
+                        className="flex justify-between px-3 py-2 bg-gray-50 rounded"
+                      >
+                        <span className="text-sm">{item.action}</span>
+                        <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">
+                          {item.key}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        </div>
+      )}
+      <UniqueIdsModal
+        open={showUniqueModal}
+        onClose={() => setShowUniqueModal(false)}
+        projectId={projectId}
+        projectName={projectName}
+        videoName={videoName}
+        trkFileName={trkFileName}
+
+        onSelectObject={(id, frame) => {
+          if (!video || !projectId) return;
+
+          handleFrameJump(frame);
+
+          objectMutation.mutate(
+            {
+              projectId,
+              objectId: id,
+              frameId: frame,
+            },
+            {
+              onSuccess: (meta) => {
+                // ✅ SINGLE SELECTION ONLY
+                setSelectedObjects((prev) => {
+                  // 🔁 toggle
+                  if (prev.some(obj => obj.object_id === id)) {
+                    return prev.filter(obj => obj.object_id !== id);
+                  }
+
+                  // max 2
+                  if (prev.length === 2) {
+                    return [
+                      prev[0],
+                      {
+                        object_id: id,
+                        frame_id: frame,
+                        start_frame: meta.data.start_frame,
+                        end_frame: meta.data.end_frame,
+                        is_inside: meta.data.is_inside,
+                      },
+                    ];
+                  }
+
+                  return [
+                    ...prev,
+                    {
+                      object_id: id,
+                      frame_id: frame,
+                      start_frame: meta.data.start_frame,
+                      end_frame: meta.data.end_frame,
+                      is_inside: meta.data.is_inside,
+                    },
+                  ];
+                });
+              },
+            }
+          );
+        }}
+      />
     </>
   );
 }

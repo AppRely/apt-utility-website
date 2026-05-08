@@ -170,7 +170,27 @@ export default function AnnotationLandingPage() {
           return (
             <TableRow key={p.project_id}>
               <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
-              <TableCell>{p.project_name}</TableCell>
+              <TableCell>
+              <span
+                className="text-blue-600 hover:text-blue-800 cursor-pointer font-medium"
+                onClick={() => {
+                  sessionStorage.setItem("projectId", p.project_id);
+                  sessionStorage.setItem("project_name", p.project_name);
+                  sessionStorage.setItem("video_name", p.video_name);
+                  sessionStorage.setItem("videoPath", p.video_path);
+                  sessionStorage.setItem("trk_file_name", p.trk_file_name);
+                  sessionStorage.setItem("fps", p.fps);
+                  sessionStorage.setItem("width", p.width);
+                  sessionStorage.setItem("height", p.height);
+                  sessionStorage.setItem("duration", p.duration);
+                  sessionStorage.setItem("total_frames", p.total_frames);
+
+                  router.push("/dashboard");
+                }}
+              >
+                {p.project_name}
+              </span>
+           </TableCell>
 
               <TableCell
                 className="max-w-[220px] truncate"
