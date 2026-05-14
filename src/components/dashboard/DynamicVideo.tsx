@@ -15,15 +15,19 @@ import {
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
 } from "react-konva";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { getFrameRangeData } from "@/lib/api/getFrameRangeData";
 import { undoAction, redoAction } from "@/lib/api/undoRedo";
-import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
+import { getTimelineData } from "@/lib/api/getTimelineData";
 import { exportTrk } from "@/lib/api/exportTrk";
-import { Frame, Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
+import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import UniqueIdsModal from "@/components/dashboard/UniqueIdsModal";
+import {
+  LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
+} from "recharts";
+
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
@@ -42,26 +46,21 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
   
-  // Track if frame step is in progress to prevent loader
   const isFrameStepRef = useRef(false);
   const isFrameStepSequenceRef = useRef(false);
   const frameStepTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // FIXED: Block race conditions with a simple lock
   const isSeekingRef = useRef(false);
   const pendingFrameRef = useRef<number | null>(null);
-  const [pendingFrameVisual, setPendingFrameVisual] = useState<number | null>(null); // Visual feedback
+  const [pendingFrameVisual, setPendingFrameVisual] = useState<number | null>(null);
   
-  // Track current frame independently
   const [currentFrame, setCurrentFrame] = useState(0);
   const currentDisplayFrameRef = useRef<number>(0);
   
-  // Prevent duplicate seeks
   const lastSeekFrameRef = useRef<number>(-1);
   const lastSeekTimeRef = useRef<number>(-1);
   const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // FPS Stability
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
   
@@ -71,7 +70,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
   
-  // Auto-pan state
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
   const lastPanFrameRef = useRef<number>(-1);
   
@@ -92,6 +90,28 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const pendingRangesRef = useRef<Set<string>>(new Set());
   const loadedRangesKeyRef = useRef<Set<string>>(new Set());
 
+  // --- Timeline state with overlapping prefetch ---
+  const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
+  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
+  
+  // Track loaded ranges for timeline
+  const timelineLoadedRangesRef = useRef<{ start: number; end: number }[]>([]);
+  const timelinePendingRef = useRef<Set<string>>(new Set());
+  const timelineAbortRef = useRef<AbortController | null>(null);
+  const timelineDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const timelineFullyLoadedRef = useRef<boolean>(false); // Stop fetching when fully loaded
+
+  // Timeline constants
+  const TIMELINE_FETCH_WINDOW = 450;      // frames per fetch
+  const TIMELINE_STEP = 225;              // step for overlapping (half of fetch window)
+  const TIMELINE_DISPLAY_WINDOW = 300;    // show ±300 frames
+  const TIMELINE_PREFETCH_THRESHOLD = 150; // trigger new fetch when 150 frames from edge
+  const TIMELINE_KEEP_WINDOW = 250;       // keep only last 250 frames before current
+  const MIN_FRAMES_TO_FETCH = 50;         // if remaining frames less than this, fetch only up to end
+
+  // Memory management constants
+  const MAX_ANNOTATION_WINDOW_SECONDS = 120;
+  const MAX_TRAJECTORY_SECONDS = 60;
   const ANNO_WINDOW_SECONDS = 6;
   const STAGE_WIDTH = 900;
   const STAGE_HEIGHT = 850;
@@ -113,56 +133,32 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const { toast } = useToast();
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   const [showShortcutModal, setShowShortcutModal] = useState(false);
-  // const [search, setSearch] = useState("");
+  
   const shortcuts = [
-    {
-      category: "Playback",
-      items: [
-        { action: "Play / Pause", key: "Space / P" },
-        { action: "Next Frame", key: "→" },
-        { action: "Previous Frame", key: "←" },
-        { action: "Skip +5 sec", key: "L" },
-        { action: "Skip -5 sec", key: "J" },
-      ],
-    },
-    {
-      category: "Navigation",
-      items: [
-        { action: "Jump +10 frames", key: "↑" },
-        { action: "Jump -10 frames", key: "↓" },
-        { action: "Go to Start", key: "S" },
-        { action: "Go to End", key: "E" },
-      ],
-    },
-    {
-      category: "View",
-      items: [
-        { action: "Zoom In", key: "=" },
-        { action: "Zoom Out", key: "-" },
-        { action: "Toggle Trajectory", key: "T" },
-        { action: "Auto Pan", key: "A" },
-      ],
-    },
-    {
-      category: "Panels",
-      items: [
-        { action: "Open ID Table", key: "M" },
-        { action: "Open Shortcuts", key: "?" },
-      ],
-    },
+    { category: "Playback", items: [
+      { action: "Play / Pause", key: "Space / P" },
+      { action: "Next Frame", key: "→" },
+      { action: "Previous Frame", key: "←" },
+      { action: "Skip +5 sec", key: "L" },
+      { action: "Skip -5 sec", key: "J" },
+    ] },
+    { category: "Navigation", items: [
+      { action: "Jump +10 frames", key: "↑" },
+      { action: "Jump -10 frames", key: "↓" },
+      { action: "Go to Start", key: "S" },
+      { action: "Go to End", key: "E" },
+    ] },
+    { category: "View", items: [
+      { action: "Zoom In", key: "=" },
+      { action: "Zoom Out", key: "-" },
+      { action: "Toggle Trajectory", key: "T" },
+      { action: "Auto Pan", key: "A" },
+    ] },
+    { category: "Panels", items: [
+      { action: "Open ID Table", key: "M" },
+      { action: "Open Shortcuts", key: "?" },
+    ] },
   ];
-//   const filteredShortcuts = useMemo(() => {
-//   return shortcuts
-//     .map(group => ({
-//       ...group,
-//       items: group.items.filter(item =>
-//         item.action.toLowerCase().includes(search.toLowerCase()) ||
-//         item.key.toLowerCase().includes(search.toLowerCase())
-//       ),
-//     }))
-//     .filter(group => group.items.length > 0);
-// });
-// , [search]);
   const OBJECT_COLORS = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
 
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => {
@@ -173,30 +169,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const videoName = sessionStorage.getItem("video_name") || undefined;
   const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
 
-  // Cleanup timer on unmount
+  // --- Cleanup ---
   useEffect(() => {
     return () => {
-      if (frameStepTimerRef.current) {
-        clearTimeout(frameStepTimerRef.current);
-      }
+      if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
+      if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
+      if (timelineDebounceRef.current) clearTimeout(timelineDebounceRef.current);
+      if (timelineAbortRef.current) timelineAbortRef.current.abort();
     };
   }, []);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
+  // --- Load session data & FPS ---
   useEffect(() => {
     if (!mounted) return;
-    
     const storedProjectId = sessionStorage.getItem("projectId");
     const storedFps = sessionStorage.getItem("fps");
     const storedWidth = sessionStorage.getItem("width");
     const storedHeight = sessionStorage.getItem("height");
     const storedDuration = sessionStorage.getItem("duration");
-    
     if (storedProjectId) setProjectId(Number(storedProjectId));
-    
     if (storedFps && !originalFpsLoadedRef.current) {
       const originalFps = Number(storedFps);
       stableFpsRef.current = originalFps;
@@ -204,7 +197,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       originalFpsLoadedRef.current = true;
       console.log(`[FPS LOCK] Original FPS locked at: ${originalFps}`);
     }
-    
     if (storedWidth) setVideoWidth(Number(storedWidth));
     if (storedHeight) setVideoHeight(Number(storedHeight));
     if (storedDuration) setDuration(Number(storedDuration));
@@ -212,13 +204,239 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
-    
     if (fps !== stableFpsRef.current) {
       console.log(`[FPS ERROR] ⚠️ FPS changed from ${stableFpsRef.current} to ${fps}! Resetting`);
       setFps(stableFpsRef.current);
     }
   }, [fps, mounted]);
 
+  // --- Helper to get total frames safely ---
+  const getTotalFrames = useCallback(() => {
+    if (duration <= 0 || stableFpsRef.current <= 0) return 0;
+    return Math.floor(duration * stableFpsRef.current);
+  }, [duration]);
+
+  // --- Merge timeline points ---
+  const mergeTimelinePoints = useCallback((newPoints: Array<{ frame: number; x: number; y: number; objectId: number }>) => {
+    setTimelinePoints(prev => {
+      const map = new Map<string, typeof newPoints[0]>();
+      prev.forEach(p => map.set(`${p.frame}-${p.objectId}`, p));
+      newPoints.forEach(p => map.set(`${p.frame}-${p.objectId}`, p));
+      return Array.from(map.values()).sort((a, b) => a.frame - b.frame);
+    });
+  }, []);
+
+  // --- Core timeline fetch with overlapping window ---
+  const fetchTimelineRange = useCallback(async (start: number, end: number) => {
+    if (!projectId) return;
+    if (!isFinite(start) || !isFinite(end) || start > end) {
+      console.warn(`[Timeline] Invalid range: ${start} - ${end}`);
+      return;
+    }
+    const totalFrames = getTotalFrames();
+    if (totalFrames === 0) return;
+    const clampedStart = Math.max(0, Math.min(start, totalFrames));
+    const clampedEnd = Math.max(0, Math.min(end, totalFrames));
+    if (clampedStart > clampedEnd) return;
+
+    const key = `${clampedStart}-${clampedEnd}`;
+    if (timelinePendingRef.current.has(key)) return;
+    // Check if this range is fully covered by already loaded ranges
+    if (timelineLoadedRangesRef.current.some(r => r.start <= clampedStart && r.end >= clampedEnd)) {
+      return;
+    }
+
+    timelinePendingRef.current.add(key);
+    if (timelineAbortRef.current) timelineAbortRef.current.abort();
+    const controller = new AbortController();
+    timelineAbortRef.current = controller;
+
+    try {
+      console.log(`[Timeline] Fetching overlapping range ${clampedStart} to ${clampedEnd}`);
+      const data = await getTimelineData(projectId, clampedStart, clampedEnd, controller.signal);
+      if (data?.f) {
+        const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
+        Object.entries(data.f).forEach(([frameStr, objects]: any) => {
+          const frame = Number(frameStr);
+          Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
+            if (Array.isArray(coords) && coords.length >= 2) {
+              points.push({ frame, x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
+            }
+          });
+        });
+        mergeTimelinePoints(points);
+        // Merge the new range into loaded ranges
+        let newRanges = [...timelineLoadedRangesRef.current, { start: clampedStart, end: clampedEnd }];
+        newRanges.sort((a, b) => a.start - b.start);
+        const merged = [];
+        for (const range of newRanges) {
+          if (!merged.length || merged[merged.length-1].end < range.start - 1) {
+            merged.push(range);
+          } else {
+            merged[merged.length-1].end = Math.max(merged[merged.length-1].end, range.end);
+          }
+        }
+        timelineLoadedRangesRef.current = merged;
+        
+        // Check if we now cover the entire video
+        const maxEnd = Math.max(...merged.map(r => r.end), 0);
+        if (maxEnd >= totalFrames - 1) {
+          timelineFullyLoadedRef.current = true;
+          console.log('[Timeline] Fully loaded – stopping further prefetch');
+        }
+      }
+    } catch (err: any) {
+      if (err?.name !== "AbortError") {
+        console.error(`[Timeline] Error fetching ${clampedStart}-${clampedEnd}:`, err);
+      }
+    } finally {
+      timelinePendingRef.current.delete(key);
+      if (timelineAbortRef.current === controller) timelineAbortRef.current = null;
+    }
+  }, [projectId, mergeTimelinePoints, getTotalFrames]);
+
+  // --- Timeline prefetch with end detection (prevents infinite loops) ---
+  useEffect(() => {
+    if (!projectId) return;
+    const totalFrames = getTotalFrames();
+    if (totalFrames === 0) return;
+    
+    // If we already marked as fully loaded, do nothing
+    if (timelineFullyLoadedRef.current) return;
+
+    if (timelineDebounceRef.current) clearTimeout(timelineDebounceRef.current);
+    timelineDebounceRef.current = setTimeout(() => {
+      // If no data loaded, fetch a window around current frame
+      if (timelineLoadedRangesRef.current.length === 0) {
+        const centerStart = Math.max(0, currentFrame - TIMELINE_FETCH_WINDOW / 2);
+        const centerEnd = Math.min(currentFrame + TIMELINE_FETCH_WINDOW / 2, totalFrames);
+        if (centerStart <= centerEnd) {
+          fetchTimelineRange(centerStart, centerEnd);
+        }
+        return;
+      }
+
+      // Determine the furthest loaded end and start
+      let maxLoadedEnd = -1;
+      let minLoadedStart = Infinity;
+      for (const range of timelineLoadedRangesRef.current) {
+        maxLoadedEnd = Math.max(maxLoadedEnd, range.end);
+        minLoadedStart = Math.min(minLoadedStart, range.start);
+      }
+
+      // Check if we have reached the end
+      if (maxLoadedEnd >= totalFrames - 1) {
+        timelineFullyLoadedRef.current = true;
+        console.log('[Timeline] Already at video end, stopping prefetch');
+        return;
+      }
+
+      // Forward prefetch: only if current frame is within threshold of the loaded end
+      const distanceToEnd = maxLoadedEnd - currentFrame;
+      if (distanceToEnd <= TIMELINE_PREFETCH_THRESHOLD) {
+        const remainingFrames = totalFrames - maxLoadedEnd;
+        if (remainingFrames <= MIN_FRAMES_TO_FETCH) {
+          // Fetch only the remaining frames to the end
+          const nextStart = maxLoadedEnd + 1;
+          const nextEnd = totalFrames;
+          if (nextStart <= nextEnd && !timelineLoadedRangesRef.current.some(r => r.start <= nextStart && r.end >= nextEnd)) {
+            fetchTimelineRange(nextStart, nextEnd);
+          } else {
+            timelineFullyLoadedRef.current = true;
+          }
+        } else {
+          // Normal overlapping fetch
+          const nextStart = maxLoadedEnd + 1;
+          // Overlap: start from maxLoadedEnd - TIMELINE_STEP + 1
+          const overlapStart = Math.max(0, maxLoadedEnd - TIMELINE_STEP + 1);
+          const nextEnd = Math.min(overlapStart + TIMELINE_FETCH_WINDOW, totalFrames);
+          if (overlapStart <= nextEnd && !timelineLoadedRangesRef.current.some(r => r.start <= overlapStart && r.end >= nextEnd)) {
+            fetchTimelineRange(overlapStart, nextEnd);
+          }
+        }
+      }
+
+      // Backward prefetch (only if needed and not at start)
+      const distanceToStart = currentFrame - minLoadedStart;
+      if (distanceToStart <= TIMELINE_PREFETCH_THRESHOLD && minLoadedStart > 0) {
+        const prevEnd = minLoadedStart - 1;
+        const overlapEnd = Math.min(totalFrames, minLoadedStart + TIMELINE_STEP - 1);
+        const prevStart = Math.max(0, overlapEnd - TIMELINE_FETCH_WINDOW);
+        if (prevStart <= prevEnd && !timelineLoadedRangesRef.current.some(r => r.start <= prevStart && r.end >= prevEnd)) {
+          fetchTimelineRange(prevStart, prevEnd);
+        }
+      }
+    }, 300);
+  }, [currentFrame, projectId, getTotalFrames, fetchTimelineRange]);
+
+  // Reset fully loaded flag when project changes or seek far away
+  useEffect(() => {
+    if (projectId && timelineLoadedRangesRef.current.length === 0) {
+      timelineFullyLoadedRef.current = false;
+    }
+  }, [projectId]);
+
+  // --- Memory pruning: keep only points within ±TIMELINE_KEEP_WINDOW frames ---
+  useEffect(() => {
+    if (timelinePoints.length === 0) return;
+    const minKeep = currentFrame - TIMELINE_KEEP_WINDOW;
+    const maxKeep = currentFrame + TIMELINE_KEEP_WINDOW;
+    const filtered = timelinePoints.filter(p => p.frame >= minKeep && p.frame <= maxKeep);
+    if (filtered.length !== timelinePoints.length) {
+      console.log(`[TIMELINE] Pruned ${timelinePoints.length - filtered.length} points, keeping ±${TIMELINE_KEEP_WINDOW} frames`);
+      setTimelinePoints(filtered);
+    }
+  }, [currentFrame, timelinePoints]);
+
+  // Chart data: only points within display window (±TIMELINE_DISPLAY_WINDOW)
+  const filteredTimelinePoints = useMemo(() => {
+    const minFrame = currentFrame - TIMELINE_DISPLAY_WINDOW;
+    const maxFrame = currentFrame + TIMELINE_DISPLAY_WINDOW;
+    return timelinePoints.filter(p => p.frame >= minFrame && p.frame <= maxFrame);
+  }, [timelinePoints, currentFrame]);
+
+  const chartData = useMemo(() => {
+    const grouped = new Map<number, any>();
+    filteredTimelinePoints.forEach(p => {
+      if (!grouped.has(p.frame)) grouped.set(p.frame, { frame: p.frame });
+      const row = grouped.get(p.frame);
+      if (coordinateMode === "x" || coordinateMode === "xy") row[`obj_${p.objectId}_x`] = p.x;
+      if (coordinateMode === "y" || coordinateMode === "xy") row[`obj_${p.objectId}_y`] = p.y;
+    });
+    return Array.from(grouped.values()).sort((a, b) => a.frame - b.frame);
+  }, [filteredTimelinePoints, coordinateMode]);
+
+  const uniqueObjectIds = useMemo(() => {
+    return Array.from(new Set(filteredTimelinePoints.map(p => p.objectId)));
+  }, [filteredTimelinePoints]);
+
+  // Chart click handler
+  const handleChartClick = (data: any) => {
+    if (data && data.activePayload && data.activePayload[0]) {
+      const frame = data.activePayload[0].payload.frame;
+      const time = frame / stableFpsRef.current;
+      handleSeek(time);
+    }
+  };
+
+  // Tooltip formatter
+  const tooltipFormatter = useCallback((
+    value: any,
+    name: string | number | undefined,
+    props: any
+  ): [string, string] => {
+    if (name === undefined) return [String(value), ""];
+    const safeName = String(name);
+    const match = safeName.match(/obj_(\d+)(?:_(x|y))?/);
+    if (!match) return [String(value), safeName];
+    const objId = match[1];
+    const coordType = match[2] || (coordinateMode === "x" ? "x" : coordinateMode === "y" ? "y" : null);
+    if (coordType === "x") return [`X: ${Number(value).toFixed(2)}`, `Object ${objId}`];
+    if (coordType === "y") return [`Y: ${Number(value).toFixed(2)}`, `Object ${objId}`];
+    return [Number(value).toFixed(2), `Object ${objId}`];
+  }, [coordinateMode]);
+
+  // --- Annotation helper functions (unchanged, kept from original) ---
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
     if (loadedRangesKeyRef.current.has(key)) return true;
@@ -265,6 +483,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
+  // --- Trajectory management (unchanged) ---
   useEffect(() => {
     if (!mounted) return;
     if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
@@ -279,8 +498,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   }, [mounted]);
   
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
-    const MAX_TRAJ_SECONDS = 30;
-    const MAX_TRAJ_FRAMES = MAX_TRAJ_SECONDS * stableFpsRef.current;
+    const MAX_TRAJ_FRAMES = MAX_TRAJECTORY_SECONDS * stableFpsRef.current;
     const currentFrameNum = currentDisplayFrameRef.current;
     const cutoff = Math.max(0, currentFrameNum - MAX_TRAJ_FRAMES);
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
@@ -309,6 +527,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
   
+  // --- Zoom and pan handlers (unchanged) ---
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -365,54 +584,34 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleZoomOut = () => { const ns = Math.max(stageScale.x / 1.1, 1); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
   const handleResetZoom = () => { setStageScale({x:1,y:1}); setStagePos({x:0,y:0}); setCurrentZoom(1); setCursorStyle("grab"); };
 
-  // Auto-pan function - keeps selected object in view when zoomed in
+  // --- Auto-pan to selected object (unchanged) ---
   const panToSelectedObject = useCallback(() => {
-    // Only pan if: auto-pan enabled, exactly 1 object selected, zoomed in enough, and not currently dragging
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
-
     const selectedObjectId = selectedObjects[0]?.object_id;
     if (!selectedObjectId) return;
-
-    // Get current annotation for selected object
     const currentAnnotation = Array.from(annotationMap.values()).find(
       anno => anno.object_id === selectedObjectId && anno.frame_id === currentFrame
     );
-
     if (!currentAnnotation?.coordinates?.length) return;
-
-    // Prevent excessive panning on same frame
     if (lastPanFrameRef.current === currentFrame) return;
     lastPanFrameRef.current = currentFrame;
-
-    // Get object center in original coordinates
     const objX = currentAnnotation.coordinates[0][0];
     const objY = currentAnnotation.coordinates[0][1];
-
-    // Convert to stage coordinates
     const stageObjX = mapX(objX);
     const stageObjY = mapY(objY);
-
-    // Get current stage position and scale
     const stage = stageRef.current;
     const currentStageX = stage.x();
     const currentStageY = stage.y();
     const currentScale = stage.scaleX();
-
-    // Calculate visible viewport bounds
-    const margin = 80; // pixels margin before panning
+    const margin = 80;
     const marginInStage = margin / currentScale;
-
     const viewportLeft = -currentStageX / currentScale;
     const viewportRight = (STAGE_WIDTH - currentStageX) / currentScale;
     const viewportTop = -currentStageY / currentScale;
     const viewportBottom = (STAGE_HEIGHT - currentStageY) / currentScale;
-
     let needsPan = false;
-    let targetOffsetX = 0;
-    let targetOffsetY = 0;
-
-    // Check if object is near or outside viewport edges
+    let targetOffsetX = 0, targetOffsetY = 0;
     if (stageObjX < viewportLeft + marginInStage) {
       targetOffsetX = (stageObjX - (viewportLeft + marginInStage)) * currentScale;
       needsPan = true;
@@ -420,7 +619,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       targetOffsetX = (stageObjX - (viewportRight - marginInStage)) * currentScale;
       needsPan = true;
     }
-
     if (stageObjY < viewportTop + marginInStage) {
       targetOffsetY = (stageObjY - (viewportTop + marginInStage)) * currentScale;
       needsPan = true;
@@ -428,50 +626,39 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       targetOffsetY = (stageObjY - (viewportBottom - marginInStage)) * currentScale;
       needsPan = true;
     }
-
     if (needsPan) {
-      setStagePos({
-        x: currentStageX - targetOffsetX,
-        y: currentStageY - targetOffsetY
-      });
+      setStagePos({ x: currentStageX - targetOffsetX, y: currentStageY - targetOffsetY });
     }
   }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video]);
 
-  // Auto-pan on frame updates during playback
   useEffect(() => {
     if (!video || !mounted) return;
-    
     const handleTimeUpdate = () => {
-      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
-        panToSelectedObject();
-      }
+      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
     };
-    
     video.addEventListener('timeupdate', handleTimeUpdate);
     return () => video.removeEventListener('timeupdate', handleTimeUpdate);
   }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
-  // Auto-pan when zoom changes
   useEffect(() => {
     if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
       setTimeout(() => panToSelectedObject(), 50);
     }
   }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
 
-  // Auto-pan when annotations are loaded
   useEffect(() => {
     if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
       panToSelectedObject();
     }
   }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
-  // Auto-pan when frame changes via seeking
   useEffect(() => {
     if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
       panToSelectedObject();
     }
   }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
+  // --- Annotation fetching mutation (unchanged) ---
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
@@ -509,13 +696,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
       const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
-      
-      // Only hide loader if this isn't a frame step sequence
-      if (!isFrameStepSequenceRef.current) {
-        setIsLoadingAnnotations(false);
-      }
+      if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      
       if (!initialLoadComplete && video && video.paused && mounted) {
         setInitialLoadComplete(true);
         setTimeout(() => {
@@ -526,11 +708,59 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     onError: (_, { start, end }) => {
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
-      if (!isFrameStepSequenceRef.current) {
-        setIsLoadingAnnotations(false);
-      }
+      if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
     },
   });
+
+  // --- Clean up old annotations (sliding window) ---
+  useEffect(() => {
+    if (!mounted || annotationMap.size === 0) return;
+    const maxFrames = MAX_ANNOTATION_WINDOW_SECONDS * stableFpsRef.current;
+    const minFrame = currentFrame - maxFrames;
+    const maxFrame = currentFrame + maxFrames;
+    let removedCount = 0;
+    const newMap = new Map(annotationMap);
+    for (const [key, anno] of annotationMap.entries()) {
+      if (anno.frame_id < minFrame || anno.frame_id > maxFrame) {
+        newMap.delete(key);
+        removedCount++;
+      }
+    }
+    if (removedCount > 0) {
+      console.log(`[MEMORY] Pruned ${removedCount} old annotations (frame ${currentFrame})`);
+      setAnnotationMap(newMap);
+    }
+  }, [currentFrame, annotationMap, mounted]);
+
+  // --- Clean up old trajectory points ---
+  useEffect(() => {
+    if (!mounted) return;
+    const maxTrajFrames = MAX_TRAJECTORY_SECONDS * stableFpsRef.current;
+    const cutoffFrame = Math.max(0, currentFrame - maxTrajFrames);
+    let prunedAny = false;
+
+    const originalLength = persistentTrajectoryRef.current.length;
+    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame);
+    if (persistentTrajectoryRef.current.length !== originalLength) prunedAny = true;
+
+    for (const [objId, frameMap] of trajectoriesRef.current.entries()) {
+      for (const frameId of frameMap.keys()) {
+        if (frameId < cutoffFrame) {
+          frameMap.delete(frameId);
+          prunedAny = true;
+        }
+      }
+      if (frameMap.size === 0) {
+        trajectoriesRef.current.delete(objId);
+      }
+    }
+
+    if (prunedAny) {
+      setTrajectoryMap(new Map(trajectoriesRef.current));
+      setTrajectoryPointCount(persistentTrajectoryRef.current.length);
+      console.log(`[MEMORY] Pruned trajectory points older than frame ${cutoffFrame}`);
+    }
+  }, [currentFrame, mounted]);
 
   const objectMutation = useMutation({ mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) });
   const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
@@ -574,37 +804,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
-  // Handle frame step with proper flag management
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
     if (!video) return;
-    
-    // Clear any existing timer
-    if (frameStepTimerRef.current) {
-      clearTimeout(frameStepTimerRef.current);
-    }
-    
-    // Set flag to prevent loader for this frame step and next few ms
+    if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
     isFrameStepRef.current = true;
     isFrameStepSequenceRef.current = true;
-    
-    // Auto-reset after 500ms of no frame steps
     frameStepTimerRef.current = setTimeout(() => {
       isFrameStepRef.current = false;
       isFrameStepSequenceRef.current = false;
     }, 500);
-    
     const currentFps = stableFpsRef.current;
-    
-    let currentFrameNum: number;
-    if (baseFrame !== undefined) {
-      currentFrameNum = baseFrame;
-      console.log(`[STEP DEBUG] Using provided base frame: ${baseFrame}`);
-    } else {
-      currentFrameNum = currentDisplayFrameRef.current;
-      console.log(`[STEP DEBUG] Using ref frame: ${currentFrameNum}`);
-    }
-    
-    // BLOCK: If currently seeking, queue this request
+    let currentFrameNum = baseFrame !== undefined ? baseFrame : currentDisplayFrameRef.current;
     if (isSeekingRef.current) {
       console.log(`[STEP BLOCKED] Currently seeking, queuing step ${step}`);
       setPendingFrameVisual(currentFrameNum + step);
@@ -612,48 +822,31 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       pendingFrameRef.current = currentFrameNum + step;
       return;
     }
-    
     const totalFrames = Math.floor(video.duration * currentFps);
     let newFrame = currentFrameNum + step;
-    
     newFrame = Math.min(Math.max(newFrame, 0), totalFrames);
-    
     if (newFrame === currentFrameNum) {
-      console.log(`[STEP DEBUG] At boundary, cannot step`);
       isFrameStepRef.current = false;
       isFrameStepSequenceRef.current = false;
       return;
     }
-    
     const newTime = newFrame / currentFps;
-    
     console.log(`[STEP DEBUG] Seek initiated to frame ${newFrame}`);
-    
-    // LOCK: Set seeking flag to block new requests
     isSeekingRef.current = true;
-    
-    // Clear any pending frame
     pendingFrameRef.current = null;
-    
     currentDisplayFrameRef.current = newFrame;
     setCurrentFrame(newFrame);
-    
     video.currentTime = newTime;
-    
     setCurrentTime(newTime);
     setSelectedFrameIndex(newFrame);
     sessionStorage.setItem("frameId", newFrame.toString());
-    
-    // Force hide loader for frame steps
     setIsLoadingAnnotations(false);
     setAnnotationsReady(true);
-    
   }, [video]);
 
+  // --- Optimized handleSeek with far seek detection and memory clearing ---
   const handleSeek = async (time: number) => {
     if (!video) return;
-    
-    // BLOCK: If currently seeking, queue this request
     if (isSeekingRef.current) {
       console.log(`[SEEK BLOCKED] Currently seeking, queuing time ${time}`);
       const targetFrame = Math.round(time * stableFpsRef.current);
@@ -662,25 +855,34 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       pendingFrameRef.current = targetFrame;
       return;
     }
-    
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const targetFrame = Math.round(safeTime * stableFpsRef.current);
-    
-    // Prevent duplicate seeks to the same frame
     if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) {
       console.log(`[SEEK DEBUG] ⏭️ Skipping duplicate seek to frame ${targetFrame}`);
       return;
     }
-    
     lastSeekFrameRef.current = targetFrame;
     lastSeekTimeRef.current = safeTime;
-    
     console.log(`[SEEK DEBUG] Seeking to frame ${targetFrame}`);
-    
-    // LOCK: Set seeking flag to block new requests
     isSeekingRef.current = true;
     pendingFrameRef.current = null;
-    
+
+    // Check if target frame is far from currently loaded annotation ranges
+    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && targetFrame <= range.end);
+    if (!isWithinLoadedRange) {
+      console.log(`[SEEK] Target frame ${targetFrame} outside loaded ranges, clearing old data.`);
+      setAnnotationMap(new Map());
+      persistentTrajectoryRef.current = [];
+      trajectoriesRef.current = new Map();
+      setTrajectoryMap(new Map());
+      setTrajectoryPointCount(0);
+      clearLoadedRanges();
+      // Also reset timeline fully loaded flag when seeking far
+      timelineFullyLoadedRef.current = false;
+      timelineLoadedRangesRef.current = [];
+      setTimelinePoints([]);
+    }
+
     if (isFrameLoaded(targetFrame)) {
       video.pause();
       setIsPlaying(false);
@@ -690,12 +892,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setSelectedFrameIndex(targetFrame);
       currentDisplayFrameRef.current = targetFrame;
       setCurrentFrame(targetFrame);
-      // Hide loader for loaded frames
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
+      isSeekingRef.current = false;
       return;
     }
-    
+
     video.pause();
     setIsPlaying(false);
     video.currentTime = safeTime;
@@ -706,22 +908,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setCurrentFrame(targetFrame);
     clearLoadedRanges();
     setAnnotationsReady(false);
-    
-    // Only show loader if this is NOT a frame step sequence
-    if (!isFrameStepSequenceRef.current) {
-      setIsLoadingAnnotations(true);
-    }
-    
+    if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
     const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
     const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const TRAJECTORY_BUFFER = stableFpsRef.current * 30; // 30 sec history time
-
+    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
     const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
-    const windowEnd = Math.min(
-      targetFrame + windowFrames + TRAJECTORY_BUFFER,
-      totalFrames
-    );
-    
+    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     } else {
@@ -733,13 +925,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleSliderChange = (val: number[]) => {
     setDragTime(val[0]);
     if (video && !video.paused) { video.pause(); setIsPlaying(false); }
-    
-    if (sliderTimeoutRef.current) {
-      clearTimeout(sliderTimeoutRef.current);
-    }
-    
+    if (sliderTimeoutRef.current) clearTimeout(sliderTimeoutRef.current);
     sliderTimeoutRef.current = setTimeout(() => {
-      // Only show loader if not in frame step sequence
       if (!isFrameStepSequenceRef.current) {
         setAnnotationsReady(false);
         setIsLoadingAnnotations(true);
@@ -764,10 +951,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // VIDEO INITIALIZATION
+  // --- VIDEO INITIALIZATION (unchanged) ---
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
-    
     const loadVideo = async () => {
       const pid = sessionStorage.getItem("projectId");
       if (!pid) return;
@@ -778,52 +964,34 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         vid.loop = true;
         vid.muted = true;
         vid.playsInline = true;
-        
         const lockedFps = stableFpsRef.current;
-        
         const handleSeeked = () => {
           const actualTime = vid.currentTime;
           const actualFrame = Math.round(actualTime * lockedFps);
           const targetFrame = pendingFrameRef.current;
-          
           console.log(`[SEEKED] Target: ${targetFrame}, Actual: ${actualFrame}`);
-          
           if (targetFrame !== null && actualFrame !== targetFrame) {
             console.log(`[SEEKED] ❌ MISMATCH! Retrying...`);
             vid.currentTime = targetFrame / lockedFps;
             return;
           }
-          
-          // UNLOCK: Release the lock so new seeks can happen
           isSeekingRef.current = false;
-          
           currentDisplayFrameRef.current = actualFrame;
           setCurrentFrame(actualFrame);
           setCurrentTime(vid.currentTime);
           setSelectedFrameIndex(actualFrame);
-          
-          if (layerRef.current) {
-            layerRef.current.batchDraw();
-          }
-          
+          if (layerRef.current) layerRef.current.batchDraw();
           if (!isFrameLoaded(actualFrame)) {
             const windowFrames = Math.round(ANNO_WINDOW_SECONDS * lockedFps);
             const totalFrames = Math.floor(vid.duration * lockedFps);
             const windowStart = Math.max(0, actualFrame - 50);
             const windowEnd = Math.min(actualFrame + windowFrames, totalFrames);
-            
-            // Only show loader if NOT in frame step sequence
-            if (!isFrameStepSequenceRef.current) {
-              setIsLoadingAnnotations(true);
-            }
+            if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
             chunkMutation.mutate({ start: windowStart, end: windowEnd });
           } else {
             setAnnotationsReady(true);
-            // Always hide loader when frame is loaded
             setIsLoadingAnnotations(false);
           }
-          
-          // Check if there's a pending frame queued
           if (pendingFrameRef.current !== null) {
             const queuedFrame = pendingFrameRef.current;
             pendingFrameRef.current = null;
@@ -834,9 +1002,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             }, 10);
           }
         };
-        
         vid.addEventListener('seeked', handleSeeked);
-        
         vid.onloadedmetadata = async () => {
           console.log(`[VIDEO] Loaded - Duration: ${vid.duration}s, FPS: ${lockedFps}`);
           setIsLoadingAnnotations(true);
@@ -887,7 +1053,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => { if(video && mounted) video.playbackRate = playbackRate; }, [video, playbackRate, mounted]);
   useEffect(() => { if(!video || !layerRef.current || !mounted) return; let id: number; const update = () => { layerRef.current?.batchDraw(); id = requestAnimationFrame(update); }; update(); return () => cancelAnimationFrame(id); }, [video, mounted]);
 
-  // Timeupdate event
   useEffect(() => {
     if (!video || !mounted) return;
     const vid = video;
@@ -896,7 +1061,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       currentDisplayFrameRef.current = newFrame;
       setCurrentFrame(newFrame);
       setCurrentTime(vid.currentTime);
-      
       const now = performance.now();
       if (isPlaying && now - lastAnnoLoadTs.current > ANNO_THROTTLE_MS) {
         if (currentAnnoWindowRef.current) {
@@ -943,12 +1107,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
-        case "Slash":e.preventDefault(); setShowShortcutModal(prev => !prev);break;
+        case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled]);
+
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
       <div className="flex flex-col gap-2 w-full h-full">
@@ -985,7 +1150,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
             </div>
             
-            {/* Show loader only when loading annotations and not in frame step sequence */}
             {isLoadingAnnotations && !isFrameStepSequenceRef.current && (
               <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
                 <div className="text-center">
@@ -1048,7 +1212,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   const ys = a.coordinates.map(([,y])=>mapY(y));
                   const minX = Math.min(...xs), minY = Math.min(...ys), maxX = Math.max(...xs), maxY = Math.max(...ys);
                   const boxWidth = maxX-minX, boxHeight = maxY-minY;
-                  
                   return (
                     <Group 
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
@@ -1076,7 +1239,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                               is_inside: meta.data.is_inside 
                             }]); 
                             toast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 });
-                            // Auto-pan to newly selected object if zoomed in
                             if (autoPanEnabled && currentZoom > 1.1) {
                               setTimeout(() => panToSelectedObject(), 100);
                             }
@@ -1160,33 +1322,116 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
                 </Button>
               )}
-             <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setShowUniqueModal(prev => !prev)}
-              className="bg-gradient-to-r from-green-500 to-green-600 text-white 
-                        hover:from-green-600 hover:to-green-700 
-                        shadow-md hover:shadow-lg 
-                        transition-all duration-200 rounded-full"
-            >
-              i
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setShowShortcutModal(true)}
-              className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white 
-                        hover:from-blue-600 hover:to-indigo-700 
-                        shadow-md hover:shadow-lg 
-                        transition-all duration-200 rounded-full"
-            >
-              ?
-            </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setShowUniqueModal(prev => !prev)}
+                className="bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+              >
+                i
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setShowShortcutModal(true)}
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+              >
+                ?
+              </Button>
             </div>
             <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
               Frame: {currentFrame}
             </div>
           </div>
+          
+          {/* Timeline Chart with overlapping prefetch and end detection */}
+          <div className="px-2 py-1 bg-gray-900 rounded-md mt-1">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs text-gray-300">Object Coordinates Timeline (±{TIMELINE_DISPLAY_WINDOW} frames)</span>
+              <div className="flex gap-2">
+                <select
+                  value={coordinateMode}
+                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy")}
+                  className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="x">X Axis</option>
+                  <option value="y">Y Axis</option>
+                  <option value="xy">X + Y</option>
+                </select>
+              </div>
+            </div>
+            <div className="overflow-x-auto" style={{ maxWidth: '100%' }}>
+              <div style={{ minWidth: '800px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart
+                    data={chartData}
+                    margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                    onClick={handleChartClick}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                    <XAxis
+                      dataKey="frame"
+                      type="number"
+                      domain={[currentFrame - TIMELINE_DISPLAY_WINDOW, currentFrame + TIMELINE_DISPLAY_WINDOW]}
+                      tick={{ fill: '#ccc', fontSize: 10 }}
+                      tickFormatter={(frame) => frame.toString()}
+                      label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
+                    />
+                    <YAxis
+                      domain={['auto', 'auto']}
+                      tick={{ fill: '#ccc', fontSize: 10 }}
+                      label={{
+                        value: coordinateMode === 'x' ? 'X Coordinate' : coordinateMode === 'y' ? 'Y Coordinate' : 'X / Y',
+                        angle: -90,
+                        position: 'insideLeft',
+                        fill: '#aaa',
+                        fontSize: 10,
+                      }}
+                    />
+                    <Tooltip formatter={tooltipFormatter} labelFormatter={(label) => `Frame: ${label}`} />
+                    <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={1} label={{ value: '▶', position: 'top', fill: '#ff3333', fontSize: 12 }} />
+                    {uniqueObjectIds.map((objectId) => {
+                      const color = getObjectColor(objectId);
+                      const lines = [];
+                      if (coordinateMode === 'x' || coordinateMode === 'xy') {
+                        lines.push(
+                          <RechartsLine
+                            key={`${objectId}-x`}
+                            type="linear"
+                            dataKey={`obj_${objectId}_x`}
+                            stroke={color}
+                            strokeWidth={1}
+                            dot={false}
+                            activeDot={false}
+                            isAnimationActive={false}
+                            connectNulls
+                          />
+                        );
+                      }
+                      if (coordinateMode === 'y' || coordinateMode === 'xy') {
+                        lines.push(
+                          <RechartsLine
+                            key={`${objectId}-y`}
+                            type="linear"
+                            dataKey={`obj_${objectId}_y`}
+                            stroke={color}
+                            strokeWidth={1}
+                            strokeDasharray={coordinateMode === 'xy' ? '4 3' : undefined}
+                            dot={false}
+                            activeDot={false}
+                            isAnimationActive={false}
+                            connectNulls
+                          />
+                        );
+                      }
+                      return lines;
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+          
           <Separator />
           <div className="flex flex-col pt-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1284,59 +1529,30 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       </div>
       {showShortcutModal && (
         <div className="fixed inset-0 z-50 flex justify-end items-center">
-          
-          {/* Overlay */}
           <div 
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowShortcutModal(false)}
           />
-
-          {/* Right Side Popup */}
-          <div className="
-            relative
-            w-[400px]
-            max-h-[80vh]
-            mr-4
-            bg-white
-            rounded-xl
-            shadow-xl
-            flex flex-col
-            animate-slide-in
-          ">
-            
-            {/* HEADER */}
+          <div className="relative w-[400px] max-h-[80vh] mr-4 bg-white rounded-xl shadow-xl flex flex-col animate-slide-in">
             <div className="flex justify-between items-center p-3 border-b">
               <p className="font-semibold text-sm">Keyboard Shortcuts</p>
-              <Button size="sm" onClick={() => setShowShortcutModal(false)}>
-                Close
-              </Button>
+              <Button size="sm" onClick={() => setShowShortcutModal(false)}>Close</Button>
             </div>
-
-            {/* CONTENT */}
             <div className="overflow-y-auto p-3 space-y-4">
               {shortcuts.map((group, i) => (
                 <div key={i}>
-                  <p className="text-xs font-semibold text-gray-500 mb-2">
-                    {group.category}
-                  </p>
-
+                  <p className="text-xs font-semibold text-gray-500 mb-2">{group.category}</p>
                   <div className="space-y-1">
                     {group.items.map((item, j) => (
-                      <div
-                        key={j}
-                        className="flex justify-between px-3 py-2 bg-gray-50 rounded"
-                      >
+                      <div key={j} className="flex justify-between px-3 py-2 bg-gray-50 rounded">
                         <span className="text-sm">{item.action}</span>
-                        <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">
-                          {item.key}
-                        </span>
+                        <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">{item.key}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
-
           </div>
         </div>
       )}
@@ -1347,50 +1563,26 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         projectName={projectName}
         videoName={videoName}
         trkFileName={trkFileName}
-
         onSelectObject={(id, frame) => {
           if (!video || !projectId) return;
-
           handleFrameJump(frame);
-
           objectMutation.mutate(
-            {
-              projectId,
-              objectId: id,
-              frameId: frame,
-            },
+            { projectId, objectId: id, frameId: frame },
             {
               onSuccess: (meta) => {
-                // ✅ SINGLE SELECTION ONLY
                 setSelectedObjects((prev) => {
-                  // 🔁 toggle
                   if (prev.some(obj => obj.object_id === id)) {
                     return prev.filter(obj => obj.object_id !== id);
                   }
-
-                  // max 2
                   if (prev.length === 2) {
                     return [
                       prev[0],
-                      {
-                        object_id: id,
-                        frame_id: frame,
-                        start_frame: meta.data.start_frame,
-                        end_frame: meta.data.end_frame,
-                        is_inside: meta.data.is_inside,
-                      },
+                      { object_id: id, frame_id: frame, start_frame: meta.data.start_frame, end_frame: meta.data.end_frame, is_inside: meta.data.is_inside },
                     ];
                   }
-
                   return [
                     ...prev,
-                    {
-                      object_id: id,
-                      frame_id: frame,
-                      start_frame: meta.data.start_frame,
-                      end_frame: meta.data.end_frame,
-                      is_inside: meta.data.is_inside,
-                    },
+                    { object_id: id, frame_id: frame, start_frame: meta.data.start_frame, end_frame: meta.data.end_frame, is_inside: meta.data.is_inside },
                   ];
                 });
               },
