@@ -24,6 +24,7 @@ import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { exportTrk } from "@/lib/api/exportTrk";
 import { Frame, Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import UniqueIdsModal from "@/components/dashboard/UniqueIdsModal";
+import ConfusionTableModal from "@/components/dashboard/ConfusionTableModal";
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
@@ -148,6 +149,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       items: [
         { action: "Open ID Table", key: "M" },
         { action: "Open Shortcuts", key: "?" },
+        { action: "Open Confusion Table", key: "C"},
       ],
     },
   ];
@@ -169,6 +171,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return Math.round((stableFpsRef.current / 100) * ANNO_WINDOW_SECONDS * stableFpsRef.current);
   }, []);
   const [showUniqueModal, setShowUniqueModal] = useState(false);
+  const [showConfusionModal, setShowConfusionModal ] = useState(false);
   const projectName = sessionStorage.getItem("project_name") || undefined;
   const videoName = sessionStorage.getItem("video_name") || undefined;
   const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
@@ -944,6 +947,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
         case "Slash":e.preventDefault(); setShowShortcutModal(prev => !prev);break;
+        case "KeyC": e.preventDefault(); setShowConfusionModal( prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
@@ -1182,6 +1186,19 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             >
               ?
             </Button>
+            <Button
+                size="icon"
+                variant="ghost"
+
+                 onClick={() =>setShowConfusionModal( prev => !prev )}
+
+                className="bg-gradient-to-r from-red-500 to-red-600 text-white
+                  hover:from-red-600 hover:to-red-700
+                  shadow-md hover:shadow-lg
+                  transition-all duration-200 rounded-full "
+              >
+                C
+              </Button>
             </div>
             <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
               Frame: {currentFrame}
@@ -1398,6 +1415,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           );
         }}
       />
+      <ConfusionTableModal
+
+        open={showConfusionModal}
+
+        onClose={() =>
+          setShowConfusionModal(false)
+        }
+
+        projectId={projectId}
+
+        currentFrame={currentFrame}
+
+        handleFrameJump={
+          handleFrameJump
+        }
+        />
     </>
   );
 }
