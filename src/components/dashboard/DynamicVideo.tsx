@@ -28,6 +28,7 @@ import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
+import ConfusionTableModal from "@/components/dashboard/ConfusionTableModal";
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
@@ -148,29 +149,42 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [showShortcutModal, setShowShortcutModal] = useState(false);
   
   const shortcuts = [
-    { category: "Playback", items: [
-      { action: "Play / Pause", key: "Space / P" },
-      { action: "Next Frame", key: "→" },
-      { action: "Previous Frame", key: "←" },
-      { action: "Skip +5 sec", key: "L" },
-      { action: "Skip -5 sec", key: "J" },
-    ] },
-    { category: "Navigation", items: [
-      { action: "Jump +10 frames", key: "↑" },
-      { action: "Jump -10 frames", key: "↓" },
-      { action: "Go to Start", key: "S" },
-      { action: "Go to End", key: "E" },
-    ] },
-    { category: "View", items: [
-      { action: "Zoom In", key: "=" },
-      { action: "Zoom Out", key: "-" },
-      { action: "Toggle Trajectory", key: "T" },
-      { action: "Auto Pan", key: "A" },
-    ] },
-    { category: "Panels", items: [
-      { action: "Open ID Table", key: "M" },
-      { action: "Open Shortcuts", key: "?" },
-    ] },
+    {
+      category: "Playback",
+      items: [
+        { action: "Play / Pause", key: "Space / P" },
+        { action: "Next Frame", key: "→" },
+        { action: "Previous Frame", key: "←" },
+        { action: "Skip +5 sec", key: "L" },
+        { action: "Skip -5 sec", key: "J" },
+      ],
+    },
+    {
+      category: "Navigation",
+      items: [
+        { action: "Jump +10 frames", key: "↑" },
+        { action: "Jump -10 frames", key: "↓" },
+        { action: "Go to Start", key: "S" },
+        { action: "Go to End", key: "E" },
+      ],
+    },
+    {
+      category: "View",
+      items: [
+        { action: "Zoom In", key: "=" },
+        { action: "Zoom Out", key: "-" },
+        { action: "Toggle Trajectory", key: "T" },
+        { action: "Auto Pan", key: "A" },
+      ],
+    },
+    {
+      category: "Panels",
+      items: [
+        { action: "Open ID Table", key: "M" },
+        { action: "Open Shortcuts", key: "?" },
+        { action: "Open Confusion Table", key: "C"},
+      ],
+    },
   ];
   const OBJECT_COLORS = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
 
@@ -178,6 +192,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return Math.round((stableFpsRef.current / 100) * ANNO_WINDOW_SECONDS * stableFpsRef.current);
   }, []);
   const [showUniqueModal, setShowUniqueModal] = useState(false);
+  const [showConfusionModal, setShowConfusionModal ] = useState(false);
   const projectName = sessionStorage.getItem("project_name") || undefined;
   const videoName = sessionStorage.getItem("video_name") || undefined;
   const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
@@ -1349,7 +1364,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
-        case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
+        case "Slash":e.preventDefault(); setShowShortcutModal(prev => !prev);break;
+        case "KeyC": e.preventDefault(); setShowConfusionModal( prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
@@ -1564,21 +1580,40 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
                 </Button>
               )}
-              <Button
+             <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowUniqueModal(prev => !prev)}
+              className="bg-gradient-to-r from-green-500 to-green-600 text-white 
+                        hover:from-green-600 hover:to-green-700 
+                        shadow-md hover:shadow-lg 
+                        transition-all duration-200 rounded-full"
+            >
+              i
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowShortcutModal(true)}
+              className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white 
+                        hover:from-blue-600 hover:to-indigo-700 
+                        shadow-md hover:shadow-lg 
+                        transition-all duration-200 rounded-full"
+            >
+              ?
+            </Button>
+            <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setShowUniqueModal(prev => !prev)}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+
+                 onClick={() =>setShowConfusionModal( prev => !prev )}
+
+                className="bg-gradient-to-r from-red-500 to-red-600 text-white
+                  hover:from-red-600 hover:to-red-700
+                  shadow-md hover:shadow-lg
+                  transition-all duration-200 rounded-full "
               >
-                i
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setShowShortcutModal(true)}
-                className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
-              >
-                ?
+                C
               </Button>
             </div>
             <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
@@ -1872,6 +1907,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           );
         }}
       />
+      <ConfusionTableModal
+
+        open={showConfusionModal}
+
+        onClose={() =>
+          setShowConfusionModal(false)
+        }
+
+        projectId={projectId}
+
+        currentFrame={currentFrame}
+
+        handleFrameJump={
+          handleFrameJump
+        }
+        />
     </>
   );
 }
