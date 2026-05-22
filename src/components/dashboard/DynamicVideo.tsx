@@ -1632,7 +1632,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   size="sm"
                   variant="ghost"
                   onClick={shiftTimelineLeft}
-                  className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700"
+                  className="text-xs px-2 py-1 bg-white text-black hover:bg-gray-100"
                   disabled={timelineOffset === 0}
                 >
                   ←
@@ -1649,7 +1649,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   size="sm"
                   variant="ghost"
                   onClick={shiftTimelineRight}
-                  className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700"
+                  className="text-xs px-2 py-1 bg-white text-black hover:bg-gray-100"
                   disabled={timelineOffset + TIMELINE_DISPLAY_WINDOW >= timelineDomain[1]}
                 >
                   →
