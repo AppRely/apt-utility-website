@@ -90,24 +90,37 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const pendingRangesRef = useRef<Set<string>>(new Set());
   const loadedRangesKeyRef = useRef<Set<string>>(new Set());
 
-  // --- Timeline state with overlapping prefetch ---
+  // --- Timeline state with robust prefetch ---
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
   
   // Track loaded ranges for timeline
   const timelineLoadedRangesRef = useRef<{ start: number; end: number }[]>([]);
   const timelinePendingRef = useRef<Set<string>>(new Set());
-  const timelineAbortRef = useRef<AbortController | null>(null);
   const timelineDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const timelineFullyLoadedRef = useRef<boolean>(false); // Stop fetching when fully loaded
+
+  // New timeline drag state
+  const [timelineOffset, setTimelineOffset] = useState(0);
+  const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
+  const [timelineDragStart, setTimelineDragStart] = useState({ x: 0, offset: 0 });
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineDomain, setTimelineDomain] = useState<[number, number]>([0, 0]);
+  
+  // Ref to track if user is currently interacting with timeline (to disable auto-center)
+// Ref to track if user is currently interacting with timeline (to disable auto-center)
+  const userInteractingRef = useRef(false);
+  const interactionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // --- NEW: Chart dragging state ---
+  const [isChartDragging, setIsChartDragging] = useState(false);
+  const chartSvgRef = useRef<SVGSVGElement | null>(null);
 
   // Timeline constants
-  const TIMELINE_FETCH_WINDOW = 450;      // frames per fetch
-  const TIMELINE_STEP = 225;              // step for overlapping (half of fetch window)
-  const TIMELINE_DISPLAY_WINDOW = 300;    // show ±300 frames
-  const TIMELINE_PREFETCH_THRESHOLD = 150; // trigger new fetch when 150 frames from edge
-  const TIMELINE_KEEP_WINDOW = 250;       // keep only last 250 frames before current
-  const MIN_FRAMES_TO_FETCH = 50;         // if remaining frames less than this, fetch only up to end
+  const TIMELINE_FETCH_WINDOW = 450;       // frames per fetch
+  const TIMELINE_OVERLAP = 150;            // overlap between consecutive fetches
+  const TIMELINE_DISPLAY_WINDOW = 300;     // show ±300 frames
+  const TIMELINE_PREFETCH_THRESHOLD = 300; // trigger new fetch when within 300 frames of edge
+  const TIMELINE_KEEP_WINDOW = 1200;        // keep only last 1200 frames before current
 
   // Memory management constants
   const MAX_ANNOTATION_WINDOW_SECONDS = 120;
@@ -175,7 +188,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
       if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
       if (timelineDebounceRef.current) clearTimeout(timelineDebounceRef.current);
-      if (timelineAbortRef.current) timelineAbortRef.current.abort();
+      if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
     };
   }, []);
 
@@ -215,6 +228,240 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (duration <= 0 || stableFpsRef.current <= 0) return 0;
     return Math.floor(duration * stableFpsRef.current);
   }, [duration]);
+  // --- Optimized handleSeek with far seek detection and memory clearing ---
+  const handleSeek = async (time: number) => {
+    if (!video) return;
+    if (isSeekingRef.current) {
+      console.log(`[SEEK BLOCKED] Currently seeking, queuing time ${time}`);
+      const targetFrame = Math.round(time * stableFpsRef.current);
+      setPendingFrameVisual(targetFrame);
+      setTimeout(() => setPendingFrameVisual(null), 500);
+      pendingFrameRef.current = targetFrame;
+      return;
+    }
+    const safeTime = Math.min(Math.max(time, 0), video.duration);
+    const targetFrame = Math.round(safeTime * stableFpsRef.current);
+    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) {
+      console.log(`[SEEK DEBUG] ⏭️ Skipping duplicate seek to frame ${targetFrame}`);
+      return;
+    }
+    lastSeekFrameRef.current = targetFrame;
+    lastSeekTimeRef.current = safeTime;
+    console.log(`[SEEK DEBUG] Seeking to frame ${targetFrame}`);
+    isSeekingRef.current = true;
+    pendingFrameRef.current = null;
+
+    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && targetFrame <= range.end);
+    if (!isWithinLoadedRange) {
+      console.log(`[SEEK] Target frame ${targetFrame} outside loaded ranges, clearing old data.`);
+      setAnnotationMap(new Map());
+      persistentTrajectoryRef.current = [];
+      trajectoriesRef.current = new Map();
+      setTrajectoryMap(new Map());
+      setTrajectoryPointCount(0);
+      clearLoadedRanges();
+      resetTimelineForFarSeek();
+    }
+
+    if (isFrameLoaded(targetFrame)) {
+      video.pause();
+      setIsPlaying(false);
+      video.currentTime = safeTime;
+      setCurrentTime(safeTime);
+      setDragTime(null);
+      setSelectedFrameIndex(targetFrame);
+      currentDisplayFrameRef.current = targetFrame;
+      setCurrentFrame(targetFrame);
+      setIsLoadingAnnotations(false);
+      setAnnotationsReady(true);
+      isSeekingRef.current = false;
+      return;
+    }
+
+    video.pause();
+    setIsPlaying(false);
+    video.currentTime = safeTime;
+    setCurrentTime(safeTime);
+    setDragTime(null);
+    setSelectedFrameIndex(targetFrame);
+    currentDisplayFrameRef.current = targetFrame;
+    setCurrentFrame(targetFrame);
+    clearLoadedRanges();
+    setAnnotationsReady(false);
+    if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
+    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
+    const totalFrames = Math.floor(video.duration * stableFpsRef.current);
+    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
+    const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
+    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
+    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    } else {
+      setIsLoadingAnnotations(false);
+    }
+    nextPrefetchFrameRef.current = null;
+  };
+  // Initialize timeline domain
+  useEffect(() => {
+    if (video && duration > 0) {
+      const totalFrames = getTotalFrames();
+      setTimelineDomain([0, totalFrames]);
+    }
+  }, [duration, video, getTotalFrames]);
+
+  // --- NEW: Seek from chart mouse coordinate ---
+  const seekFromChartMouse = useCallback((clientX: number) => {
+    if (!timelineContainerRef.current) return;
+    // Find the SVG element inside the container (the chart)
+    const svg = timelineContainerRef.current.querySelector('svg');
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    // Identify the plotting area: we can estimate by margins or use the actual group bounding box.
+    // Simpler: assume the X axis occupies the whole SVG width (common in recharts)
+    const chartWidth = rect.width;
+    if (chartWidth <= 0) return;
+    let relativeX = (clientX - rect.left) / chartWidth;
+    relativeX = Math.min(Math.max(relativeX, 0), 1);
+    const totalFrames = timelineDomain[1];
+    const visibleStart = timelineOffset;
+    const visibleEnd = Math.min(timelineOffset + TIMELINE_DISPLAY_WINDOW, totalFrames);
+    const frame = Math.round(visibleStart + relativeX * (visibleEnd - visibleStart));
+    const clampedFrame = Math.min(Math.max(frame, 0), totalFrames);
+    const targetTime = clampedFrame / stableFpsRef.current;
+    handleSeek(targetTime);
+  }, [timelineOffset, timelineDomain, handleSeek]);
+
+  // --- Attach chart mouse events for drag-seeking ---
+  useEffect(() => {
+    const container = timelineContainerRef.current;
+    if (!container) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      // Check if the target is inside the chart SVG
+      const svg = container.querySelector('svg');
+      if (!svg || !svg.contains(e.target as Node)) return;
+      e.preventDefault();
+      setIsChartDragging(true);
+      seekFromChartMouse(e.clientX);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isChartDragging) return;
+      seekFromChartMouse(e.clientX);
+    };
+
+    const onMouseUp = () => {
+      setIsChartDragging(false);
+    };
+
+    container.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    return () => {
+      container.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [seekFromChartMouse, isChartDragging]);
+
+  // --- Timeline navigation functions with user interaction flag ---
+  const handleTimelineWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    userInteractingRef.current = true;
+    if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    interactionTimeoutRef.current = setTimeout(() => {
+      userInteractingRef.current = false;
+    }, 1000);
+    
+    const delta = e.deltaY > 0 ? 50 : -50;
+    setTimelineOffset(prev => {
+      const newOffset = prev + delta;
+      const maxOffset = timelineDomain[1] - TIMELINE_DISPLAY_WINDOW;
+      return Math.max(0, Math.min(newOffset, maxOffset));
+    });
+  }, [timelineDomain]);
+
+  const handleTimelineMouseDown = useCallback((e: React.MouseEvent) => {
+    // If the user starts dragging on the chart area, we do NOT start timeline drag
+    const svg = timelineContainerRef.current?.querySelector('svg');
+    if (svg && svg.contains(e.target as Node)) return;
+    
+    userInteractingRef.current = true;
+    if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    interactionTimeoutRef.current = setTimeout(() => {
+      userInteractingRef.current = false;
+    }, 1000);
+    
+    setIsDraggingTimeline(true);
+    setTimelineDragStart({
+      x: e.clientX,
+      offset: timelineOffset
+    });
+  }, [timelineOffset]);
+
+  const handleTimelineMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDraggingTimeline) return;
+    const deltaX = e.clientX - timelineDragStart.x;
+    const deltaOffset = Math.round(deltaX * 2);
+    setTimelineOffset(prev => {
+      const newOffset = timelineDragStart.offset - deltaOffset;
+      const maxOffset = timelineDomain[1] - TIMELINE_DISPLAY_WINDOW;
+      return Math.max(0, Math.min(newOffset, maxOffset));
+    });
+  }, [isDraggingTimeline, timelineDragStart, timelineDomain]);
+
+  const handleTimelineMouseUp = useCallback(() => {
+    setIsDraggingTimeline(false);
+  }, []);
+
+  const centerTimelineOnCurrentFrame = useCallback(() => {
+    if (userInteractingRef.current) return;
+    const centerFrame = Math.max(0, currentFrame - TIMELINE_DISPLAY_WINDOW / 2);
+    const maxOffset = timelineDomain[1] - TIMELINE_DISPLAY_WINDOW;
+    const newOffset = Math.max(0, Math.min(centerFrame, maxOffset));
+    if (Math.abs(newOffset - timelineOffset) > 1) {
+      setTimelineOffset(newOffset);
+    }
+  }, [currentFrame, timelineDomain, timelineOffset]);
+
+  const shiftTimelineLeft = useCallback(() => {
+    userInteractingRef.current = true;
+    if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    interactionTimeoutRef.current = setTimeout(() => {
+      userInteractingRef.current = false;
+    }, 1000);
+    setTimelineOffset(prev => Math.max(0, prev - TIMELINE_DISPLAY_WINDOW));
+  }, []);
+
+  const shiftTimelineRight = useCallback(() => {
+    userInteractingRef.current = true;
+    if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    interactionTimeoutRef.current = setTimeout(() => {
+      userInteractingRef.current = false;
+    }, 1000);
+    setTimelineOffset(prev => {
+      const maxOffset = timelineDomain[1] - TIMELINE_DISPLAY_WINDOW;
+      return Math.min(maxOffset, prev + TIMELINE_DISPLAY_WINDOW);
+    });
+  }, [timelineDomain]);
+
+  // Auto-center timeline while playing (respects user interaction)
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      if (!userInteractingRef.current) {
+        centerTimelineOnCurrentFrame();
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isPlaying, centerTimelineOnCurrentFrame]);
+  
+  useEffect(() => {
+    if (!isPlaying && !userInteractingRef.current) {
+      centerTimelineOnCurrentFrame();
+    }
+  }, [currentFrame, isPlaying, centerTimelineOnCurrentFrame]);
 
   // --- Merge timeline points ---
   const mergeTimelinePoints = useCallback((newPoints: Array<{ frame: number; x: number; y: number; objectId: number }>) => {
@@ -222,200 +469,271 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const map = new Map<string, typeof newPoints[0]>();
       prev.forEach(p => map.set(`${p.frame}-${p.objectId}`, p));
       newPoints.forEach(p => map.set(`${p.frame}-${p.objectId}`, p));
-      return Array.from(map.values()).sort((a, b) => a.frame - b.frame);
+      return [...map.values()].sort((a, b) => a.frame - b.frame);
     });
   }, []);
 
-  // --- Core timeline fetch with overlapping window ---
-  const fetchTimelineRange = useCallback(async (start: number, end: number) => {
-    if (!projectId) return;
-    if (!isFinite(start) || !isFinite(end) || start > end) {
-      console.warn(`[Timeline] Invalid range: ${start} - ${end}`);
-      return;
-    }
-    const totalFrames = getTotalFrames();
-    if (totalFrames === 0) return;
-    const clampedStart = Math.max(0, Math.min(start, totalFrames));
-    const clampedEnd = Math.max(0, Math.min(end, totalFrames));
-    if (clampedStart > clampedEnd) return;
+  // --- Core timeline fetch with duplicate prevention ---
+  const fetchTimelineRange = useCallback(
+    async (start: number, end: number) => {
+      if (!projectId) return;
 
-    const key = `${clampedStart}-${clampedEnd}`;
-    if (timelinePendingRef.current.has(key)) return;
-    // Check if this range is fully covered by already loaded ranges
-    if (timelineLoadedRangesRef.current.some(r => r.start <= clampedStart && r.end >= clampedEnd)) {
-      return;
-    }
+      if (!isFinite(start) || !isFinite(end) || start > end)
+        return;
 
-    timelinePendingRef.current.add(key);
-    if (timelineAbortRef.current) timelineAbortRef.current.abort();
-    const controller = new AbortController();
-    timelineAbortRef.current = controller;
+      const totalFrames = getTotalFrames();
 
-    try {
-      console.log(`[Timeline] Fetching overlapping range ${clampedStart} to ${clampedEnd}`);
-      const data = await getTimelineData(projectId, clampedStart, clampedEnd, controller.signal);
-      if (data?.f) {
-        const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
-        Object.entries(data.f).forEach(([frameStr, objects]: any) => {
-          const frame = Number(frameStr);
-          Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
-            if (Array.isArray(coords) && coords.length >= 2) {
-              points.push({ frame, x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
+      const clampedStart = Math.max(
+        0,
+        Math.min(start, totalFrames - 1)
+      );
+
+      const clampedEnd = Math.max(
+        0,
+        Math.min(end, totalFrames - 1)
+      );
+
+      if (clampedStart > clampedEnd) return;
+
+      const key = `${clampedStart}-${clampedEnd}`;
+
+      if (timelinePendingRef.current.has(key)) {
+        return;
+      }
+
+      const alreadyLoaded =
+        timelineLoadedRangesRef.current.some(
+          r =>
+            r.start <= clampedStart &&
+            r.end >= clampedEnd
+        );
+
+      if (alreadyLoaded) {
+        return;
+      }
+
+      timelinePendingRef.current.add(key);
+
+      const controller = new AbortController();
+
+      try {
+        console.log(
+          `[Timeline] Fetching ${clampedStart} to ${clampedEnd}`
+        );
+
+        const data = await getTimelineData(
+          projectId,
+          clampedStart,
+          clampedEnd,
+          controller.signal
+        );
+
+        if (data?.f) {
+          const points: Array<{
+            frame: number;
+            x: number;
+            y: number;
+            objectId: number;
+          }> = [];
+
+          Object.entries(data.f).forEach(
+            ([frameStr, objects]: any) => {
+              const frame = Number(frameStr);
+
+              Object.entries(objects).forEach(
+                ([objectIdStr, coords]: any) => {
+                  if (
+                    Array.isArray(coords) &&
+                    coords.length >= 2
+                  ) {
+                    points.push({
+                      frame,
+                      x: coords[0],
+                      y: coords[1],
+                      objectId: Number(objectIdStr),
+                    });
+                  }
+                }
+              );
             }
-          });
-        });
-        mergeTimelinePoints(points);
-        // Merge the new range into loaded ranges
-        let newRanges = [...timelineLoadedRangesRef.current, { start: clampedStart, end: clampedEnd }];
-        newRanges.sort((a, b) => a.start - b.start);
-        const merged = [];
-        for (const range of newRanges) {
-          if (!merged.length || merged[merged.length-1].end < range.start - 1) {
-            merged.push(range);
-          } else {
-            merged[merged.length-1].end = Math.max(merged[merged.length-1].end, range.end);
-          }
-        }
-        timelineLoadedRangesRef.current = merged;
-        
-        // Check if we now cover the entire video
-        const maxEnd = Math.max(...merged.map(r => r.end), 0);
-        if (maxEnd >= totalFrames - 1) {
-          timelineFullyLoadedRef.current = true;
-          console.log('[Timeline] Fully loaded – stopping further prefetch');
-        }
-      }
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        console.error(`[Timeline] Error fetching ${clampedStart}-${clampedEnd}:`, err);
-      }
-    } finally {
-      timelinePendingRef.current.delete(key);
-      if (timelineAbortRef.current === controller) timelineAbortRef.current = null;
-    }
-  }, [projectId, mergeTimelinePoints, getTotalFrames]);
+          );
 
-  // --- Timeline prefetch with end detection (prevents infinite loops) ---
+          mergeTimelinePoints(points);
+
+          const newRanges = [
+            ...timelineLoadedRangesRef.current,
+            {
+              start: clampedStart,
+              end: clampedEnd,
+            },
+          ];
+
+          newRanges.sort(
+            (a, b) => a.start - b.start
+          );
+
+          const merged: {
+            start: number;
+            end: number;
+          }[] = [];
+
+          for (const range of newRanges) {
+            if (
+              !merged.length ||
+              merged[merged.length - 1].end <
+                range.start - 1
+            ) {
+              merged.push(range);
+            } else {
+              merged[merged.length - 1].end =
+                Math.max(
+                  merged[merged.length - 1].end,
+                  range.end
+                );
+            }
+          }
+
+          timelineLoadedRangesRef.current = merged;
+
+          console.log(
+            "[Timeline] Loaded ranges:",
+            merged
+          );
+        }
+      } catch (err: any) {
+        if (err?.name !== "AbortError") {
+          console.error(
+            `[Timeline] Error fetching ${clampedStart}-${clampedEnd}:`,
+            err
+          );
+        }
+      } finally {
+        timelinePendingRef.current.delete(key);
+      }
+    },
+    [
+      projectId,
+      mergeTimelinePoints,
+      getTotalFrames,
+    ]
+  );
+
+  // --- Timeline prefetch effect based on offset ---
   useEffect(() => {
     if (!projectId) return;
+
     const totalFrames = getTotalFrames();
+
     if (totalFrames === 0) return;
-    
-    // If we already marked as fully loaded, do nothing
-    if (timelineFullyLoadedRef.current) return;
 
-    if (timelineDebounceRef.current) clearTimeout(timelineDebounceRef.current);
-    timelineDebounceRef.current = setTimeout(() => {
-      // If no data loaded, fetch a window around current frame
-      if (timelineLoadedRangesRef.current.length === 0) {
-        const centerStart = Math.max(0, currentFrame - TIMELINE_FETCH_WINDOW / 2);
-        const centerEnd = Math.min(currentFrame + TIMELINE_FETCH_WINDOW / 2, totalFrames);
-        if (centerStart <= centerEnd) {
-          fetchTimelineRange(centerStart, centerEnd);
-        }
-        return;
-      }
-
-      // Determine the furthest loaded end and start
-      let maxLoadedEnd = -1;
-      let minLoadedStart = Infinity;
-      for (const range of timelineLoadedRangesRef.current) {
-        maxLoadedEnd = Math.max(maxLoadedEnd, range.end);
-        minLoadedStart = Math.min(minLoadedStart, range.start);
-      }
-
-      // Check if we have reached the end
-      if (maxLoadedEnd >= totalFrames - 1) {
-        timelineFullyLoadedRef.current = true;
-        console.log('[Timeline] Already at video end, stopping prefetch');
-        return;
-      }
-
-      // Forward prefetch: only if current frame is within threshold of the loaded end
-      const distanceToEnd = maxLoadedEnd - currentFrame;
-      if (distanceToEnd <= TIMELINE_PREFETCH_THRESHOLD) {
-        const remainingFrames = totalFrames - maxLoadedEnd;
-        if (remainingFrames <= MIN_FRAMES_TO_FETCH) {
-          // Fetch only the remaining frames to the end
-          const nextStart = maxLoadedEnd + 1;
-          const nextEnd = totalFrames;
-          if (nextStart <= nextEnd && !timelineLoadedRangesRef.current.some(r => r.start <= nextStart && r.end >= nextEnd)) {
-            fetchTimelineRange(nextStart, nextEnd);
-          } else {
-            timelineFullyLoadedRef.current = true;
-          }
-        } else {
-          // Normal overlapping fetch
-          const nextStart = maxLoadedEnd + 1;
-          // Overlap: start from maxLoadedEnd - TIMELINE_STEP + 1
-          const overlapStart = Math.max(0, maxLoadedEnd - TIMELINE_STEP + 1);
-          const nextEnd = Math.min(overlapStart + TIMELINE_FETCH_WINDOW, totalFrames);
-          if (overlapStart <= nextEnd && !timelineLoadedRangesRef.current.some(r => r.start <= overlapStart && r.end >= nextEnd)) {
-            fetchTimelineRange(overlapStart, nextEnd);
-          }
-        }
-      }
-
-      // Backward prefetch (only if needed and not at start)
-      const distanceToStart = currentFrame - minLoadedStart;
-      if (distanceToStart <= TIMELINE_PREFETCH_THRESHOLD && minLoadedStart > 0) {
-        const prevEnd = minLoadedStart - 1;
-        const overlapEnd = Math.min(totalFrames, minLoadedStart + TIMELINE_STEP - 1);
-        const prevStart = Math.max(0, overlapEnd - TIMELINE_FETCH_WINDOW);
-        if (prevStart <= prevEnd && !timelineLoadedRangesRef.current.some(r => r.start <= prevStart && r.end >= prevEnd)) {
-          fetchTimelineRange(prevStart, prevEnd);
-        }
-      }
-    }, 300);
-  }, [currentFrame, projectId, getTotalFrames, fetchTimelineRange]);
-
-  // Reset fully loaded flag when project changes or seek far away
-  useEffect(() => {
-    if (projectId && timelineLoadedRangesRef.current.length === 0) {
-      timelineFullyLoadedRef.current = false;
+    if (timelineDebounceRef.current) {
+      clearTimeout(timelineDebounceRef.current);
     }
-  }, [projectId]);
+
+    timelineDebounceRef.current = setTimeout(() => {
+      const visibleStart = timelineOffset;
+      const visibleEnd = Math.min(timelineOffset + TIMELINE_DISPLAY_WINDOW, totalFrames);
+      
+      const prefetchStart = Math.max(0, visibleStart - TIMELINE_FETCH_WINDOW);
+      const prefetchEnd = Math.min(visibleEnd + TIMELINE_FETCH_WINDOW, totalFrames);
+
+      let loadedStart = Infinity;
+      let loadedEnd = -Infinity;
+
+      for (const range of timelineLoadedRangesRef.current) {
+        loadedStart = Math.min(loadedStart, range.start);
+        loadedEnd = Math.max(loadedEnd, range.end);
+      }
+
+      if (loadedEnd === -Infinity) {
+        fetchTimelineRange(prefetchStart, prefetchEnd);
+      } else if (prefetchStart < loadedStart) {
+        fetchTimelineRange(prefetchStart, loadedStart - 1);
+      } else if (prefetchEnd > loadedEnd && loadedEnd < totalFrames - 1) {
+        fetchTimelineRange(loadedEnd + 1, prefetchEnd);
+      }
+    }, 100);
+
+    return () => {
+      if (timelineDebounceRef.current) {
+        clearTimeout(timelineDebounceRef.current);
+      }
+    };
+  }, [timelineOffset, projectId, getTotalFrames, fetchTimelineRange]);
+
+  // --- Reset timeline ranges when seeking far ---
+  const resetTimelineForFarSeek = useCallback(() => {
+    timelineLoadedRangesRef.current = [];
+    timelinePendingRef.current.clear();
+    console.log('[Timeline] Reset due to far seek');
+  }, []);
 
   // --- Memory pruning: keep only points within ±TIMELINE_KEEP_WINDOW frames ---
   useEffect(() => {
     if (timelinePoints.length === 0) return;
-    const minKeep = currentFrame - TIMELINE_KEEP_WINDOW;
-    const maxKeep = currentFrame + TIMELINE_KEEP_WINDOW;
-    const filtered = timelinePoints.filter(p => p.frame >= minKeep && p.frame <= maxKeep);
-    if (filtered.length !== timelinePoints.length) {
-      console.log(`[TIMELINE] Pruned ${timelinePoints.length - filtered.length} points, keeping ±${TIMELINE_KEEP_WINDOW} frames`);
-      setTimelinePoints(filtered);
-    }
-  }, [currentFrame, timelinePoints]);
 
-  // Chart data: only points within display window (±TIMELINE_DISPLAY_WINDOW)
-  const filteredTimelinePoints = useMemo(() => {
-    const minFrame = currentFrame - TIMELINE_DISPLAY_WINDOW;
-    const maxFrame = currentFrame + TIMELINE_DISPLAY_WINDOW;
+    if (currentFrame % 120 !== 0) return;
+
+    const minKeep =
+      currentFrame - TIMELINE_KEEP_WINDOW;
+
+    const maxKeep =
+      currentFrame + TIMELINE_KEEP_WINDOW;
+
+    setTimelinePoints(prev => {
+      const filtered = prev.filter(
+        p =>
+          p.frame >= minKeep &&
+          p.frame <= maxKeep
+      );
+
+      if (filtered.length === prev.length) {
+        return prev;
+      }
+
+      console.log(
+        `[TIMELINE] Pruned ${
+          prev.length - filtered.length
+        } points`
+      );
+
+      return filtered;
+    });
+  }, [currentFrame]);
+
+  // Chart data: only points within visible window based on offset
+  const visibleTimelinePoints = useMemo(() => {
+    const minFrame = timelineOffset;
+    const maxFrame = timelineOffset + TIMELINE_DISPLAY_WINDOW;
     return timelinePoints.filter(p => p.frame >= minFrame && p.frame <= maxFrame);
-  }, [timelinePoints, currentFrame]);
+  }, [timelinePoints, timelineOffset]);
 
   const chartData = useMemo(() => {
     const grouped = new Map<number, any>();
-    filteredTimelinePoints.forEach(p => {
+    visibleTimelinePoints.forEach(p => {
       if (!grouped.has(p.frame)) grouped.set(p.frame, { frame: p.frame });
       const row = grouped.get(p.frame);
       if (coordinateMode === "x" || coordinateMode === "xy") row[`obj_${p.objectId}_x`] = p.x;
       if (coordinateMode === "y" || coordinateMode === "xy") row[`obj_${p.objectId}_y`] = p.y;
     });
     return Array.from(grouped.values()).sort((a, b) => a.frame - b.frame);
-  }, [filteredTimelinePoints, coordinateMode]);
+  }, [visibleTimelinePoints, coordinateMode]);
 
   const uniqueObjectIds = useMemo(() => {
-    return Array.from(new Set(filteredTimelinePoints.map(p => p.objectId)));
-  }, [filteredTimelinePoints]);
+    return Array.from(new Set(visibleTimelinePoints.map(p => p.objectId)));
+  }, [visibleTimelinePoints]);
 
-  // Chart click handler
+  // Chart click handler (kept for compatibility, but drag now works too)
   const handleChartClick = (data: any) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const frame = data.activePayload[0].payload.frame;
       const time = frame / stableFpsRef.current;
       handleSeek(time);
+      userInteractingRef.current = true;
+      if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+      interactionTimeoutRef.current = setTimeout(() => {
+        userInteractingRef.current = false;
+      }, 1000);
     }
   };
 
@@ -436,7 +754,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return [Number(value).toFixed(2), `Object ${objId}`];
   }, [coordinateMode]);
 
-  // --- Annotation helper functions (unchanged, kept from original) ---
+  // --- Annotation helper functions ---
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
     if (loadedRangesKeyRef.current.has(key)) return true;
@@ -483,7 +801,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
-  // --- Trajectory management (unchanged) ---
+  // --- Trajectory management ---
   useEffect(() => {
     if (!mounted) return;
     if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
@@ -527,7 +845,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
   
-  // --- Zoom and pan handlers (unchanged) ---
+  // --- Zoom and pan handlers ---
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -584,7 +902,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleZoomOut = () => { const ns = Math.max(stageScale.x / 1.1, 1); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
   const handleResetZoom = () => { setStageScale({x:1,y:1}); setStagePos({x:0,y:0}); setCurrentZoom(1); setCursorStyle("grab"); };
 
-  // --- Auto-pan to selected object (unchanged) ---
+  // --- Auto-pan to selected object ---
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
@@ -658,7 +976,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
-  // --- Annotation fetching mutation (unchanged) ---
+  // --- Annotation fetching mutation ---
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
@@ -844,83 +1162,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setAnnotationsReady(true);
   }, [video]);
 
-  // --- Optimized handleSeek with far seek detection and memory clearing ---
-  const handleSeek = async (time: number) => {
-    if (!video) return;
-    if (isSeekingRef.current) {
-      console.log(`[SEEK BLOCKED] Currently seeking, queuing time ${time}`);
-      const targetFrame = Math.round(time * stableFpsRef.current);
-      setPendingFrameVisual(targetFrame);
-      setTimeout(() => setPendingFrameVisual(null), 500);
-      pendingFrameRef.current = targetFrame;
-      return;
-    }
-    const safeTime = Math.min(Math.max(time, 0), video.duration);
-    const targetFrame = Math.round(safeTime * stableFpsRef.current);
-    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) {
-      console.log(`[SEEK DEBUG] ⏭️ Skipping duplicate seek to frame ${targetFrame}`);
-      return;
-    }
-    lastSeekFrameRef.current = targetFrame;
-    lastSeekTimeRef.current = safeTime;
-    console.log(`[SEEK DEBUG] Seeking to frame ${targetFrame}`);
-    isSeekingRef.current = true;
-    pendingFrameRef.current = null;
 
-    // Check if target frame is far from currently loaded annotation ranges
-    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && targetFrame <= range.end);
-    if (!isWithinLoadedRange) {
-      console.log(`[SEEK] Target frame ${targetFrame} outside loaded ranges, clearing old data.`);
-      setAnnotationMap(new Map());
-      persistentTrajectoryRef.current = [];
-      trajectoriesRef.current = new Map();
-      setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
-      clearLoadedRanges();
-      // Also reset timeline fully loaded flag when seeking far
-      timelineFullyLoadedRef.current = false;
-      timelineLoadedRangesRef.current = [];
-      setTimelinePoints([]);
-    }
-
-    if (isFrameLoaded(targetFrame)) {
-      video.pause();
-      setIsPlaying(false);
-      video.currentTime = safeTime;
-      setCurrentTime(safeTime);
-      setDragTime(null);
-      setSelectedFrameIndex(targetFrame);
-      currentDisplayFrameRef.current = targetFrame;
-      setCurrentFrame(targetFrame);
-      setIsLoadingAnnotations(false);
-      setAnnotationsReady(true);
-      isSeekingRef.current = false;
-      return;
-    }
-
-    video.pause();
-    setIsPlaying(false);
-    video.currentTime = safeTime;
-    setCurrentTime(safeTime);
-    setDragTime(null);
-    setSelectedFrameIndex(targetFrame);
-    currentDisplayFrameRef.current = targetFrame;
-    setCurrentFrame(targetFrame);
-    clearLoadedRanges();
-    setAnnotationsReady(false);
-    if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
-    const windowFrames = Math.round(ANNO_WINDOW_SECONDS * stableFpsRef.current);
-    const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
-    const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
-    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
-    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    } else {
-      setIsLoadingAnnotations(false);
-    }
-    nextPrefetchFrameRef.current = null;
-  };
 
   const handleSliderChange = (val: number[]) => {
     setDragTime(val[0]);
@@ -951,7 +1193,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // --- VIDEO INITIALIZATION (unchanged) ---
+  // --- VIDEO INITIALIZATION ---
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
     const loadVideo = async () => {
@@ -1344,11 +1586,39 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
           
-          {/* Timeline Chart with overlapping prefetch and end detection */}
+          {/* Timeline Chart with Drag and Navigation */}
           <div className="px-2 py-1 bg-gray-900 rounded-md mt-1">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-xs text-gray-300">Object Coordinates Timeline (±{TIMELINE_DISPLAY_WINDOW} frames)</span>
+              <span className="text-xs text-gray-300">
+                Object Coordinates Timeline (Showing frames {timelineOffset} to {Math.min(timelineOffset + TIMELINE_DISPLAY_WINDOW, timelineDomain[1])})
+              </span>
               <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={shiftTimelineLeft}
+                  className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700"
+                  disabled={timelineOffset === 0}
+                >
+                  ←
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={centerTimelineOnCurrentFrame}
+                  className="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Center
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={shiftTimelineRight}
+                  className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700"
+                  disabled={timelineOffset + TIMELINE_DISPLAY_WINDOW >= timelineDomain[1]}
+                >
+                  →
+                </Button>
                 <select
                   value={coordinateMode}
                   onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy")}
@@ -1360,9 +1630,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 </select>
               </div>
             </div>
-            <div className="overflow-x-auto" style={{ maxWidth: '100%' }}>
+            <div 
+              ref={timelineContainerRef}
+              className="overflow-x-auto cursor-grab active:cursor-grabbing"
+              style={{ maxWidth: '100%' }}
+              onWheel={handleTimelineWheel}
+              onMouseDown={handleTimelineMouseDown}
+              onMouseMove={handleTimelineMouseMove}
+              onMouseUp={handleTimelineMouseUp}
+              onMouseLeave={handleTimelineMouseUp}
+            >
               <div style={{ minWidth: '800px', width: '100%' }}>
-                <ResponsiveContainer width="100%" height={180}>
+                <ResponsiveContainer width="100%" height={200}>
                   <LineChart
                     data={chartData}
                     margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
@@ -1372,7 +1651,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <XAxis
                       dataKey="frame"
                       type="number"
-                      domain={[currentFrame - TIMELINE_DISPLAY_WINDOW, currentFrame + TIMELINE_DISPLAY_WINDOW]}
+                      domain={[timelineOffset, Math.min(timelineOffset + TIMELINE_DISPLAY_WINDOW, timelineDomain[1])]}
                       tick={{ fill: '#ccc', fontSize: 10 }}
                       tickFormatter={(frame) => frame.toString()}
                       label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
@@ -1389,7 +1668,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                       }}
                     />
                     <Tooltip formatter={tooltipFormatter} labelFormatter={(label) => `Frame: ${label}`} />
-                    <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={1} label={{ value: '▶', position: 'top', fill: '#ff3333', fontSize: 12 }} />
+                    <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={2} label={{ value: '▶ Current', position: 'top', fill: '#ff3333', fontSize: 11 }} />
                     {uniqueObjectIds.map((objectId) => {
                       const color = getObjectColor(objectId);
                       const lines = [];
@@ -1400,9 +1679,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                             type="linear"
                             dataKey={`obj_${objectId}_x`}
                             stroke={color}
-                            strokeWidth={1}
+                            strokeWidth={1.5}
                             dot={false}
-                            activeDot={false}
+                            activeDot={{ r: 4, fill: color }}
                             isAnimationActive={false}
                             connectNulls
                           />
@@ -1415,10 +1694,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                             type="linear"
                             dataKey={`obj_${objectId}_y`}
                             stroke={color}
-                            strokeWidth={1}
+                            strokeWidth={1.5}
                             strokeDasharray={coordinateMode === 'xy' ? '4 3' : undefined}
                             dot={false}
-                            activeDot={false}
+                            activeDot={{ r: 4, fill: color }}
                             isAnimationActive={false}
                             connectNulls
                           />
@@ -1429,6 +1708,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+            <div className="text-center text-xs text-gray-400 mt-1">
+              💡 Tip: Click or drag on the chart to seek to any frame | Use mouse wheel or drag horizontally to scroll timeline
             </div>
           </div>
           
