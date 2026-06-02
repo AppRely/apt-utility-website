@@ -1,22 +1,20 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      target: dev
     container_name: nextjs-app-dev
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      # Add your development environment variables here
       - NEXT_PUBLIC_API_URL=http://localhost:3000
+      - WATCHPACK_POLLING=true
     volumes:
       - .:/app
       - /app/node_modules
       - /app/.next
-    restart: always
-    # Add stdin_open and tty for interactive debugging if needed
+    restart: unless-stopped
     stdin_open: true
     tty: true
