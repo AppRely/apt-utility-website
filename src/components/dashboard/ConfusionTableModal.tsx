@@ -117,9 +117,6 @@ export default function ConfusionTableModal({
 
   if (!open) return null;
 
-  // =====================================
-  // UI
-  // =====================================
   return (
     <div
       className="fixed z-50"
@@ -131,7 +128,7 @@ export default function ConfusionTableModal({
       >
         {/* HEADER (draggable area) */}
         <div
-          className="flex justify-between items-center mb-2 bg-gray-100 p-2 rounded border cursor-move"
+          className="flex justify-between items-start mb-2 bg-gray-100 p-2 rounded border cursor-move"
           onMouseDown={(e) => {
             setDragging(true);
             setOffset({ x: e.clientX - position.x, y: e.clientY - position.y });
@@ -146,7 +143,7 @@ export default function ConfusionTableModal({
             </div>
 
             {/* Frame info table */}
-            <div className="border rounded-md overflow-hidden">
+            {/* <div className="border rounded-md overflow-hidden">
               <table className="w-full text-xs border-collapse">
                 <tbody>
                   <tr>
@@ -163,7 +160,7 @@ export default function ConfusionTableModal({
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </div> */}
           </div>
 
           {/* CLOSE BUTTON */}
@@ -183,77 +180,60 @@ export default function ConfusionTableModal({
           </div>
         )}
 
-        {/* TABLE CONTAINER WITH HORIZONTAL SCROLL */}
-        <div className="border rounded overflow-hidden flex flex-col flex-1">
-          <div className="overflow-x-auto flex-1">
-            <div className="min-w-[1200px]">
-              {/* Sticky header */}
-              <div className="bg-gray-200 sticky top-0 z-10">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="border px-2 py-1">Frame</th>
-                      <th className="border px-2 py-1">Next Frame</th>
-                      <th className="border px-2 py-1">Object</th>
-                      <th className="border px-2 py-1">Best Match</th>
-                      <th className="border px-2 py-1">Second Match</th>
-                      <th className="border px-2 py-1">Uncertainty</th>
-                      <th className="border px-2 py-1">Forward</th>
-                      <th className="border px-2 py-1">Best Cost</th>
-                      <th className="border px-2 py-1">Second Cost</th>
-                      <th className="border px-2 py-1">Nearby</th>
-                      <th className="border px-2 py-1">Confusion</th>
-                      <th className="border px-2 py-1">Crowded</th>
-                      <th className="border px-2 py-1">Event</th>
-                      <th className="border px-2 py-1">Created At</th>
-                    </tr>
-                  </thead>
-                </table>
-              </div>
-
-              {/* Scrollable body */}
-              <div className="overflow-y-auto max-h-[calc(100%-30px)]">
-                {loading ? (
-                  <p className="text-center py-4">Loading...</p>
-                ) : (
-                  <table className="w-full text-xs border-collapse">
-                    <tbody>
-                      {rows.map((row, idx) => {
-                        const uncertainty = row.uncertainty ?? 0;
-                        let bgClass = "";
-                        if (uncertainty > 0.8) bgClass = "bg-red-200";
-                        else if (uncertainty > 0.5) bgClass = "bg-yellow-100";
-                        else bgClass = "hover:bg-blue-100";
-
-                        return (
-                          <tr
-                            key={idx}
-                            onClick={() => handleFrameJump(row.frame_no)}
-                            className={`cursor-pointer ${bgClass}`}
-                          >
-                            <td className="border px-2 py-1">{row.frame_no}</td>
-                            <td className="border px-2 py-1">{row.next_frame_no ?? "—"}</td>
-                            <td className="border px-2 py-1">{row.current_object_id}</td>
-                            <td className="border px-2 py-1">{row.best_match_object_id}</td>
-                            <td className="border px-2 py-1">{row.second_match_object_id}</td>
-                            <td className="border px-2 py-1 font-bold">{uncertainty.toFixed(4)}</td>
-                            <td className="border px-2 py-1">{row.is_forward ? "Yes" : "No"}</td>
-                            <td className="border px-2 py-1">{row.best_match_cost?.toFixed(2) ?? "—"}</td>
-                            <td className="border px-2 py-1">{row.second_match_cost?.toFixed(2) ?? "—"}</td>
-                            <td className="border px-2 py-1">{row.nearby_object_count ?? "—"}</td>
-                            <td className="border px-2 py-1">{row.confusion_score?.toFixed(4) ?? "—"}</td>
-                            <td className="border px-2 py-1">{row.is_crowded ? "Yes" : "No"}</td>
-                            <td className="border px-2 py-1">{row.event_type ?? "—"}</td>
-                            <td className="border px-2 py-1">{row.created_at ? new Date(row.created_at).toLocaleString() : "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* SINGLE TABLE WITH STICKY HEADER & SCROLL */}
+        <div className="flex-1 overflow-auto border rounded">
+          {loading ? (
+            <p className="text-center py-4">Loading...</p>
+          ) : rows.length === 0 ? (
+            <p className="text-center py-4 text-gray-500">No data available</p>
+          ) : (
+            <table className="w-full text-xs border-collapse min-w-[1100px]">
+              <thead className="sticky top-0 bg-gray-200 z-10">
+                <tr>
+                  <th className="border px-2 py-1">No</th>
+                  <th className="border px-2 py-1">Frame</th>
+                  {/* <th className="border px-2 py-1">Next Frame</th>
+                  <th className="border px-2 py-1">Object</th>
+                  <th className="border px-2 py-1">Best Match</th>
+                  <th className="border px-2 py-1">Second Match</th> */}
+                  <th className="border px-2 py-1">Uncertainty</th>
+                  {/* <th className="border px-2 py-1">Forward</th> */}
+                  <th className="border px-2 py-1">Best Cost</th>
+                  <th className="border px-2 py-1">Second Cost</th>
+                  {/* <th className="border px-2 py-1">Nearby</th> */}
+                  <th className="border px-2 py-1">Confusion</th>
+                  {/* <th className="border px-2 py-1">Crowded</th> */}
+                  {/* <th className="border px-2 py-1">Event</th> */}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr
+                    key={idx}
+                    onClick={() => handleFrameJump(row.frame_no)}
+                    className="text-centercursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                    <td className="border px-2 py-1">{idx + 1}</td>
+                    <td className="border px-2 py-1">{row.frame_no}</td>
+                    {/* <td className="border px-2 py-1">{row.next_frame_no ?? "—"}</td> */}
+                    {/* <td className="border px-2 py-1">{row.current_object_id}</td> */}
+                    {/* <td className="border px-2 py-1">{row.best_match_object_id}</td>
+                    <td className="border px-2 py-1">{row.second_match_object_id}</td> */}
+                    <td className="border px-2 py-1 font-bold">
+                      {row.uncertainty?.toFixed(4) ?? "—"}
+                    </td>
+                    {/* <td className="border px-2 py-1">{row.is_forward ? "Yes" : "No"}</td> */}
+                    <td className="border px-2 py-1">{row.best_match_cost?.toFixed(2) ?? "—"}</td>
+                    <td className="border px-2 py-1">{row.second_match_cost?.toFixed(2) ?? "—"}</td>
+                    {/* <td className="border px-2 py-1">{row.nearby_object_count ?? "—"}</td> */}
+                    <td className="border px-2 py-1">{row.confusion_score?.toFixed(4) ?? "—"}</td>
+                    {/* <td className="border px-2 py-1">{row.is_crowded ? "Yes" : "No"}</td>
+                    <td className="border px-2 py-1">{row.event_type ?? "—"}</td> */}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* RESIZE HANDLE */}

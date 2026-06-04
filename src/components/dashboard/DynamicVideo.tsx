@@ -30,7 +30,7 @@ import {
 } from "recharts";
 import ConfusionTableModal from "@/components/dashboard/ConfusionTableModal";
 
-// ==================== SECOND TIMELINE (NO Y-AXIS, ONLY MARKERS & X-AXIS) ====================
+// ==================== TIMELINE – SHOW ALL OBJECTS (no active frame filter) ====================
 const ObjectRangesTimeline = ({
   objects,
   currentFrame,
@@ -56,11 +56,9 @@ const ObjectRangesTimeline = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Visible frame range (centered on currentFrame)
   const minFrame = useMemo(() => Math.max(0, currentFrame - visibleWindow), [currentFrame, visibleWindow]);
   const maxFrame = useMemo(() => Math.min(totalFrames, currentFrame + visibleWindow), [currentFrame, visibleWindow, totalFrames]);
 
-  // Filter objects that have at least one marker (start or end) inside the visible window
   const filteredObjects = useMemo(() => {
     return objects.filter(obj => 
       (obj.start_frame >= minFrame && obj.start_frame <= maxFrame) ||
@@ -69,8 +67,8 @@ const ObjectRangesTimeline = ({
   }, [objects, minFrame, maxFrame]);
 
   const [chartWidth, setChartWidth] = useState(800);
-  const chartHeight = 200;
-  const padding = { left: 20, right: 20, top: 10, bottom: 30 }; // reduced left padding (no Y-axis)
+  const chartHeight = 80;
+  const padding = { left: 20, right: 20, top: 5, bottom: 15 };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -86,10 +84,8 @@ const ObjectRangesTimeline = ({
     return ((frame - minFrame) / (maxFrame - minFrame)) * chartWidth;
   };
 
-  // Y‑position is now fixed (no coordinate mapping) – we place all markers at the same vertical level
   const markerY = padding.top + chartHeight / 2;
 
-  // Auto‑scroll to keep current frame visible when window changes
   useEffect(() => {
     if (!scrollContainerRef.current || filteredObjects.length === 0) return;
     const container = scrollContainerRef.current;
@@ -109,15 +105,15 @@ const ObjectRangesTimeline = ({
   if (filteredObjects.length === 0) {
     return (
       <div className="mt-2 bg-gray-800 rounded-md p-2 text-center text-xs text-gray-400">
-        No object start/end points inside the current frame window.
+        No object start/end markers in the current visible window.
       </div>
     );
   }
 
   return (
-    <div className="mt-2 bg-gray-800 rounded-md p-2">
+    <div className="mt-1 bg-gray-800 rounded-md p-2">
       <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
-        <span className="text-xs text-gray-300">Object Start/End Timeline (All Objects)</span>
+        <span className="text-xs text-gray-300">All Objects – Start/End Timeline</span>
         <div className="flex items-center gap-2">
           <select
             value={coordinateAxis}
@@ -127,7 +123,6 @@ const ObjectRangesTimeline = ({
             <option value="x">X Coordinate</option>
             <option value="y">Y Coordinate</option>
           </select>
-          {/* Configurable window controls */}
           <div className="flex items-center gap-1">
             <span className="text-xs text-gray-400">Window:</span>
             <input
@@ -154,15 +149,10 @@ const ObjectRangesTimeline = ({
           </div>
         </div>
       </div>
-      <div className="text-[10px] text-gray-500 mb-1">
-        Showing frames {minFrame} to {maxFrame} (window: {visibleWindow} frames each side)
-      </div>
       <div ref={scrollContainerRef} className="overflow-x-auto" style={{ maxWidth: "100%" }}>
         <div ref={containerRef} style={{ width: "100%", minWidth: `${chartWidth + padding.left + padding.right}px` }}>
           <svg width={chartWidth + padding.left + padding.right} height={chartHeight + padding.top + padding.bottom}>
-            {/* Background */}
             <rect x={0} y={0} width="100%" height="100%" fill="#1f2937" rx="4" />
-            {/* Horizontal grid line (optional, helps visual reference) */}
             <line
               x1={padding.left}
               y1={markerY}
@@ -172,7 +162,6 @@ const ObjectRangesTimeline = ({
               strokeWidth="0.5"
               strokeDasharray="4 2"
             />
-            {/* X-axis line */}
             <line
               x1={padding.left}
               y1={padding.top + chartHeight}
@@ -181,22 +170,19 @@ const ObjectRangesTimeline = ({
               stroke="#6b7280"
               strokeWidth="1"
             />
-            {/* X-axis labels (frame numbers) */}
             {(() => {
               const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
               const labels = [];
               for (let f = minFrame; f <= maxFrame; f += step) {
                 const x = padding.left + getX(f);
                 labels.push(
-                  <text key={`x-label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">
+                  <text key={`x-label-${f}`} x={x} y={padding.top + chartHeight + 8} fill="#9ca3af" fontSize="8" textAnchor="middle">
                     {f}
                   </text>
                 );
               }
               return labels;
             })()}
-            {/* ========== NO Y-AXIS LINE, NO Y-AXIS LABELS ========== */}
-            {/* Markers for start/end points (all at same Y position) */}
             {filteredObjects.map(obj => {
               const color = getObjectColor(obj.id);
               const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
@@ -208,7 +194,7 @@ const ObjectRangesTimeline = ({
                       <circle
                         cx={padding.left + getX(obj.start_frame)}
                         cy={markerY}
-                        r="6"
+                        r="4"
                         fill={color}
                         stroke="#fff"
                         strokeWidth="1.5"
@@ -216,10 +202,10 @@ const ObjectRangesTimeline = ({
                         onClick={() => handlePointClick(obj.start_frame)}
                       />
                       <text
-                        x={padding.left + getX(obj.start_frame) + 8}
-                        y={markerY - 3}
+                        x={padding.left + getX(obj.start_frame) + 6}
+                        y={markerY - 2}
                         fill={color}
-                        fontSize="9"
+                        fontSize="8"
                         fontWeight="bold"
                       >
                         S{obj.id}
@@ -231,7 +217,7 @@ const ObjectRangesTimeline = ({
                       <circle
                         cx={padding.left + getX(obj.end_frame)}
                         cy={markerY}
-                        r="6"
+                        r="4"
                         fill={color}
                         stroke="#fff"
                         strokeWidth="1.5"
@@ -239,10 +225,10 @@ const ObjectRangesTimeline = ({
                         onClick={() => handlePointClick(obj.end_frame)}
                       />
                       <text
-                        x={padding.left + getX(obj.end_frame) + 8}
-                        y={markerY - 3}
+                        x={padding.left + getX(obj.end_frame) + 6}
+                        y={markerY - 2}
                         fill={color}
-                        fontSize="9"
+                        fontSize="8"
                         fontWeight="bold"
                       >
                         E{obj.id}
@@ -255,12 +241,10 @@ const ObjectRangesTimeline = ({
           </svg>
         </div>
       </div>
-      <div className="text-center text-[10px] text-gray-400 mt-1">
-        💡 Click any marker to jump. Only points inside the visible frame window are shown (Y‑axis removed).
-      </div>
     </div>
   );
 };
+
 
 // ==================== MAIN COMPONENT ====================
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
@@ -334,6 +318,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   // --- Unique IDs data state (all objects from API) ---
   const [uniqueIdsData, setUniqueIdsData] = useState<UniqueIdsResponse | null>(null);
   const [isLoadingUnique, setIsLoadingUnique] = useState(false);
+  const uniqueIdsAbortRef = useRef<AbortController | null>(null);
 
   // --- Timeline 1 (selected objects coordinates) state ---
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
@@ -387,32 +372,61 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  // --- Fetch unique IDs for the current window ---
+  // --- Fetch unique IDs for the current window (with abort & retry) ---
   useEffect(() => {
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
+    
     const UNIQUE_WINDOW = 300;
     const startFrame = Math.max(0, currentFrame - UNIQUE_WINDOW);
     const endFrame = Math.min(currentFrame + UNIQUE_WINDOW, totalFrames);
+    
+    if (uniqueIdsAbortRef.current) {
+      uniqueIdsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    uniqueIdsAbortRef.current = controller;
     setIsLoadingUnique(true);
-    const timer = setTimeout(async () => {
-      try {
-        const data = await getUniqueIdsData(projectId, startFrame, endFrame);
-        setUniqueIdsData(data);
-      } catch (err) {
-        console.error("Failed to fetch unique IDs for window:", err);
-      } finally {
-        setIsLoadingUnique(false);
+    
+    const fetchWithRetry = async (retries = 2) => {
+      for (let i = 0; i <= retries; i++) {
+        if (controller.signal.aborted) return;
+        try {
+          const data = await getUniqueIdsData(projectId, startFrame, endFrame, controller.signal);
+          if (controller.signal.aborted) return;
+          if ((data?.data?.objects?.length ?? 0) > 0 || i === retries) {
+            setUniqueIdsData(data);
+            return;
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        } catch (err) {
+          if (controller.signal.aborted) return;
+          if (i === retries) {
+            console.error("Failed to fetch unique IDs after retries:", err);
+            setUniqueIdsData(null);
+            return;
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        } finally {
+          if (!controller.signal.aborted && i === retries) {
+            setIsLoadingUnique(false);
+          }
+        }
       }
-    }, 300);
-    return () => clearTimeout(timer);
+    };
+    
+    fetchWithRetry().finally(() => {
+      if (!controller.signal.aborted) setIsLoadingUnique(false);
+    });
+    
+    return () => controller.abort();
   }, [projectId, currentFrame, getTotalFrames]);
 
   // --- Filter selected objects for timeline 1 ---
   const selectedUniqueObjects = useMemo(() => {
     if (!uniqueIdsData) return [];
-    return uniqueIdsData.data.objects.filter(obj =>
+    return (uniqueIdsData.data?.objects ?? []).filter(obj =>
       selectedObjects.some(sel => sel.object_id === obj.id)
     );
   }, [uniqueIdsData, selectedObjects]);
@@ -619,7 +633,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     isSeekingRef.current = true;
     pendingFrameRef.current = null;
 
-    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && targetFrame <= range.end);
+    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
     if (!isWithinLoadedRange) {
       console.log(`[SEEK] Target frame ${targetFrame} outside loaded ranges, clearing old data.`);
       setAnnotationMap(new Map());
@@ -1214,11 +1228,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const allObjectIds = getAllObjectIds();
 
-  // ==================== NEW FEATURE: CYCLE SELECTED OBJECTS WITH TAB & CAPSLOCK ====================
-  // Helper to get sorted list of all object IDs from uniqueIdsData
+  // ==================== CYCLE SELECTED OBJECTS WITH TAB & CAPSLOCK ====================
   const getAllObjectIdList = useCallback(() => {
     if (!uniqueIdsData) return [];
-    return uniqueIdsData.data.objects.map(obj => obj.id).sort((a, b) => a - b);
+    return (uniqueIdsData.data?.objects ?? []).map(obj => obj.id).sort((a, b) => a - b);
   }, [uniqueIdsData]);
 
   const cycleSelectedObject = useCallback((position: 0 | 1) => {
@@ -1235,7 +1248,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const nextIndex = (currentIndex + 1) % allIds.length;
     const nextId = allIds[nextIndex];
 
-    const objData = uniqueIdsData?.data.objects.find(obj => obj.id === nextId);
+    const objData = uniqueIdsData?.data?.objects?.find(obj => obj.id === nextId);
     if (!objData) return;
     const jumpFrame = objData.start_frame;
 
@@ -1359,7 +1372,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
         case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
         case "KeyC": e.preventDefault(); setShowConfusionModal(prev => !prev); break;
-        // Tab and CapsLock are handled in the dedicated useEffect above
       }
     };
     window.addEventListener("keydown", handler);
@@ -1752,9 +1764,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   </div>
                 </div>
               </div>
-              <div className="text-[10px] text-gray-500 mb-1">
-                Showing frames {Math.max(0, currentFrame - timelineWindow)} to {Math.min(currentFrame + timelineWindow, getTotalFrames())} (window: {timelineWindow} frames)
-              </div>
               <div 
                 ref={timelineContainerRef}
                 className="overflow-x-auto cursor-grab active:cursor-grabbing"
@@ -1836,14 +1845,19 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           )}
 
           {/* ========== TIMELINE 2: ALL OBJECTS START/END (NO Y‑AXIS, ONLY MARKERS) ========== */}
-          {isLoadingUnique && uniqueIdsData === null && (
+          {isLoadingUnique && !uniqueIdsData && (
             <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400">
               Loading object start/end data...
             </div>
           )}
-          {uniqueIdsData && uniqueIdsData.data.objects.length > 0 && (
+          {!isLoadingUnique && (!uniqueIdsData || (uniqueIdsData.data?.objects?.length ?? 0) === 0) && (
+            <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400">
+              No objects found in the current frame window.
+            </div>
+          )}
+          {uniqueIdsData && (uniqueIdsData.data?.objects?.length ?? 0) > 0 && (
             <ObjectRangesTimeline
-              objects={uniqueIdsData.data.objects}
+              objects={uniqueIdsData.data.objects!}
               currentFrame={currentFrame}
               onSeek={handleFrameJump}
               getObjectColor={getObjectColor}
