@@ -43,7 +43,7 @@ export const getTimelineData = async (
     });
 
     if (!response.ok) {
-      throw new Error("Failed to fetch timeline");
+      // throw new Error("Failed to fetch timeline");
     }
 
     // raw compressed bytes
