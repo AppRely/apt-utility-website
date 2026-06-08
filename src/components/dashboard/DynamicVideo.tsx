@@ -52,18 +52,28 @@ const ObjectRangesTimeline = ({
   windowInput: string;
   setWindowInput: (val: string) => void;
 }) => {
-  const [coordinateAxis, setCoordinateAxis] = useState<"x" | "y">("x");
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [, forceRedraw] = useState(0);
 
   const minFrame = useMemo(() => Math.max(0, currentFrame - visibleWindow), [currentFrame, visibleWindow]);
   const maxFrame = useMemo(() => Math.min(totalFrames, currentFrame + visibleWindow), [currentFrame, visibleWindow, totalFrames]);
 
+  useEffect(() => {
+    console.log(`[Timeline2] Visible frames: ${minFrame} to ${maxFrame} (total=${totalFrames}, current=${currentFrame})`);
+    console.log(`[Timeline2] Total objects in props: ${objects.length}`);
+    if (objects.length) {
+      console.log(`[Timeline2] Sample object start=${objects[0].start_frame}, end=${objects[0].end_frame}`);
+    }
+  }, [minFrame, maxFrame, objects, currentFrame, totalFrames]);
+
   const filteredObjects = useMemo(() => {
-    return objects.filter(obj => 
+    const filtered = objects.filter(obj =>
       (obj.start_frame >= minFrame && obj.start_frame <= maxFrame) ||
       (obj.end_frame >= minFrame && obj.end_frame <= maxFrame)
     );
+    console.log(`[Timeline2] Filtered objects: ${filtered.length} / ${objects.length}`);
+    return filtered;
   }, [objects, minFrame, maxFrame]);
 
   const [chartWidth, setChartWidth] = useState(800);
@@ -73,16 +83,18 @@ const ObjectRangesTimeline = ({
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver(entries => {
-      setChartWidth(entries[0].contentRect.width - padding.left - padding.right);
+      const newWidth = entries[0].contentRect.width - padding.left - padding.right;
+      setChartWidth(Math.max(100, newWidth));
+      forceRedraw(prev => prev + 1);
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, [padding.left, padding.right]);
 
-  const getX = (frame: number) => {
+  const getX = useCallback((frame: number) => {
     if (maxFrame === minFrame) return 0;
     return ((frame - minFrame) / (maxFrame - minFrame)) * chartWidth;
-  };
+  }, [minFrame, maxFrame, chartWidth]);
 
   const markerY = padding.top + chartHeight / 2;
 
@@ -95,17 +107,16 @@ const ObjectRangesTimeline = ({
     const containerRect = container.getBoundingClientRect();
     const svgRect = svg.getBoundingClientRect();
     const targetScrollLeft = currentX + svgRect.left - containerRect.left - containerRect.width / 2;
-    container.scrollTo({ left: targetScrollLeft, behavior: "smooth" });
-  }, [currentFrame, getX, chartWidth, filteredObjects]);
+    container.scrollTo({ left: Math.max(0, targetScrollLeft), behavior: "smooth" });
+  }, [currentFrame, getX, filteredObjects.length]);
 
-  const handlePointClick = (frame: number) => {
-    onSeek(frame);
-  };
+  const handlePointClick = (frame: number) => onSeek(frame);
 
   if (filteredObjects.length === 0) {
     return (
       <div className="mt-2 bg-gray-800 rounded-md p-2 text-center text-xs text-gray-400">
-        No object start/end markers in the current visible window.
+        No object start/end markers in the visible window (frames {minFrame}–{maxFrame}).
+        Total objects: {objects.length}. Try increasing the window size.
       </div>
     );
   }
@@ -113,18 +124,12 @@ const ObjectRangesTimeline = ({
   return (
     <div className="mt-1 bg-gray-800 rounded-md p-2">
       <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
-        <span className="text-xs text-gray-300">All Objects – Start/End Timeline</span>
+        <span className="text-xs text-gray-300">
+          Start/End Timeline:
+        </span>
         <div className="flex items-center gap-2">
-          <select
-            value={coordinateAxis}
-            onChange={(e) => setCoordinateAxis(e.target.value as "x" | "y")}
-            className="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600"
-          >
-            <option value="x">X Coordinate</option>
-            <option value="y">Y Coordinate</option>
-          </select>
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-400">Window:</span>
+            <span className="text-xs text-gray-400">Window (frames):</span>
             <input
               type="number"
               min="10"
@@ -137,9 +142,9 @@ const ObjectRangesTimeline = ({
             <button
               onClick={() => {
                 let newVal = parseInt(windowInput, 10);
-                if (isNaN(newVal)) newVal = 300;
+                if (isNaN(newVal)) newVal = 1000;
                 newVal = Math.min(Math.max(newVal, 10), totalFrames);
-                onWindowChange(newVal/2);
+                onWindowChange(Math.floor(newVal / 2));
                 setWindowInput(newVal.toString());
               }}
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md transition-colors"
@@ -176,25 +181,43 @@ const ObjectRangesTimeline = ({
               for (let f = minFrame; f <= maxFrame; f += step) {
                 const x = padding.left + getX(f);
                 labels.push(
-                  <text key={`x-label-${f}`} x={x} y={padding.top + chartHeight + 8} fill="#9ca3af" fontSize="8" textAnchor="middle">
+                  <text key={`label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">
                     {f}
                   </text>
                 );
               }
               return labels;
             })()}
+            {currentFrame >= minFrame && currentFrame <= maxFrame && (
+              <line
+                x1={padding.left + getX(currentFrame)}
+                y1={padding.top}
+                x2={padding.left + getX(currentFrame)}
+                y2={padding.top + chartHeight}
+                stroke="#ff3333"
+                strokeWidth="1.5"
+                strokeDasharray="4 2"
+              />
+            )}
             {filteredObjects.map(obj => {
               const color = getObjectColor(obj.id);
               const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
               const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
+              const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
+              const startX = padding.left + getX(obj.start_frame);
+              const endX = padding.left + getX(obj.end_frame);
+              const baseY = markerY;
+              const startOffsetY = isOverlap ? -8 : 0;
+              const endOffsetY = isOverlap ? 8 : 0;
+
               return (
                 <g key={obj.id}>
                   {showStart && (
                     <>
                       <circle
-                        cx={padding.left + getX(obj.start_frame)}
-                        cy={markerY}
-                        r="4"
+                        cx={startX}
+                        cy={baseY + startOffsetY}
+                        r="5"
                         fill={color}
                         stroke="#fff"
                         strokeWidth="1.5"
@@ -202,10 +225,10 @@ const ObjectRangesTimeline = ({
                         onClick={() => handlePointClick(obj.start_frame)}
                       />
                       <text
-                        x={padding.left + getX(obj.start_frame) + 6}
-                        y={markerY - 2}
+                        x={startX + 6}
+                        y={baseY + startOffsetY - 2}
                         fill={color}
-                        fontSize="8"
+                        fontSize="9"
                         fontWeight="bold"
                       >
                         S{obj.id}
@@ -215,9 +238,9 @@ const ObjectRangesTimeline = ({
                   {showEnd && (
                     <>
                       <circle
-                        cx={padding.left + getX(obj.end_frame)}
-                        cy={markerY}
-                        r="4"
+                        cx={endX}
+                        cy={baseY + endOffsetY}
+                        r="5"
                         fill={color}
                         stroke="#fff"
                         strokeWidth="1.5"
@@ -225,10 +248,10 @@ const ObjectRangesTimeline = ({
                         onClick={() => handlePointClick(obj.end_frame)}
                       />
                       <text
-                        x={padding.left + getX(obj.end_frame) + 6}
-                        y={markerY - 2}
+                        x={endX + 6}
+                        y={baseY + endOffsetY - 2}
                         fill={color}
-                        fontSize="8"
+                        fontSize="9"
                         fontWeight="bold"
                       >
                         E{obj.id}
@@ -244,7 +267,6 @@ const ObjectRangesTimeline = ({
     </div>
   );
 };
-
 
 // ==================== MAIN COMPONENT ====================
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
@@ -315,12 +337,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const pendingRangesRef = useRef<Set<string>>(new Set());
   const loadedRangesKeyRef = useRef<Set<string>>(new Set());
 
-  // --- Unique IDs data state (all objects from API) ---
+  // Unique IDs data state
   const [uniqueIdsData, setUniqueIdsData] = useState<UniqueIdsResponse | null>(null);
   const [isLoadingUnique, setIsLoadingUnique] = useState(false);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
+  const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
+  const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
+  const uniqueDataCacheRef = useRef<Map<string, UniqueIdObject[]>>(new Map());
 
-  // --- Timeline 1 (selected objects coordinates) state ---
+  // Timeline 1 state
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -328,16 +353,173 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [timelineWindow, setTimelineWindow] = useState(300);
   const [timelineWindowInput, setTimelineWindowInput] = useState("300");
 
-  // --- Timeline 2 (all objects start/end) configurable window ---
-  const [timeline2Window, setTimeline2Window] = useState(300);
-  const [timeline2WindowInput, setTimeline2WindowInput] = useState("300");
+  // Timeline 2 window
+  const [timeline2Window, setTimeline2Window] = useState(1000);
+  const [timeline2WindowInput, setTimeline2WindowInput] = useState("1000");
 
-  // --- Helper functions ---
+  // ========== GEOMETRY (must be defined before any function that uses it) ==========
+  const scale = useMemo(() => {
+    if (videoWidth && videoHeight) return Math.min(900 / videoWidth, 850 / videoHeight);
+    return 1;
+  }, [videoWidth, videoHeight]);
+
+  const displayWidth = useMemo(() => (videoWidth ? videoWidth * scale : 900), [videoWidth, scale]);
+  const displayHeight = useMemo(() => (videoHeight ? videoHeight * scale : 850), [videoHeight, scale]);
+  const offsetX = useMemo(() => (900 - displayWidth) / 2, [displayWidth]);
+  const offsetY = useMemo(() => (850 - displayHeight) / 2, [displayHeight]);
+
+  const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
+  const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
+
+  // ========== HELPER FUNCTIONS ==========
   const getTotalFrames = useCallback(() => {
     if (duration <= 0 || stableFpsRef.current <= 0) return 0;
     return Math.floor(duration * stableFpsRef.current);
   }, [duration]);
 
+  const getObjectColor = (id: number) => {
+    const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
+    return colors[id % colors.length];
+  };
+
+  // --- Unique IDs helpers ---
+  const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
+    return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
+  }, []);
+
+  const isUniqueRangeLoading = useCallback((start: number, end: number): boolean => {
+    const key = `${start}-${end}`;
+    if (pendingUniqueRangesRef.current.has(key)) return true;
+    for (const pendingKey of pendingUniqueRangesRef.current) {
+      const [pStart, pEnd] = pendingKey.split("-").map(Number);
+      if (!(end <= pStart || start >= pEnd)) return true;
+    }
+    return false;
+  }, []);
+
+  const addUniqueLoadedRange = useCallback((start: number, end: number) => {
+    let newRanges = [...loadedUniqueRangesRef.current, { start, end }];
+    newRanges.sort((a, b) => a.start - b.start);
+    const merged: typeof newRanges = [];
+    for (const range of newRanges) {
+      if (merged.length === 0 || merged[merged.length-1].end < range.start - 1) {
+        merged.push(range);
+      } else {
+        merged[merged.length-1].end = Math.max(merged[merged.length-1].end, range.end);
+      }
+    }
+    loadedUniqueRangesRef.current = merged;
+  }, []);
+
+  const mergeUniqueCacheIntoState = useCallback(() => {
+    const allObjects: UniqueIdObject[] = [];
+    for (const objects of uniqueDataCacheRef.current.values()) {
+      allObjects.push(...objects);
+    }
+    const uniqueMap = new Map<number, UniqueIdObject>();
+    for (const obj of allObjects) {
+      if (!uniqueMap.has(obj.id) || obj.end_frame > uniqueMap.get(obj.id)!.end_frame) {
+        uniqueMap.set(obj.id, obj);
+      }
+    }
+    const objectsArray = Array.from(uniqueMap.values());
+    console.log(`[UniqueIDs] Merged cache → ${objectsArray.length} objects`);
+    setUniqueIdsData({
+      status: "success",
+      data: {
+        project_id: projectId!,
+        objects: objectsArray,
+      },
+    });
+  }, [projectId]);
+
+  const pruneUniqueRanges = useCallback((currentFrameNum: number, keepWindow: number) => {
+    const minKeep = currentFrameNum - keepWindow;
+    const maxKeep = currentFrameNum + keepWindow;
+    let changed = false;
+    loadedUniqueRangesRef.current = loadedUniqueRangesRef.current.filter(range => {
+      if (range.end < minKeep || range.start > maxKeep) {
+        const key = `${range.start}-${range.end}`;
+        if (uniqueDataCacheRef.current.has(key)) {
+          uniqueDataCacheRef.current.delete(key);
+          changed = true;
+        }
+        return false;
+      }
+      return true;
+    });
+    if (changed) mergeUniqueCacheIntoState();
+  }, [mergeUniqueCacheIntoState]);
+
+  const fetchUniqueRange = useCallback((startFrame: number, endFrame: number) => {
+    if (!projectId) return;
+    const rangeKey = `${startFrame}-${endFrame}`;
+    if (isUniqueRangeLoaded(startFrame, endFrame)) return;
+    if (isUniqueRangeLoading(startFrame, endFrame)) return;
+
+    pendingUniqueRangesRef.current.add(rangeKey);
+    if (uniqueIdsAbortRef.current) uniqueIdsAbortRef.current.abort();
+    const controller = new AbortController();
+    uniqueIdsAbortRef.current = controller;
+    setIsLoadingUnique(true);
+
+    getUniqueIdsData(projectId, startFrame, endFrame, controller.signal)
+      .then(data => {
+        if (controller.signal.aborted) return;
+        if (data?.data?.objects) {
+          uniqueDataCacheRef.current.set(rangeKey, data.data.objects);
+          addUniqueLoadedRange(startFrame, endFrame);
+          mergeUniqueCacheIntoState();
+        }
+      })
+      .catch(err => {
+        if (!controller.signal.aborted) console.error("[UniqueIDs] Fetch error:", err);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          pendingUniqueRangesRef.current.delete(rangeKey);
+          setIsLoadingUnique(false);
+        }
+      });
+  }, [projectId, isUniqueRangeLoaded, isUniqueRangeLoading, addUniqueLoadedRange, mergeUniqueCacheIntoState]);
+
+  // Main effect for unique IDs
+  useEffect(() => {
+    if (!projectId) return;
+    const totalFrames = getTotalFrames();
+    if (totalFrames === 0) return;
+
+    pruneUniqueRanges(currentFrame, timeline2Window * 3);
+
+    const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
+    if (isCovered) return;
+
+    const halfWindow = timeline2Window;
+    let start = Math.max(0, currentFrame - halfWindow);
+    let end = Math.min(currentFrame + halfWindow, totalFrames);
+    fetchUniqueRange(start, end);
+  }, [projectId, currentFrame, getTotalFrames, timeline2Window, pruneUniqueRanges, fetchUniqueRange]);
+
+  // Reset unique caches on window change
+  useEffect(() => {
+    loadedUniqueRangesRef.current = [];
+    pendingUniqueRangesRef.current.clear();
+    uniqueDataCacheRef.current.clear();
+    setUniqueIdsData(null);
+  }, [timeline2Window]);
+
+  useEffect(() => {
+    const handleOperationComplete = () => {
+      loadedUniqueRangesRef.current = [];
+      pendingUniqueRangesRef.current.clear();
+      uniqueDataCacheRef.current.clear();
+      setUniqueIdsData(null);
+    };
+    window.addEventListener("operationComplete", handleOperationComplete);
+    return () => window.removeEventListener("operationComplete", handleOperationComplete);
+  }, []);
+
+  // --- Annotation loading helpers ---
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
     if (loadedRangesKeyRef.current.has(key)) return true;
@@ -372,58 +554,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  // --- Fetch unique IDs for the current window (with abort & retry) ---
-  useEffect(() => {
-    if (!projectId) return;
-    const totalFrames = getTotalFrames();
-    if (totalFrames === 0) return;
-    
-    const UNIQUE_WINDOW = 300;
-    const startFrame = Math.max(0, currentFrame - UNIQUE_WINDOW);
-    const endFrame = Math.min(currentFrame + UNIQUE_WINDOW, totalFrames);
-    
-    if (uniqueIdsAbortRef.current) {
-      uniqueIdsAbortRef.current.abort();
-    }
-    const controller = new AbortController();
-    uniqueIdsAbortRef.current = controller;
-    setIsLoadingUnique(true);
-    
-    const fetchWithRetry = async (retries = 2) => {
-      for (let i = 0; i <= retries; i++) {
-        if (controller.signal.aborted) return;
-        try {
-          const data = await getUniqueIdsData(projectId, startFrame, endFrame, controller.signal);
-          if (controller.signal.aborted) return;
-          if ((data?.data?.objects?.length ?? 0) > 0 || i === retries) {
-            setUniqueIdsData(data);
-            return;
-          }
-          await new Promise(r => setTimeout(r, 1000));
-        } catch (err) {
-          if (controller.signal.aborted) return;
-          if (i === retries) {
-            console.error("Failed to fetch unique IDs after retries:", err);
-            setUniqueIdsData(null);
-            return;
-          }
-          await new Promise(r => setTimeout(r, 1000));
-        } finally {
-          if (!controller.signal.aborted && i === retries) {
-            setIsLoadingUnique(false);
-          }
-        }
-      }
-    };
-    
-    fetchWithRetry().finally(() => {
-      if (!controller.signal.aborted) setIsLoadingUnique(false);
-    });
-    
-    return () => controller.abort();
-  }, [projectId, currentFrame, getTotalFrames]);
-
-  // --- Filter selected objects for timeline 1 ---
   const selectedUniqueObjects = useMemo(() => {
     if (!uniqueIdsData) return [];
     return (uniqueIdsData.data?.objects ?? []).filter(obj =>
@@ -431,20 +561,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     );
   }, [uniqueIdsData, selectedObjects]);
 
-  // --- Fetch timeline data for selected objects (timeline 1) ---
+  // Timeline 1 data fetch
   useEffect(() => {
     if (!projectId || selectedObjects.length === 0) {
       setTimelinePoints([]);
       return;
     }
-
     const fetchTimeline = async () => {
       const totalFrames = getTotalFrames();
       if (totalFrames === 0) return;
       const startFrame = Math.max(0, currentFrame - timelineWindow);
       const endFrame = Math.min(currentFrame + timelineWindow, totalFrames);
       const objectIds = selectedObjects.map(obj => obj.object_id).join(',');
-
       try {
         const data = await getTimelineData(projectId, startFrame, endFrame, objectIds);
         if (data?.f) {
@@ -453,29 +581,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             const frame = Number(frameStr);
             Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
               if (Array.isArray(coords) && coords.length >= 2) {
-                points.push({
-                  frame,
-                  x: coords[0],
-                  y: coords[1],
-                  objectId: Number(objectIdStr),
-                });
+                points.push({ frame, x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
               }
             });
           });
           setTimelinePoints(points);
-        } else {
-          setTimelinePoints([]);
-        }
+        } else setTimelinePoints([]);
       } catch (err) {
         console.error("[Timeline] Fetch error:", err);
         setTimelinePoints([]);
       }
     };
-
     fetchTimeline();
   }, [projectId, selectedObjects, currentFrame, getTotalFrames, timelineWindow]);
 
-  // --- Chart data for timeline 1 ---
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
     const grouped = new Map<number, any>();
@@ -488,11 +607,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return Array.from(grouped.values()).sort((a, b) => a.frame - b.frame);
   }, [timelinePoints, coordinateMode]);
 
-  const uniqueObjectIds = useMemo(() => {
-    return Array.from(new Set(timelinePoints.map(p => p.objectId)));
-  }, [timelinePoints]);
+  const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
 
-  // --- Seek from chart mouse (timeline 1) ---
   const seekFromChartMouse = useCallback((clientX: number) => {
     if (!timelineContainerRef.current || timelinePoints.length === 0) return;
     const svg = timelineContainerRef.current.querySelector('svg');
@@ -510,7 +626,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     handleSeek(targetTime);
   }, [timelinePoints]);
 
-  // Chart mouse drag handling
   useEffect(() => {
     if (!timelineContainerRef.current || selectedObjects.length === 0) return;
     const container = timelineContainerRef.current;
@@ -521,10 +636,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setIsChartDragging(true);
       seekFromChartMouse(e.clientX);
     };
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isChartDragging) return;
-      seekFromChartMouse(e.clientX);
-    };
+    const onMouseMove = (e: MouseEvent) => { if (isChartDragging) seekFromChartMouse(e.clientX); };
     const onMouseUp = () => setIsChartDragging(false);
     container.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
@@ -539,16 +651,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleChartClick = (data: any) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const frame = data.activePayload[0].payload.frame;
-      const time = frame / stableFpsRef.current;
-      handleSeek(time);
+      handleSeek(frame / stableFpsRef.current);
     }
   };
 
-  const tooltipFormatter = useCallback((
-    value: any,
-    name: string | number | undefined,
-    props: any
-  ): [string, string] => {
+  const tooltipFormatter = useCallback((value: any, name: string | number | undefined) => {
     if (name === undefined) return [String(value), ""];
     const safeName = String(name);
     const match = safeName.match(/obj_(\d+)(?:_(x|y))?/);
@@ -560,18 +667,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return [Number(value).toFixed(2), `Object ${objId}`];
   }, [coordinateMode]);
 
-  const OBJECT_COLORS = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
-
-  const ANNO_PREFETCH_THRESHOLD = useMemo(() => {
-    return Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current);
-  }, []);
+  const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
   const [showUniqueModal, setShowUniqueModal] = useState(false);
-  const [showConfusionModal, setShowConfusionModal ] = useState(false);
+  const [showConfusionModal, setShowConfusionModal] = useState(false);
   const projectName = sessionStorage.getItem("project_name") || undefined;
   const videoName = sessionStorage.getItem("video_name") || undefined;
   const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
 
-  // --- Cleanup ---
+  // Cleanup
   useEffect(() => {
     return () => {
       if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
@@ -581,7 +684,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   useEffect(() => { setMounted(true); }, []);
 
-  // --- Load session data & FPS ---
+  // Load session data & FPS
   useEffect(() => {
     if (!mounted) return;
     const storedProjectId = sessionStorage.getItem("projectId");
@@ -595,7 +698,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       stableFpsRef.current = originalFps;
       setFps(originalFps);
       originalFpsLoadedRef.current = true;
-      console.log(`[FPS LOCK] Original FPS locked at: ${originalFps}`);
     }
     if (storedWidth) setVideoWidth(Number(storedWidth));
     if (storedHeight) setVideoHeight(Number(storedHeight));
@@ -604,17 +706,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
-    if (fps !== stableFpsRef.current) {
-      console.log(`[FPS ERROR] ⚠️ FPS changed from ${stableFpsRef.current} to ${fps}! Resetting`);
-      setFps(stableFpsRef.current);
-    }
+    if (fps !== stableFpsRef.current) setFps(stableFpsRef.current);
   }, [fps, mounted]);
 
-  // --- Optimized handleSeek ---
   const handleSeek = async (time: number) => {
     if (!video) return;
     if (isSeekingRef.current) {
-      console.log(`[SEEK BLOCKED] Currently seeking, queuing time ${time}`);
       const targetFrame = Math.round(time * stableFpsRef.current);
       setPendingFrameVisual(targetFrame);
       setTimeout(() => setPendingFrameVisual(null), 500);
@@ -623,19 +720,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const targetFrame = Math.round(safeTime * stableFpsRef.current);
-    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) {
-      console.log(`[SEEK DEBUG] ⏭️ Skipping duplicate seek to frame ${targetFrame}`);
-      return;
-    }
+    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) return;
     lastSeekFrameRef.current = targetFrame;
     lastSeekTimeRef.current = safeTime;
-    console.log(`[SEEK DEBUG] Seeking to frame ${targetFrame}`);
     isSeekingRef.current = true;
     pendingFrameRef.current = null;
 
     const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
     if (!isWithinLoadedRange) {
-      console.log(`[SEEK] Target frame ${targetFrame} outside loaded ranges, clearing old data.`);
       setAnnotationMap(new Map());
       persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
@@ -682,8 +774,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
-  const getObjectColor = (id: number) => OBJECT_COLORS[id % OBJECT_COLORS.length];
-  
   const togglePlayPause = useCallback(() => {
     if (!video) return;
     if (video.paused) {
@@ -694,16 +784,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
-  // --- Trajectory management ---
   const trajectoryUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (!mounted) return;
     if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
     trajectoryUpdateIntervalRef.current = setInterval(() => {
       const currentTrajMap = trajectoriesRef.current;
-      if (currentTrajMap.size > 0) {
-        setTrajectoryMap(new Map(currentTrajMap));
-      }
+      if (currentTrajMap.size > 0) setTrajectoryMap(new Map(currentTrajMap));
     }, 500);
     return () => { if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current); };
   }, [mounted]);
@@ -738,7 +825,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
   
-  // --- Zoom and pan handlers ---
+  // Zoom and pan handlers
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -795,7 +882,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleZoomOut = () => { const ns = Math.max(stageScale.x / 1.1, 1); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
   const handleResetZoom = () => { setStageScale({x:1,y:1}); setStagePos({x:0,y:0}); setCurrentZoom(1); setCursorStyle("grab"); };
 
-  // --- Auto-pan to selected object ---
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
@@ -809,8 +895,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     lastPanFrameRef.current = currentFrame;
     const objX = currentAnnotation.coordinates[0][0];
     const objY = currentAnnotation.coordinates[0][1];
-    const stageObjX = mapX(objX);
-    const stageObjY = mapY(objY);
+    // Use the memoized offsetX, offsetY, scale (they are captured from closure)
+    const stageObjX = offsetX + objX * scale;
+    const stageObjY = offsetY + objY * scale;
     const stage = stageRef.current;
     const currentStageX = stage.x();
     const currentStageY = stage.y();
@@ -837,10 +924,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       targetOffsetY = (stageObjY - (viewportBottom - marginInStage)) * currentScale;
       needsPan = true;
     }
-    if (needsPan) {
-      setStagePos({ x: currentStageX - targetOffsetX, y: currentStageY - targetOffsetY });
-    }
-  }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video]);
+    if (needsPan) setStagePos({ x: currentStageX - targetOffsetX, y: currentStageY - targetOffsetY });
+  }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale]);
 
   useEffect(() => {
     if (!video || !mounted) return;
@@ -852,24 +937,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
   useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
-      setTimeout(() => panToSelectedObject(), 50);
-    }
+    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) setTimeout(() => panToSelectedObject(), 50);
   }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
 
   useEffect(() => {
-    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
-      panToSelectedObject();
-    }
+    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
   }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
   useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) {
-      panToSelectedObject();
-    }
+    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
   }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
-  // --- Annotation fetching mutation ---
+  // Annotation fetching mutation
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
@@ -878,7 +957,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      console.log(`[API DEBUG] Fetching frames ${start} to ${end}`);
       return getFrameRangeData(projectId, start, end, controller.signal);
     },
     onSuccess: (data, { start, end }) => {
@@ -911,9 +989,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setAnnotationsReady(true);
       if (!initialLoadComplete && video && video.paused && mounted) {
         setInitialLoadComplete(true);
-        setTimeout(() => {
-          video.play().then(() => setIsPlaying(true)).catch(err => console.log("[AUTO-PLAY] Could not auto-play:", err));
-        }, 100);
+        setTimeout(() => video.play().then(() => setIsPlaying(true)).catch(() => {}), 100);
       }
     },
     onError: (_, { start, end }) => {
@@ -926,10 +1002,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const abortRef = useRef<AbortController | null>(null);
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
-  const nextPrefetchFrameRef = useRef<number | null>(null);
-  const [forceTrajectoryUpdate, setForceTrajectoryUpdate] = useState(0);
 
-  // --- Clean up old annotations ---
+  // Clean up old annotations & trajectory
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
     const maxFrames = 120 * stableFpsRef.current;
@@ -943,39 +1017,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         removedCount++;
       }
     }
-    if (removedCount > 0) {
-      console.log(`[MEMORY] Pruned ${removedCount} old annotations (frame ${currentFrame})`);
-      setAnnotationMap(newMap);
-    }
+    if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
-  // --- Clean up old trajectory points ---
   useEffect(() => {
     if (!mounted) return;
     const maxTrajFrames = 60 * stableFpsRef.current;
     const cutoffFrame = Math.max(0, currentFrame - maxTrajFrames);
     let prunedAny = false;
-
-    const originalLength = persistentTrajectoryRef.current.length;
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame);
-    if (persistentTrajectoryRef.current.length !== originalLength) prunedAny = true;
-
     for (const [objId, frameMap] of trajectoriesRef.current.entries()) {
-      for (const frameId of frameMap.keys()) {
-        if (frameId < cutoffFrame) {
-          frameMap.delete(frameId);
-          prunedAny = true;
-        }
-      }
-      if (frameMap.size === 0) {
-        trajectoriesRef.current.delete(objId);
-      }
+      for (const frameId of frameMap.keys()) if (frameId < cutoffFrame) { frameMap.delete(frameId); prunedAny = true; }
+      if (frameMap.size === 0) trajectoriesRef.current.delete(objId);
     }
-
     if (prunedAny) {
       setTrajectoryMap(new Map(trajectoriesRef.current));
       setTrajectoryPointCount(persistentTrajectoryRef.current.length);
-      console.log(`[MEMORY] Pruned trajectory points older than frame ${cutoffFrame}`);
     }
   }, [currentFrame, mounted]);
 
@@ -1007,9 +1064,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const windowEnd = Math.min(frameId + windowFrames, totalFrames);
       if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
         chunkMutation.mutate({ start: Math.max(0, windowStart - 600), end: windowEnd });
-      } else {
-        setIsLoadingAnnotations(false);
-      }
+      } else setIsLoadingAnnotations(false);
     };
     window.addEventListener("operationComplete", handleLinkingComplete);
     return () => window.removeEventListener("operationComplete", handleLinkingComplete);
@@ -1033,7 +1088,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const currentFps = stableFpsRef.current;
     let currentFrameNum = baseFrame !== undefined ? baseFrame : currentDisplayFrameRef.current;
     if (isSeekingRef.current) {
-      console.log(`[STEP BLOCKED] Currently seeking, queuing step ${step}`);
       setPendingFrameVisual(currentFrameNum + step);
       setTimeout(() => setPendingFrameVisual(null), 500);
       pendingFrameRef.current = currentFrameNum + step;
@@ -1048,7 +1102,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       return;
     }
     const newTime = newFrame / currentFps;
-    console.log(`[STEP DEBUG] Seek initiated to frame ${newFrame}`);
     isSeekingRef.current = true;
     pendingFrameRef.current = null;
     currentDisplayFrameRef.current = newFrame;
@@ -1090,8 +1143,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // --- VIDEO INITIALIZATION ---
+  // Video initialization
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
+
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
     const loadVideo = async () => {
@@ -1109,9 +1163,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           const actualTime = vid.currentTime;
           const actualFrame = Math.round(actualTime * lockedFps);
           const targetFrame = pendingFrameRef.current;
-          console.log(`[SEEKED] Target: ${targetFrame}, Actual: ${actualFrame}`);
           if (targetFrame !== null && actualFrame !== targetFrame) {
-            console.log(`[SEEKED] ❌ MISMATCH! Retrying...`);
             vid.currentTime = targetFrame / lockedFps;
             return;
           }
@@ -1135,16 +1187,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           if (pendingFrameRef.current !== null) {
             const queuedFrame = pendingFrameRef.current;
             pendingFrameRef.current = null;
-            console.log(`[SEEKED] Processing queued frame: ${queuedFrame}`);
-            setTimeout(() => {
-              const queuedTime = queuedFrame / lockedFps;
-              handleSeek(queuedTime);
-            }, 10);
+            setTimeout(() => handleSeek(queuedFrame / lockedFps), 10);
           }
         };
         vid.addEventListener('seeked', handleSeeked);
         vid.onloadedmetadata = async () => {
-          console.log(`[VIDEO] Loaded - Duration: ${vid.duration}s, FPS: ${lockedFps}`);
           setIsLoadingAnnotations(true);
           setInitialLoadComplete(false);
           chunkMutation.mutate({ start: 0, end: 150 });
@@ -1157,14 +1204,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
     loadVideo();
   }, [mounted, originalFpsLoadedRef.current]);
-
-  const scale = videoWidth && videoHeight ? Math.min(900/videoWidth, 850/videoHeight) : 1;
-  const displayWidth = videoWidth ? videoWidth*scale : 900;
-  const displayHeight = videoHeight ? videoHeight*scale : 850;
-  const offsetX = (900 - displayWidth)/2;
-  const offsetY = (850 - displayHeight)/2;
-  const mapX = (x: number) => offsetX + x*scale;
-  const mapY = (y: number) => offsetY + y*scale;
 
   const undoMutation = useMutation({
     mutationFn: () => undoAction(projectId!),
@@ -1228,7 +1267,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const allObjectIds = getAllObjectIds();
 
-  // ==================== CYCLE SELECTED OBJECTS WITH TAB & CAPSLOCK ====================
+  // Cycle selected objects with Tab & CapsLock
   const getAllObjectIdList = useCallback(() => {
     if (!uniqueIdsData) return [];
     return (uniqueIdsData.data?.objects ?? []).map(obj => obj.id).sort((a, b) => a - b);
@@ -1239,19 +1278,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (allIds.length === 0) return;
     if (selectedObjects.length === 0) return;
     if (position === 1 && selectedObjects.length < 2) return;
-
     const currentObj = selectedObjects[position];
     const currentId = currentObj.object_id;
     const currentIndex = allIds.indexOf(currentId);
     if (currentIndex === -1) return;
-
     const nextIndex = (currentIndex + 1) % allIds.length;
     const nextId = allIds[nextIndex];
-
     const objData = uniqueIdsData?.data?.objects?.find(obj => obj.id === nextId);
     if (!objData) return;
     const jumpFrame = objData.start_frame;
-
     if (!projectId) return;
     objectMutation.mutate(
       { projectId, objectId: nextId, frameId: jumpFrame },
@@ -1271,84 +1306,56 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           handleFrameJump(jumpFrame);
           toast({ title: `Switched ${position === 0 ? 'primary' : 'secondary'} object to ID ${nextId}`, duration: 1500 });
         },
-        onError: () => {
-          toast({ title: `Failed to switch to object ${nextId}`, variant: "destructive", duration: 1500 });
-        },
+        onError: () => toast({ title: `Failed to switch to object ${nextId}`, variant: "destructive", duration: 1500 }),
       }
     );
   }, [getAllObjectIdList, selectedObjects, uniqueIdsData, projectId, objectMutation, setSelectedObjects, handleFrameJump, toast]);
 
-  // Keyboard handler for Tab and CapsLock
   useEffect(() => {
     if (!mounted) return;
     const keydownHandler = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-        return;
-      }
-
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
       if (e.code === 'Tab') {
-        if (selectedObjects.length > 0) {
-          e.preventDefault();
-          cycleSelectedObject(0);
-        }
+        if (selectedObjects.length > 0) { e.preventDefault(); cycleSelectedObject(0); }
       } else if (e.code === 'CapsLock') {
-        if (selectedObjects.length === 2) {
-          e.preventDefault();
-          cycleSelectedObject(1);
-        }
+        if (selectedObjects.length === 2) { e.preventDefault(); cycleSelectedObject(1); }
       }
     };
     window.addEventListener('keydown', keydownHandler);
     return () => window.removeEventListener('keydown', keydownHandler);
   }, [mounted, selectedObjects.length, cycleSelectedObject]);
 
-  // --- Keyboard shortcuts modal state (updated with new shortcuts) ---
   const [showShortcutModal, setShowShortcutModal] = useState(false);
   const shortcuts = [
-    {
-      category: "Playback",
-      items: [
-        { action: "Play / Pause", key: "Space / P" },
-        { action: "Next Frame", key: "→" },
-        { action: "Previous Frame", key: "←" },
-        { action: "Skip +5 sec", key: "L" },
-        { action: "Skip -5 sec", key: "J" },
-      ],
-    },
-    {
-      category: "Navigation",
-      items: [
-        { action: "Jump +10 frames", key: "↑" },
-        { action: "Jump -10 frames", key: "↓" },
-        { action: "Go to Start", key: "S" },
-        { action: "Go to End", key: "E" },
-      ],
-    },
-    {
-      category: "View",
-      items: [
-        { action: "Zoom In", key: "=" },
-        { action: "Zoom Out", key: "-" },
-        { action: "Toggle Trajectory", key: "T" },
-        { action: "Auto Pan", key: "A" },
-      ],
-    },
-    {
-      category: "Selection",
-      items: [
-        { action: "Cycle first selected object", key: "Tab" },
-        { action: "Cycle second selected object", key: "CapsLock" },
-      ],
-    },
-    {
-      category: "Panels",
-      items: [
-        { action: "Open ID Table", key: "M" },
-        { action: "Open Shortcuts", key: "?" },
-        { action: "Open Confusion Table", key: "C" },
-      ],
-    },
+    { category: "Playback", items: [
+      { action: "Play / Pause", key: "Space / P" },
+      { action: "Next Frame", key: "→" },
+      { action: "Previous Frame", key: "←" },
+      { action: "Skip +5 sec", key: "L" },
+      { action: "Skip -5 sec", key: "J" },
+    ] },
+    { category: "Navigation", items: [
+      { action: "Jump +10 frames", key: "↑" },
+      { action: "Jump -10 frames", key: "↓" },
+      { action: "Go to Start", key: "S" },
+      { action: "Go to End", key: "E" },
+    ] },
+    { category: "View", items: [
+      { action: "Zoom In", key: "=" },
+      { action: "Zoom Out", key: "-" },
+      { action: "Toggle Trajectory", key: "T" },
+      { action: "Auto Pan", key: "A" },
+    ] },
+    { category: "Selection", items: [
+      { action: "Cycle first selected object", key: "Tab" },
+      { action: "Cycle second selected object", key: "CapsLock" },
+    ] },
+    { category: "Panels", items: [
+      { action: "Open ID Table", key: "M" },
+      { action: "Open Shortcuts", key: "?" },
+      { action: "Open Confusion Table", key: "C" },
+    ] },
   ];
 
   useEffect(() => {
@@ -1503,9 +1510,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                               is_inside: meta.data.is_inside 
                             }]); 
                             toast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 });
-                            if (autoPanEnabled && currentZoom > 1.1) {
-                              setTimeout(() => panToSelectedObject(), 100);
-                            }
+                            if (autoPanEnabled && currentZoom > 1.1) setTimeout(() => panToSelectedObject(), 100);
                           } 
                         });
                       }}
@@ -1720,7 +1725,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
 
-          {/* ========== TIMELINE 1: SELECTED OBJECTS COORDINATES (CONFIGURABLE) ========== */}
+          {/* TIMELINE 1: SELECTED OBJECTS COORDINATES */}
           {selectedObjects.length > 0 && timelinePoints.length > 0 && (
             <div className="px-2 py-1 bg-gray-900 rounded-md mt-2">
               <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
@@ -1844,10 +1849,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           )}
 
-          {/* ========== TIMELINE 2: ALL OBJECTS START/END (NO Y‑AXIS, ONLY MARKERS) ========== */}
+          {/* TIMELINE 2: ALL OBJECTS START/END - with spinner while loading */}
           {isLoadingUnique && !uniqueIdsData && (
-            <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400">
-              Loading object start/end data...
+            <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+              <span>Loading object start/end data...</span>
             </div>
           )}
           {!isLoadingUnique && (!uniqueIdsData || (uniqueIdsData.data?.objects?.length ?? 0) === 0) && (
