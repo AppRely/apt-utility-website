@@ -359,14 +359,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   // ========== GEOMETRY (must be defined before any function that uses it) ==========
   const scale = useMemo(() => {
-    if (videoWidth && videoHeight) return Math.min(900 / videoWidth, 850 / videoHeight);
+    if (videoWidth && videoHeight) return Math.min(900 / videoWidth, 500 / videoHeight); // adjusted for new Stage height
     return 1;
   }, [videoWidth, videoHeight]);
 
   const displayWidth = useMemo(() => (videoWidth ? videoWidth * scale : 900), [videoWidth, scale]);
-  const displayHeight = useMemo(() => (videoHeight ? videoHeight * scale : 850), [videoHeight, scale]);
+  const displayHeight = useMemo(() => (videoHeight ? videoHeight * scale : 500), [videoHeight, scale]); // match Stage height
   const offsetX = useMemo(() => (900 - displayWidth) / 2, [displayWidth]);
-  const offsetY = useMemo(() => (850 - displayHeight) / 2, [displayHeight]);
+  const offsetY = useMemo(() => (500 - displayHeight) / 2, [displayHeight]);
 
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
@@ -895,7 +895,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     lastPanFrameRef.current = currentFrame;
     const objX = currentAnnotation.coordinates[0][0];
     const objY = currentAnnotation.coordinates[0][1];
-    // Use the memoized offsetX, offsetY, scale (they are captured from closure)
     const stageObjX = offsetX + objX * scale;
     const stageObjY = offsetY + objY * scale;
     const stage = stageRef.current;
@@ -907,7 +906,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const viewportLeft = -currentStageX / currentScale;
     const viewportRight = (900 - currentStageX) / currentScale;
     const viewportTop = -currentStageY / currentScale;
-    const viewportBottom = (850 - currentStageY) / currentScale;
+    const viewportBottom = (500 - currentStageY) / currentScale; // updated Stage height
     let needsPan = false;
     let targetOffsetX = 0, targetOffsetY = 0;
     if (stageObjX < viewportLeft + marginInStage) {
@@ -1411,8 +1410,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         </div>
       )}
       <div className="flex flex-col gap-2 w-full h-full">
-        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-full">
-          <div className="relative flex items-center justify-center mb-2 w-full h-[calc(100%-80px)] bg-black">
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-auto max-h-screen overflow-y-auto">
+          <div className="relative flex items-center justify-center mb-2 w-full bg-black">
             <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
               FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
               {isSeekingRef.current && " 🔄 SEEKING"}
@@ -1433,7 +1432,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             <Stage 
               ref={stageRef} 
               width={900} 
-              height={850} 
+              height={500} 
               scaleX={stageScale.x} 
               scaleY={stageScale.y} 
               x={stagePos.x} 
