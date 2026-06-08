@@ -190,7 +190,7 @@ const ObjectRangesTimeline = ({
                       style={{ cursor: "pointer" }}
                       onClick={() => handlePointClick(obj.start_frame)}
                     />
-                    <text
+                    {/* <text
                       x={startX + 6}
                       y={baseY + startOffsetY - 2}
                       fill={color}
@@ -198,7 +198,7 @@ const ObjectRangesTimeline = ({
                       fontWeight="bold"
                     >
                       S{obj.id}
-                    </text>
+                    </text> */}
                   </>
                 )}
                 {showEnd && (
@@ -216,7 +216,7 @@ const ObjectRangesTimeline = ({
                       style={{ cursor: "pointer" }}
                       onClick={() => handlePointClick(obj.end_frame)}
                     />
-                    <text
+                    {/* <text
                       x={endX + 6}
                       y={baseY + endOffsetY - 2}
                       fill={color}
@@ -224,7 +224,7 @@ const ObjectRangesTimeline = ({
                       fontWeight="bold"
                     >
                       E{obj.id}
-                    </text>
+                    </text> */}
                   </>
                 )}
               </g>
