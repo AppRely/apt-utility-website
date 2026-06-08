@@ -24,13 +24,11 @@ import { getTimelineData } from "@/lib/api/getTimelineData";
 import { getUniqueIdsData, UniqueIdsResponse, UniqueIdObject } from "@/lib/api/getUniqueIdsData";
 import { exportTrk } from "@/lib/api/exportTrk";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
-import UniqueIdsModal from "@/components/dashboard/UniqueIdsModal";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import ConfusionTableModal from "@/components/dashboard/ConfusionTableModal";
 
-// ==================== TIMELINE – SHOW ALL OBJECTS (no active frame filter) ====================
+// ==================== TIMELINE – SHOW ALL OBJECTS ====================
 const ObjectRangesTimeline = ({
   objects,
   currentFrame,
@@ -61,19 +59,13 @@ const ObjectRangesTimeline = ({
 
   useEffect(() => {
     console.log(`[Timeline2] Visible frames: ${minFrame} to ${maxFrame} (total=${totalFrames}, current=${currentFrame})`);
-    console.log(`[Timeline2] Total objects in props: ${objects.length}`);
-    if (objects.length) {
-      console.log(`[Timeline2] Sample object start=${objects[0].start_frame}, end=${objects[0].end_frame}`);
-    }
-  }, [minFrame, maxFrame, objects, currentFrame, totalFrames]);
+  }, [minFrame, maxFrame, currentFrame, totalFrames]);
 
   const filteredObjects = useMemo(() => {
-    const filtered = objects.filter(obj =>
+    return objects.filter(obj =>
       (obj.start_frame >= minFrame && obj.start_frame <= maxFrame) ||
       (obj.end_frame >= minFrame && obj.end_frame <= maxFrame)
     );
-    console.log(`[Timeline2] Filtered objects: ${filtered.length} / ${objects.length}`);
-    return filtered;
   }, [objects, minFrame, maxFrame]);
 
   const [chartWidth, setChartWidth] = useState(800);
@@ -124,9 +116,7 @@ const ObjectRangesTimeline = ({
   return (
     <div className="mt-1 bg-gray-800 rounded-md p-2">
       <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
-        <span className="text-xs text-gray-300">
-          Start/End Timeline:
-        </span>
+        <span className="text-xs text-gray-300">Start/End Timeline:</span>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <span className="text-xs text-gray-400">Window (frames):</span>
@@ -158,46 +148,19 @@ const ObjectRangesTimeline = ({
         <div ref={containerRef} style={{ width: "100%", minWidth: `${chartWidth + padding.left + padding.right}px` }}>
           <svg width={chartWidth + padding.left + padding.right} height={chartHeight + padding.top + padding.bottom}>
             <rect x={0} y={0} width="100%" height="100%" fill="#1f2937" rx="4" />
-            <line
-              x1={padding.left}
-              y1={markerY}
-              x2={padding.left + chartWidth}
-              y2={markerY}
-              stroke="#374151"
-              strokeWidth="0.5"
-              strokeDasharray="4 2"
-            />
-            <line
-              x1={padding.left}
-              y1={padding.top + chartHeight}
-              x2={padding.left + chartWidth}
-              y2={padding.top + chartHeight}
-              stroke="#6b7280"
-              strokeWidth="1"
-            />
+            <line x1={padding.left} y1={markerY} x2={padding.left + chartWidth} y2={markerY} stroke="#374151" strokeWidth="0.5" strokeDasharray="4 2" />
+            <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#6b7280" strokeWidth="1" />
             {(() => {
               const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
               const labels = [];
               for (let f = minFrame; f <= maxFrame; f += step) {
                 const x = padding.left + getX(f);
-                labels.push(
-                  <text key={`label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">
-                    {f}
-                  </text>
-                );
+                labels.push(<text key={`label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">{f}</text>);
               }
               return labels;
             })()}
             {currentFrame >= minFrame && currentFrame <= maxFrame && (
-              <line
-                x1={padding.left + getX(currentFrame)}
-                y1={padding.top}
-                x2={padding.left + getX(currentFrame)}
-                y2={padding.top + chartHeight}
-                stroke="#ff3333"
-                strokeWidth="1.5"
-                strokeDasharray="4 2"
-              />
+              <line x1={padding.left + getX(currentFrame)} y1={padding.top} x2={padding.left + getX(currentFrame)} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
             )}
             {filteredObjects.map(obj => {
               const color = getObjectColor(obj.id);
@@ -212,53 +175,59 @@ const ObjectRangesTimeline = ({
 
               return (
                 <g key={obj.id}>
-                  {showStart && (
-                    <>
-                      <circle
-                        cx={startX}
-                        cy={baseY + startOffsetY}
-                        r="5"
-                        fill={color}
-                        stroke="#fff"
-                        strokeWidth="1.5"
-                        style={{ cursor: "pointer" }}
-                        onClick={() => handlePointClick(obj.start_frame)}
-                      />
-                      <text
-                        x={startX + 6}
-                        y={baseY + startOffsetY - 2}
-                        fill={color}
-                        fontSize="9"
-                        fontWeight="bold"
-                      >
-                        S{obj.id}
-                      </text>
-                    </>
-                  )}
-                  {showEnd && (
-                    <>
-                      <circle
-                        cx={endX}
-                        cy={baseY + endOffsetY}
-                        r="5"
-                        fill={color}
-                        stroke="#fff"
-                        strokeWidth="1.5"
-                        style={{ cursor: "pointer" }}
-                        onClick={() => handlePointClick(obj.end_frame)}
-                      />
-                      <text
-                        x={endX + 6}
-                        y={baseY + endOffsetY - 2}
-                        fill={color}
-                        fontSize="9"
-                        fontWeight="bold"
-                      >
-                        E{obj.id}
-                      </text>
-                    </>
-                  )}
-                </g>
+                {showStart && (
+                  <>
+                    <rect
+                      x={startX - 5}
+                      y={baseY + startOffsetY - 5}
+                      width="4"
+                      height="10"
+                      rx="2"
+                      ry="2"
+                      fill={color}
+                      stroke="#fff"
+                      strokeWidth="1"
+                      style={{ cursor: "pointer" }}
+                      onClick={() => handlePointClick(obj.start_frame)}
+                    />
+                    <text
+                      x={startX + 6}
+                      y={baseY + startOffsetY - 2}
+                      fill={color}
+                      fontSize="9"
+                      fontWeight="bold"
+                    >
+                      S{obj.id}
+                    </text>
+                  </>
+                )}
+                {showEnd && (
+                  <>
+                    <rect
+                      x={endX - 5}
+                      y={baseY + endOffsetY - 5}
+                      width="4"
+                      height="10"
+                      rx="2"
+                      ry="2"
+                      fill={color}
+                      stroke="#fff"
+                      strokeWidth="1.5"
+                      style={{ cursor: "pointer" }}
+                      onClick={() => handlePointClick(obj.end_frame)}
+                    />
+                    <text
+                      x={endX + 6}
+                      y={baseY + endOffsetY - 2}
+                      fill={color}
+                      fontSize="9"
+                      fontWeight="bold"
+                    >
+                      E{obj.id}
+                    </text>
+                  </>
+                )}
+              </g>
               );
             })}
           </svg>
@@ -357,21 +326,26 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [timeline2Window, setTimeline2Window] = useState(1000);
   const [timeline2WindowInput, setTimeline2WindowInput] = useState("1000");
 
-  // ========== GEOMETRY (must be defined before any function that uses it) ==========
-  const scale = useMemo(() => {
-    if (videoWidth && videoHeight) return Math.min(900 / videoWidth, 500 / videoHeight); // adjusted for new Stage height
-    return 1;
-  }, [videoWidth, videoHeight]);
+  // Dynamic stage dimensions
+  const [stageWidth, setStageWidth] = useState(900);
+  const [stageHeight, setStageHeight] = useState(700);
+  const rootContainerRef = useRef<HTMLDivElement>(null);
 
-  const displayWidth = useMemo(() => (videoWidth ? videoWidth * scale : 900), [videoWidth, scale]);
-  const displayHeight = useMemo(() => (videoHeight ? videoHeight * scale : 500), [videoHeight, scale]); // match Stage height
-  const offsetX = useMemo(() => (900 - displayWidth) / 2, [displayWidth]);
-  const offsetY = useMemo(() => (500 - displayHeight) / 2, [displayHeight]);
+  // Geometry
+  const scale = useMemo(() => {
+    if (videoWidth && videoHeight) return Math.min(stageWidth / videoWidth, stageHeight / videoHeight);
+    return 1;
+  }, [videoWidth, videoHeight, stageWidth, stageHeight]);
+
+  const displayWidth = useMemo(() => (videoWidth ? videoWidth * scale : stageWidth), [videoWidth, scale, stageWidth]);
+  const displayHeight = useMemo(() => (videoHeight ? videoHeight * scale : stageHeight), [videoHeight, scale, stageHeight]);
+  const offsetX = useMemo(() => (stageWidth - displayWidth) / 2, [stageWidth, displayWidth]);
+  const offsetY = useMemo(() => (stageHeight - displayHeight) / 2, [stageHeight, displayHeight]);
 
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
-  // ========== HELPER FUNCTIONS ==========
+  // Helper functions
   const getTotalFrames = useCallback(() => {
     if (duration <= 0 || stableFpsRef.current <= 0) return 0;
     return Math.floor(duration * stableFpsRef.current);
@@ -382,7 +356,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return colors[id % colors.length];
   };
 
-  // --- Unique IDs helpers ---
+  // Unique IDs helpers (same as before)
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
     return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
   }, []);
@@ -423,7 +397,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     }
     const objectsArray = Array.from(uniqueMap.values());
-    console.log(`[UniqueIDs] Merged cache → ${objectsArray.length} objects`);
     setUniqueIdsData({
       status: "success",
       data: {
@@ -488,19 +461,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
-
     pruneUniqueRanges(currentFrame, timeline2Window * 3);
-
     const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
     if (isCovered) return;
-
     const halfWindow = timeline2Window;
     let start = Math.max(0, currentFrame - halfWindow);
     let end = Math.min(currentFrame + halfWindow, totalFrames);
     fetchUniqueRange(start, end);
   }, [projectId, currentFrame, getTotalFrames, timeline2Window, pruneUniqueRanges, fetchUniqueRange]);
 
-  // Reset unique caches on window change
   useEffect(() => {
     loadedUniqueRangesRef.current = [];
     pendingUniqueRangesRef.current.clear();
@@ -519,7 +488,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("operationComplete", handleOperationComplete);
   }, []);
 
-  // --- Annotation loading helpers ---
+  // Annotation helpers
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
     if (loadedRangesKeyRef.current.has(key)) return true;
@@ -561,7 +530,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     );
   }, [uniqueIdsData, selectedObjects]);
 
-  // Timeline 1 data fetch
+  // Timeline data
   useEffect(() => {
     if (!projectId || selectedObjects.length === 0) {
       setTimelinePoints([]);
@@ -668,8 +637,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   }, [coordinateMode]);
 
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
-  const [showUniqueModal, setShowUniqueModal] = useState(false);
-  const [showConfusionModal, setShowConfusionModal] = useState(false);
   const projectName = sessionStorage.getItem("project_name") || undefined;
   const videoName = sessionStorage.getItem("video_name") || undefined;
   const trkFileName = sessionStorage.getItem("trk_file_name") || undefined;
@@ -684,7 +651,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Load session data & FPS
+  // Load session data
   useEffect(() => {
     if (!mounted) return;
     const storedProjectId = sessionStorage.getItem("projectId");
@@ -825,7 +792,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
   
-  // Zoom and pan handlers
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -843,7 +809,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setStagePos(newPos);
   }, []);
   
-  const getCircleRadius = () => Math.max(0.5, 2*(1/currentZoom));
+  const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
   const getIdFontSize = () => Math.max(6, 12*(1/currentZoom));
   const getBBoxStrokeWidth = () => Math.max(0.5, 2*(1/currentZoom));
@@ -904,9 +870,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const margin = 80;
     const marginInStage = margin / currentScale;
     const viewportLeft = -currentStageX / currentScale;
-    const viewportRight = (900 - currentStageX) / currentScale;
+    const viewportRight = (stageWidth - currentStageX) / currentScale;
     const viewportTop = -currentStageY / currentScale;
-    const viewportBottom = (500 - currentStageY) / currentScale; // updated Stage height
+    const viewportBottom = (stageHeight - currentStageY) / currentScale;
     let needsPan = false;
     let targetOffsetX = 0, targetOffsetY = 0;
     if (stageObjX < viewportLeft + marginInStage) {
@@ -924,7 +890,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       needsPan = true;
     }
     if (needsPan) setStagePos({ x: currentStageX - targetOffsetX, y: currentStageY - targetOffsetY });
-  }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale]);
+  }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight]);
 
   useEffect(() => {
     if (!video || !mounted) return;
@@ -947,7 +913,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
   }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
-  // Annotation fetching mutation
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
@@ -1002,7 +967,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
 
-  // Clean up old annotations & trajectory
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
     const maxFrames = 120 * stableFpsRef.current;
@@ -1142,9 +1106,30 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
+  // Dynamic stage resize
+  useEffect(() => {
+    if (!rootContainerRef.current) return;
+    const updateStageSize = () => {
+      const rect = rootContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const availableHeight = window.innerHeight - rect.top - 280;
+      const newHeight = Math.min(Math.max(availableHeight, 300), 600);
+      const newWidth = Math.min(rect.width - 32, 1200);
+      setStageWidth(newWidth);
+      setStageHeight(newHeight);
+    };
+    updateStageSize();
+    const resizeObserver = new ResizeObserver(updateStageSize);
+    resizeObserver.observe(rootContainerRef.current);
+    window.addEventListener('resize', updateStageSize);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateStageSize);
+    };
+  }, []);
+
   // Video initialization
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
-
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
     const loadVideo = async () => {
@@ -1266,7 +1251,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const allObjectIds = getAllObjectIds();
 
-  // Cycle selected objects with Tab & CapsLock
   const getAllObjectIdList = useCallback(() => {
     if (!uniqueIdsData) return [];
     return (uniqueIdsData.data?.objects ?? []).map(obj => obj.id).sort((a, b) => a - b);
@@ -1357,6 +1341,36 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     ] },
   ];
 
+  // --- Popup openers ---
+  const openUniqueIdsPopup = useCallback(() => {
+    if (!projectId) return;
+    const url = `/popup/unique-ids?projectId=${projectId}`;
+    const features = "width=1000,height=700,resizable=yes,scrollbars=yes";
+    window.open(url, "_blank", features);
+  }, [projectId]);
+
+  const openConfusionPopup = useCallback(() => {
+    if (!projectId) return;
+    const url = `/popup/confusion?projectId=${projectId}`;
+    const features = "width=1200,height=700,resizable=yes,scrollbars=yes";
+    window.open(url, "_blank", features);
+  }, [projectId]);
+
+  // --- Message listener for popup -> main communication ---
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === "UNIQUE_SELECT") {
+        const { frame } = event.data;
+        if (frame !== undefined) handleFrameJump(frame);
+      } else if (event.data.type === "CONFUSION_JUMP") {
+        handleFrameJump(event.data.frame);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [handleFrameJump]);
+
+  // Keyboard handler (with popup keys)
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
@@ -1375,14 +1389,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
-        case "KeyM": e.preventDefault(); setShowUniqueModal(prev => !prev); break;
+        case "KeyM":
+          e.preventDefault();
+          openUniqueIdsPopup();
+          break;
+        case "KeyC":
+          e.preventDefault();
+          openConfusionPopup();
+          break;
         case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
-        case "KeyC": e.preventDefault(); setShowConfusionModal(prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup]);
 
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
@@ -1409,8 +1429,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </div>
       )}
-      <div className="flex flex-col gap-2 w-full h-full">
-        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-auto max-h-screen overflow-y-auto">
+      <div ref={rootContainerRef} className="flex flex-col gap-2 w-full h-full">
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-auto">
           <div className="relative flex items-center justify-center mb-2 w-full bg-black">
             <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
               FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
@@ -1431,8 +1451,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             
             <Stage 
               ref={stageRef} 
-              width={900} 
-              height={500} 
+              width={stageWidth} 
+              height={stageHeight} 
               scaleX={stageScale.x} 
               scaleY={stageScale.y} 
               x={stagePos.x} 
@@ -1590,36 +1610,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
                 </Button>
               )}
-             <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setShowUniqueModal(prev => !prev)}
-              className="bg-gradient-to-r from-green-500 to-green-600 text-white 
-                        hover:from-green-600 hover:to-green-700 
-                        shadow-md hover:shadow-lg 
-                        transition-all duration-200 rounded-full"
-            >
-              i
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setShowShortcutModal(true)}
-              className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white 
-                        hover:from-blue-600 hover:to-indigo-700 
-                        shadow-md hover:shadow-lg 
-                        transition-all duration-200 rounded-full"
-            >
-              ?
-            </Button>
-            <Button
+              <Button
                 size="icon"
                 variant="ghost"
-                onClick={() =>setShowConfusionModal( prev => !prev )}
-                className="bg-gradient-to-r from-red-500 to-red-600 text-white
-                  hover:from-red-600 hover:to-red-700
-                  shadow-md hover:shadow-lg
-                  transition-all duration-200 rounded-full "
+                onClick={openUniqueIdsPopup}
+                className="bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+              >
+                i
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setShowShortcutModal(true)}
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+              >
+                ?
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={openConfusionPopup}
+                className="bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
               >
                 C
               </Button>
@@ -1848,7 +1859,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           )}
 
-          {/* TIMELINE 2: ALL OBJECTS START/END - with spinner while loading */}
+          {/* TIMELINE 2: ALL OBJECTS START/END */}
           {isLoadingUnique && !uniqueIdsData && (
             <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
@@ -1904,47 +1915,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </div>
       )}
-      <UniqueIdsModal
-        open={showUniqueModal}
-        onClose={() => setShowUniqueModal(false)}
-        projectId={projectId}
-        projectName={projectName}
-        videoName={videoName}
-        trkFileName={trkFileName}
-        onSelectObject={(id, frame) => {
-          if (!video || !projectId) return;
-          handleFrameJump(frame);
-          objectMutation.mutate(
-            { projectId, objectId: id, frameId: frame },
-            {
-              onSuccess: (meta) => {
-                setSelectedObjects((prev) => {
-                  if (prev.some(obj => obj.object_id === id)) {
-                    return prev.filter(obj => obj.object_id !== id);
-                  }
-                  if (prev.length === 2) {
-                    return [
-                      prev[0],
-                      { object_id: id, frame_id: frame, start_frame: meta.data.start_frame, end_frame: meta.data.end_frame, is_inside: meta.data.is_inside },
-                    ];
-                  }
-                  return [
-                    ...prev,
-                    { object_id: id, frame_id: frame, start_frame: meta.data.start_frame, end_frame: meta.data.end_frame, is_inside: meta.data.is_inside },
-                  ];
-                });
-              },
-            }
-          );
-        }}
-      />
-      <ConfusionTableModal
-        open={showConfusionModal}
-        onClose={() => setShowConfusionModal(false)}
-        projectId={projectId}
-        currentFrame={currentFrame}
-        handleFrameJump={handleFrameJump}
-      />
     </>
   );
 }

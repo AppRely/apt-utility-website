@@ -46,10 +46,12 @@ export default function UniqueIdsTable({
           <span className="text-xs font-semibold">Selected & Suggested IDs</span>
         </div>
         <div className="max-h-[120px] overflow-y-auto">
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full text-xs border-collapse table-auto">
             <tbody>
               {topIds.length === 0 ? (
-                <tr><td className="p-2 text-center text-gray-400 border">No selection</td></tr>
+                <tr>
+                  <td className="p-2 text-center text-gray-400 border">No selection</td>
+                </tr>
               ) : (
                 topIds.map(id => (
                   <tr
@@ -59,7 +61,7 @@ export default function UniqueIdsTable({
                     }`}
                     onClick={() => onSelectRow(id)}
                   >
-                    <td className="border px-2 py-1">ID: {id}</td>
+                    <td className="border px-3 py-2 text-center whitespace-nowrap">ID: {id}</td>
                   </tr>
                 ))
               )}
@@ -71,14 +73,14 @@ export default function UniqueIdsTable({
       {/* Main table */}
       <div className="border rounded overflow-hidden flex flex-col flex-1 min-h-0">
         <div className="bg-gray-200 sticky top-0">
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full text-xs border-collapse table-auto">
             <thead>
               <tr>
-                <th className="border px-2 py-1">ID</th>
-                <th className="border px-2 py-1">Frames</th>
-                <th className="border px-2 py-1">Len</th>
-                <th className="border px-2 py-1">Start</th>
-                <th className="border px-2 py-1">End</th>
+                <th className="border px-3 py-2 text-center whitespace-nowrap">ID</th>
+                <th className="border px-3 py-2 text-center whitespace-nowrap">Frames</th>
+                <th className="border px-3 py-2 text-center whitespace-nowrap">Len</th>
+                <th className="border px-3 py-2 text-center whitespace-nowrap">Start</th>
+                <th className="border px-3 py-2 text-center whitespace-nowrap">End</th>
               </tr>
             </thead>
           </table>
@@ -87,29 +89,31 @@ export default function UniqueIdsTable({
           {isLoading ? (
             <p className="text-center py-3">Loading...</p>
           ) : (
-            <table className="w-full text-xs border-collapse">
-              <tbody>
-                {tableData.map(row => (
-                  <tr
-                    key={row.id}
-                    ref={el => { rowRefs.current[row.id] = el; }}
-                    className={`cursor-pointer ${
-                      selectedIds[0] === row.id ? "bg-green-200" :
-                      selectedIds[1] === row.id ? "bg-blue-200" :
-                      linkedIds.includes(row.id) ? "bg-yellow-200" :
-                      "hover:bg-blue-100"
-                    }`}
-                    onClick={() => onSelectRow(row.id)}
-                  >
-                    <td className="border px-2 py-1">{row.id}</td>
-                    <td className="border px-2 py-1">{row.N_frame}</td>
-                    <td className="border px-2 py-1">{row.trk_len}</td>
-                    <td className="border px-2 py-1">{row.start_frame}</td>
-                    <td className="border px-2 py-1">{row.end_frame}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse table-auto">
+                <tbody>
+                  {tableData.map(row => (
+                    <tr
+                      key={row.id}
+                      ref={el => { rowRefs.current[row.id] = el; }}
+                      className={`cursor-pointer ${
+                        selectedIds[0] === row.id ? "bg-green-200" :
+                        selectedIds[1] === row.id ? "bg-blue-200" :
+                        linkedIds.includes(row.id) ? "bg-yellow-200" :
+                        "hover:bg-blue-100"
+                      }`}
+                      onClick={() => onSelectRow(row.id)}
+                    >
+                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.id}</td>
+                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.N_frame}</td>
+                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.trk_len}</td>
+                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.start_frame}</td>
+                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.end_frame}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
