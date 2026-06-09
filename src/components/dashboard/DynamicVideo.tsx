@@ -1364,6 +1364,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Select as second object", key: "Ctrl+0-9" },
       { action: "Cycle first selected object", key: "Tab" },
       { action: "Cycle second selected object", key: "CapsLock" },
+       { action: "Clear selection of object", key: "Backspace" },
       { action: "Next page (if >10 objects)", key: "Shift+0-9" },
     ] },
     { category: "Panels", items: [
@@ -1407,6 +1408,21 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
       if (!video || document.activeElement?.closest(".your-controls-class")) return;
+
+      // Backspace: clear selection
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        if (selectedObjects.length === 2) {
+          // Remove only the second object
+          setSelectedObjects(prev => prev.slice(0, 1));
+          toast({ title: "Cleared second object", duration: 1000 });
+        } else if (selectedObjects.length === 1) {
+          // Clear all
+          setSelectedObjects([]);
+          toast({ title: "Cleared all selected objects", duration: 1000 });
+        }
+        return;
+      }
 
       const key = e.key;
       if (/^[0-9]$/.test(key) && !e.altKey && !e.metaKey) {
