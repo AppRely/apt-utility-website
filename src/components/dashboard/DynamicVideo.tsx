@@ -1420,14 +1420,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (!video || document.activeElement?.closest(".your-controls-class")) return;
 
       // Backspace: clear selection
+      // Inside the useEffect for keyboard shortcuts, at the start of the handler:
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+
+      // Then, for Backspace:
       if (e.key === "Backspace") {
+        if (isInputFocused) return;   // allow normal deletion in inputs
         e.preventDefault();
         if (selectedObjects.length === 2) {
-          // Remove only the second object
           setSelectedObjects(prev => prev.slice(0, 1));
           toast({ title: "Cleared second object", duration: 1000 });
         } else if (selectedObjects.length === 1) {
-          // Clear all
           setSelectedObjects([]);
           toast({ title: "Cleared all selected objects", duration: 1000 });
         }
