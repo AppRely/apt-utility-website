@@ -17,6 +17,9 @@ import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
 import { ArrowLeft } from "lucide-react";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
+import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
+import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 
 export default function Sidebar({
   selectedObjects,
@@ -32,6 +35,7 @@ export default function Sidebar({
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isConfusionRunning, setIsConfusionRunning] = useState(false);
 
   // State for collapsing the object list - default to true (collapsed)
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
@@ -193,6 +197,104 @@ export default function Sidebar({
       );
     },
   });
+
+  const interpolateMutation = useMutation({
+    mutationFn: (payload: any) =>
+      interpolateTrajectory(Number(projectId), payload),
+
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Interpolation completed successfully",
+        duration: 3000,
+        className: "text-green-600",
+      });
+
+      setSelectedObjects([]);
+
+      window.dispatchEvent(
+        new CustomEvent("operationComplete", {
+          detail: { frameId: Number(frameId) },
+        }),
+      );
+    },
+  });
+
+  const recalculateMutation = useMutation({
+    mutationFn: () =>
+      recalculateConfusion(Number(projectId)),
+
+    onSuccess: () => {
+
+      toast({
+        title: "Success",
+        description: "Confusion recalculation started",
+        duration: 3000,
+        className: "text-green-600",
+      });
+      setIsConfusionRunning(true);
+      const interval = setInterval(async () => {
+        try {
+
+          const response =
+            await getConfusionStatus(
+              Number(projectId)
+            );
+
+          const status =
+            response.confusion_status;
+
+          console.log(
+            "Confusion Status:",
+            status
+          );
+
+          if (status === "COMPLETED") {
+
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+
+            toast({
+              title: "Completed",
+              description:
+                "Confusion recalculation completed successfully",
+              duration: 5000,
+              className: "text-green-600",
+            });
+
+          }
+
+          if (status === "FAILED") {
+
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+
+            toast({
+              title: "Failed",
+              description:
+                "Confusion recalculation failed",
+              variant: "destructive",
+            });
+
+          }
+
+        } catch (error) {
+
+          clearInterval(interval);
+          setIsConfusionRunning(false);
+
+          toast({
+            title: "Error",
+            description:
+              "Failed to check confusion status",
+            variant: "destructive",
+          });
+        }
+
+      }, 8000);
+    },
+  });
+
   const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
   
   // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
@@ -327,6 +429,27 @@ export default function Sidebar({
     formData.append("end_frame", String(obj.end_frame));
     console.log(formData);
     deleteMutation.mutate(formData);
+  };
+
+  const handleInterpolate = () => {
+    if (selectedObjects.length !== 2) {
+      toast({
+        title: "Invalid Selection",
+        description: "Please select exactly 2 objects.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    const [sourceObj, targetObj] = selectedObjects;
+
+    interpolateMutation.mutate({
+      source_object_id: sourceObj.object_id,
+      source_end_frame: sourceObj.end_frame,
+      target_object_id: targetObj.object_id,
+      target_start_frame: targetObj.start_frame,
+    });
   };
 
   // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
@@ -597,7 +720,7 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
           {/* Swap Button */}
           <Button
-            className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE] flex-1 max-w-xs"
+            className="bg-[#4B84EE] border-[2px] text-white text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#4B84EE] flex-1"
             disabled={selectedObjects.length !== 2 || swapMutation.isPending}
             onClick={() => setSwapDialogOpen(true)}>
             <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
@@ -606,7 +729,7 @@ export default function Sidebar({
 
           {/* Break Button - ORANGE */}
           <Button
-            className="bg-[#FF9500] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#F57C00] flex-1 max-w-xs"
+            className="bg-[#FF9500] text-white border-[2px] text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#F57C00] flex-1"
             disabled={selectedObjects.length !== 1 || breakMutation.isPending}
             onClick={() => setBreakDialogOpen(true)}>
             <Image src="/images/break.svg" alt="Break" width={15} height={15} />
@@ -618,7 +741,7 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
           {/* Link Button */}
           <Button
-            className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed flex-1 max-w-xs"
+            className="bg-[#5EC16A] border-[2px] text-white text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed flex-1"
             disabled={selectedObjects.length !== 2 || linkMutation.isPending}
             onClick={() => setLinkDialogOpen(true)}>
             <Image src="/images/link.svg" alt="Link" width={15} height={15} />
@@ -627,7 +750,7 @@ export default function Sidebar({
 
           {/* Delete Button - RED DANGER */}
           <Button
-            className="bg-[#DD524C] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#CC423C] flex-1 max-w-xs"
+            className="bg-[#DD524C] border-[2px] text-white text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#CC423C] flex-1"
             disabled={selectedObjects.length !== 1 || deleteMutation.isPending}
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}>
@@ -639,6 +762,38 @@ export default function Sidebar({
             />
             {deleteMutation.isPending ? "Deleting..." : "Delete"}
           </Button>
+        </div>
+
+        {/* Third Row: Interpolate + Recalculate */}
+        <div className="flex justify-center gap-2 w-full">
+
+          <Button
+            className="bg-purple-600 text-white border-[2px] text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-purple-700 flex-1"
+            disabled={
+              selectedObjects.length !== 2 ||
+              interpolateMutation.isPending
+            }
+            onClick={handleInterpolate}
+          >
+            {interpolateMutation.isPending
+              ? "Interpolating..."
+              : "Interpolate"}
+          </Button>
+
+          <Button
+            className="bg-cyan-600 text-white border-[2px] text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-cyan-700 flex-1"
+            disabled={recalculateMutation.isPending || isConfusionRunning }
+            onClick={() => recalculateMutation.mutate()}
+          >
+            {
+              isConfusionRunning
+                ? "Calculating..."
+                : recalculateMutation.isPending
+                  ? "Starting..."
+                  : "Confusion"
+            }
+          </Button>
+
         </div>
       </CardContent>
 
