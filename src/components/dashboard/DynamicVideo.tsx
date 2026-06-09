@@ -883,43 +883,49 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   // Slot-based selection: replaces the object in the given slot (0 = first, 1 = second)
   const selectObjectForSlot = useCallback((objectId: number, slotIndex: 0 | 1) => {
-    if (!projectId) return;
+  if (!projectId) return;
 
-    // Prevent the same object from being in both slots
-    const alreadySelectedInOtherSlot = selectedObjects.some(
-      (obj, idx) => idx !== slotIndex && obj.object_id === objectId
-    );
-    if (alreadySelectedInOtherSlot) {
-      toast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
-      return;
+  // Prevent selecting second object if no first object exists
+  if (slotIndex === 1 && selectedObjects.length === 0) {
+    toast({ title: "Select a first object before selecting a second", duration: 1500 });
+    return;
+  }
+
+  // Prevent the same object from being in both slots
+  const alreadySelectedInOtherSlot = selectedObjects.some(
+    (obj, idx) => idx !== slotIndex && obj.object_id === objectId
+  );
+  if (alreadySelectedInOtherSlot) {
+    toast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
+    return;
+  }
+
+  objectMutation.mutate(
+    { projectId: Number(projectId), objectId, frameId: currentFrame },
+    {
+      onSuccess: (meta) => {
+        setSelectedObjects(prev => {
+          const newSelection = [...prev];
+          newSelection[slotIndex] = {
+            object_id: objectId,
+            frame_id: currentFrame,
+            start_frame: meta.data.start_frame,
+            end_frame: meta.data.end_frame,
+            is_inside: meta.data.is_inside,
+          };
+          return newSelection.slice(0, 2);
+        });
+        toast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
+        if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
+          setTimeout(() => panToSelectedObject(), 100);
+        }
+      },
+      onError: () => toast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
     }
+  );
+}, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, toast]);
 
-    objectMutation.mutate(
-      { projectId: Number(projectId), objectId, frameId: currentFrame },
-      {
-        onSuccess: (meta) => {
-          setSelectedObjects(prev => {
-            const newSelection = [...prev];
-            // Replace or add at the given slot
-            newSelection[slotIndex] = {
-              object_id: objectId,
-              frame_id: currentFrame,
-              start_frame: meta.data.start_frame,
-              end_frame: meta.data.end_frame,
-              is_inside: meta.data.is_inside,
-            };
-            // Ensure we don't exceed 2 slots (should already be fine)
-            return newSelection.slice(0, 2);
-          });
-          toast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
-          if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
-            setTimeout(() => panToSelectedObject(), 100);
-          }
-        },
-        onError: () => toast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
-      }
-    );
-  }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, toast]);
+
 
   // Auto-pan effects (unchanged)
   useEffect(() => {
@@ -1364,7 +1370,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Select as second object", key: "Ctrl+0-9" },
       { action: "Cycle first selected object", key: "Tab" },
       { action: "Cycle second selected object", key: "CapsLock" },
-       { action: "Clear selection of object", key: "Backspace" },
+      { action: "Clear selection of object", key: "Backspace" },
       { action: "Next page (if >10 objects)", key: "Shift+0-9" },
     ] },
     { category: "Panels", items: [
