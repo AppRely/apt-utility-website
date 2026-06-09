@@ -106,7 +106,7 @@ const ObjectRangesTimeline = ({
 
   if (filteredObjects.length === 0) {
     return (
-      <div className="mt-2 bg-gray-800 rounded-md p-2 text-center text-xs text-gray-400">
+      <div className="bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-2xl">
         No object start/end markers in the visible window (frames {minFrame}–{maxFrame}).
         Total objects: {objects.length}. Try increasing the window size.
       </div>
@@ -114,7 +114,7 @@ const ObjectRangesTimeline = ({
   }
 
   return (
-    <div className="mt-1 bg-gray-800 rounded-md p-2">
+    <div className="bg-slate-900 border border-slate-700 rounded-xl">
       <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
         <span className="text-xs text-gray-300">Start/End Timeline:</span>
         <div className="flex items-center gap-2">
@@ -180,7 +180,7 @@ const ObjectRangesTimeline = ({
                     <rect
                       x={startX - 5}
                       y={baseY + startOffsetY - 5}
-                      width="4"
+                      width="6"
                       height="10"
                       rx="2"
                       ry="2"
@@ -199,7 +199,7 @@ const ObjectRangesTimeline = ({
                     <rect
                       x={endX - 5}
                       y={baseY + endOffsetY - 5}
-                      width="4"
+                      width="6"
                       height="10"
                       rx="2"
                       ry="2"
@@ -312,6 +312,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
 
   // ========== Helper functions (defined early) ==========
   const getObjectColor = useCallback((id: number) => {
@@ -1693,15 +1694,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             )}
 
 
-            <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
+            <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md border border-slate-200 shadow-lg text-slate-700 px-3 py-1 rounded-xl text-sm font-medium">
               {(stageScale.x*100).toFixed(0)}%
             </div>
-            <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm flex gap-2">
+            <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl">
               <Button 
                 variant={autoPanEnabled ? "default" : "ghost"} 
                 size="sm"
                 onClick={() => setAutoPanEnabled(!autoPanEnabled)}
-                className={`text-[11px] px-2 py-1 ${autoPanEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}
+                className={`h-10 px-4 rounded-xl font-medium transition-all duration-200 shadow-sm hover:shadow-md ${autoPanEnabled ? "bg-gradient-to-r from-indigo-500 to-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}                
                 title="Auto-pan to selected object when zoomed in (Press 'A' key)"
               >
                 <Target className="w-3 h-3 mr-1" />
@@ -1724,7 +1725,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 </Button>
               ) : (
                 <Button 
-                  className="bg-[#3B46A0] text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 border-2 border-[#3B46A0] hover:bg-[#3B46A0]" 
+                  className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-10 px-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
                   disabled={!projectId} 
                   onClick={() => exportMutation.mutate()}
                 >

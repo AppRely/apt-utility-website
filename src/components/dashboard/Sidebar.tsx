@@ -606,9 +606,9 @@ export default function Sidebar({
   };
 
   return (
-    <Card className="border rounded-[7px] text-sm">
+    <Card className="bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm ">
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
-        <div className="bg-[#D9D9D9] h-10 w-10 rounded" />
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-[#595959] text-[16px] font-medium">
@@ -649,10 +649,10 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 border-l w-64 bg-gray-50 h-full border rounded-[7px]">
+        <div className="p-4 w-64 bg-white border border-slate-200 rounded-xl shadow-sm h-full">
           {/* title + clear button side-by-side */}
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-lg">Selected Objects</h2>
+           <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
             <Button
               variant="destructive"
               size="sm"
@@ -720,7 +720,7 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
           {/* Swap Button */}
           <Button
-            className="bg-[#4B84EE] border-[2px] text-white text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#4B84EE] flex-1"
+            className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 2 || swapMutation.isPending}
             onClick={() => setSwapDialogOpen(true)}>
             <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
@@ -729,7 +729,7 @@ export default function Sidebar({
 
           {/* Break Button - ORANGE */}
           <Button
-            className="bg-[#FF9500] text-white border-[2px] text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#F57C00] flex-1"
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 1 || breakMutation.isPending}
             onClick={() => setBreakDialogOpen(true)}>
             <Image src="/images/break.svg" alt="Break" width={15} height={15} />
@@ -741,7 +741,7 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
           {/* Link Button */}
           <Button
-            className="bg-[#5EC16A] border-[2px] text-white text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+            className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 2 || linkMutation.isPending}
             onClick={() => setLinkDialogOpen(true)}>
             <Image src="/images/link.svg" alt="Link" width={15} height={15} />
@@ -750,7 +750,7 @@ export default function Sidebar({
 
           {/* Delete Button - RED DANGER */}
           <Button
-            className="bg-[#DD524C] border-[2px] text-white text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-[#CC423C] flex-1"
+            className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 1 || deleteMutation.isPending}
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}>
@@ -768,7 +768,7 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
 
           <Button
-            className="bg-purple-600 text-white border-[2px] text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-purple-700 flex-1"
+            className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={
               selectedObjects.length !== 2 ||
               interpolateMutation.isPending
@@ -781,7 +781,7 @@ export default function Sidebar({
           </Button>
 
           <Button
-            className="bg-cyan-600 text-white border-[2px] text-[13px] h-10 border rounded-[7px] flex items-center justify-center gap-2 hover:bg-cyan-700 flex-1"
+            className="bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={recalculateMutation.isPending || isConfusionRunning }
             onClick={() => recalculateMutation.mutate()}
           >
@@ -815,7 +815,7 @@ export default function Sidebar({
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button
             onClick={() => setObjectsCollapsed(!objectsCollapsed)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-md focus:outline-none transition"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition"
             aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}
           >
             Object List
