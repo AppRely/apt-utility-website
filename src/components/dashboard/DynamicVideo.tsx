@@ -28,7 +28,7 @@ import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-// ==================== TIMELINE – SHOW ALL OBJECTS ====================
+// ==================== TIMELINE 2– SHOW ALL OBJECTS ====================
 const ObjectRangesTimeline = ({
   objects,
   currentFrame,
@@ -163,18 +163,18 @@ const ObjectRangesTimeline = ({
               <line x1={padding.left + getX(currentFrame)} y1={padding.top} x2={padding.left + getX(currentFrame)} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
             )}
             {filteredObjects.map(obj => {
-              const color = getObjectColor(obj.id);
-              const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
-              const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
-              const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
-              const startX = padding.left + getX(obj.start_frame);
-              const endX = padding.left + getX(obj.end_frame);
-              const baseY = markerY;
-              const startOffsetY = isOverlap ? -8 : 0;
-              const endOffsetY = isOverlap ? 8 : 0;
+            const color = getObjectColor(obj.id);
+            const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
+            const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
+            const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
+            const startX = padding.left + getX(obj.start_frame);
+            const endX = padding.left + getX(obj.end_frame);
+            const baseY = markerY;
+            const startOffsetY = isOverlap ? -8 : 0;
+            const endOffsetY = isOverlap ? 8 : 0;
 
-              return (
-                <g key={obj.id}>
+            return (
+              <g key={obj.id}>
                 {showStart && (
                   <>
                     <rect
@@ -189,7 +189,9 @@ const ObjectRangesTimeline = ({
                       strokeWidth="1"
                       style={{ cursor: "pointer" }}
                       onClick={() => handlePointClick(obj.start_frame)}
-                    />
+                    >
+                      <title>Object {obj.id} - Start frame: {obj.start_frame}</title>
+                    </rect>
                   </>
                 )}
                 {showEnd && (
@@ -206,13 +208,15 @@ const ObjectRangesTimeline = ({
                       strokeWidth="1.5"
                       style={{ cursor: "pointer" }}
                       onClick={() => handlePointClick(obj.end_frame)}
-                    />
+                    >
+                      <title>Object {obj.id} - End frame: {obj.end_frame}</title>
+                    </rect>
                   </>
                 )}
               </g>
-              );
-            })}
-          </svg>
+            );
+          })}
+        </svg>
         </div>
       </div>
     </div>
