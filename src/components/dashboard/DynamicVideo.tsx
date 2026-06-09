@@ -190,15 +190,6 @@ const ObjectRangesTimeline = ({
                       style={{ cursor: "pointer" }}
                       onClick={() => handlePointClick(obj.start_frame)}
                     />
-                    {/* <text
-                      x={startX + 6}
-                      y={baseY + startOffsetY - 2}
-                      fill={color}
-                      fontSize="9"
-                      fontWeight="bold"
-                    >
-                      S{obj.id}
-                    </text> */}
                   </>
                 )}
                 {showEnd && (
@@ -216,15 +207,6 @@ const ObjectRangesTimeline = ({
                       style={{ cursor: "pointer" }}
                       onClick={() => handlePointClick(obj.end_frame)}
                     />
-                    {/* <text
-                      x={endX + 6}
-                      y={baseY + endOffsetY - 2}
-                      fill={color}
-                      fontSize="9"
-                      fontWeight="bold"
-                    >
-                      E{obj.id}
-                    </text> */}
                   </>
                 )}
               </g>
@@ -306,7 +288,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const pendingRangesRef = useRef<Set<string>>(new Set());
   const loadedRangesKeyRef = useRef<Set<string>>(new Set());
 
-  // Unique IDs data state
   const [uniqueIdsData, setUniqueIdsData] = useState<UniqueIdsResponse | null>(null);
   const [isLoadingUnique, setIsLoadingUnique] = useState(false);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
@@ -314,7 +295,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
   const uniqueDataCacheRef = useRef<Map<string, UniqueIdObject[]>>(new Map());
 
-  // Timeline 1 state
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -322,16 +302,50 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [timelineWindow, setTimelineWindow] = useState(300);
   const [timelineWindowInput, setTimelineWindowInput] = useState("300");
 
-  // Timeline 2 window
   const [timeline2Window, setTimeline2Window] = useState(1000);
   const [timeline2WindowInput, setTimeline2WindowInput] = useState("1000");
 
-  // Dynamic stage dimensions
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
 
-  // Geometry
+  // ========== Helper functions (defined early) ==========
+  const getObjectColor = useCallback((id: number) => {
+    const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
+    return colors[id % colors.length];
+  }, []);
+
+  const getTotalFrames = useCallback(() => {
+    if (duration <= 0 || stableFpsRef.current <= 0) return 0;
+    return Math.floor(duration * stableFpsRef.current);
+  }, [duration]);
+
+  // ==================== Numeric Shortcut System ====================
+  const [objectPage, setObjectPage] = useState(0);
+  const pageSize = 10;
+
+  const objectsInCurrentFrame = useMemo(() => {
+    const objects: { id: number; color: string }[] = [];
+    for (const [key, anno] of annotationMap.entries()) {
+      if (anno.frame_id === currentFrame) {
+        objects.push({ id: anno.object_id, color: getObjectColor(anno.object_id) });
+      }
+    }
+    return objects.sort((a, b) => a.id - b.id);
+  }, [annotationMap, currentFrame, getObjectColor]);
+
+  const totalPages = Math.ceil(objectsInCurrentFrame.length / pageSize);
+  const currentPageObjects = objectsInCurrentFrame.slice(
+    objectPage * pageSize,
+    (objectPage + 1) * pageSize
+  );
+
+  useEffect(() => {
+    setObjectPage(0);
+  }, [currentFrame]);
+  // ==================== End Numeric Shortcut ====================
+
+  // Geometry & helpers
   const scale = useMemo(() => {
     if (videoWidth && videoHeight) return Math.min(stageWidth / videoWidth, stageHeight / videoHeight);
     return 1;
@@ -345,22 +359,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
-  // Helper functions
-  const getTotalFrames = useCallback(() => {
-    if (duration <= 0 || stableFpsRef.current <= 0) return 0;
-    return Math.floor(duration * stableFpsRef.current);
-  }, [duration]);
-
-  const getObjectColor = (id: number) => {
-    const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
-    return colors[id % colors.length];
-  };
-
-  // Unique IDs helpers (same as before)
+  // Unique IDs helpers
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
     return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
   }, []);
-
   const isUniqueRangeLoading = useCallback((start: number, end: number): boolean => {
     const key = `${start}-${end}`;
     if (pendingUniqueRangesRef.current.has(key)) return true;
@@ -370,7 +372,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     return false;
   }, []);
-
   const addUniqueLoadedRange = useCallback((start: number, end: number) => {
     let newRanges = [...loadedUniqueRangesRef.current, { start, end }];
     newRanges.sort((a, b) => a.start - b.start);
@@ -384,7 +385,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     loadedUniqueRangesRef.current = merged;
   }, []);
-
   const mergeUniqueCacheIntoState = useCallback(() => {
     const allObjects: UniqueIdObject[] = [];
     for (const objects of uniqueDataCacheRef.current.values()) {
@@ -405,7 +405,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       },
     });
   }, [projectId]);
-
   const pruneUniqueRanges = useCallback((currentFrameNum: number, keepWindow: number) => {
     const minKeep = currentFrameNum - keepWindow;
     const maxKeep = currentFrameNum + keepWindow;
@@ -423,19 +422,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     });
     if (changed) mergeUniqueCacheIntoState();
   }, [mergeUniqueCacheIntoState]);
-
   const fetchUniqueRange = useCallback((startFrame: number, endFrame: number) => {
     if (!projectId) return;
     const rangeKey = `${startFrame}-${endFrame}`;
     if (isUniqueRangeLoaded(startFrame, endFrame)) return;
     if (isUniqueRangeLoading(startFrame, endFrame)) return;
-
     pendingUniqueRangesRef.current.add(rangeKey);
     if (uniqueIdsAbortRef.current) uniqueIdsAbortRef.current.abort();
     const controller = new AbortController();
     uniqueIdsAbortRef.current = controller;
     setIsLoadingUnique(true);
-
     getUniqueIdsData(projectId, startFrame, endFrame, controller.signal)
       .then(data => {
         if (controller.signal.aborted) return;
@@ -499,11 +495,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     return false;
   };
-
   const isFrameLoaded = useCallback((frame: number): boolean => {
     return loadedRangesListRef.current.some(range => frame >= range.start && frame <= range.end);
   }, []);
-
   const addLoadedRange = useCallback((start: number, end: number) => {
     let newRanges = [...loadedRangesListRef.current, { start, end }];
     newRanges.sort((a, b) => a.start - b.start);
@@ -517,20 +511,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     loadedRangesListRef.current = merged;
   }, []);
-
   const clearLoadedRanges = useCallback(() => {
     loadedRangesListRef.current = [];
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  const selectedUniqueObjects = useMemo(() => {
-    if (!uniqueIdsData) return [];
-    return (uniqueIdsData.data?.objects ?? []).filter(obj =>
-      selectedObjects.some(sel => sel.object_id === obj.id)
-    );
-  }, [uniqueIdsData, selectedObjects]);
-
-  // Timeline data
+  // Timeline data (unchanged)
   useEffect(() => {
     if (!projectId || selectedObjects.length === 0) {
       setTimelinePoints([]);
@@ -648,7 +634,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current);
     };
   }, []);
-
   useEffect(() => { setMounted(true); }, []);
 
   // Load session data
@@ -892,6 +877,51 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (needsPan) setStagePos({ x: currentStageX - targetOffsetX, y: currentStageY - targetOffsetY });
   }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight]);
 
+  const objectMutation = useMutation({ 
+    mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
+  });
+
+  // Slot-based selection: replaces the object in the given slot (0 = first, 1 = second)
+  const selectObjectForSlot = useCallback((objectId: number, slotIndex: 0 | 1) => {
+    if (!projectId) return;
+
+    // Prevent the same object from being in both slots
+    const alreadySelectedInOtherSlot = selectedObjects.some(
+      (obj, idx) => idx !== slotIndex && obj.object_id === objectId
+    );
+    if (alreadySelectedInOtherSlot) {
+      toast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
+      return;
+    }
+
+    objectMutation.mutate(
+      { projectId: Number(projectId), objectId, frameId: currentFrame },
+      {
+        onSuccess: (meta) => {
+          setSelectedObjects(prev => {
+            const newSelection = [...prev];
+            // Replace or add at the given slot
+            newSelection[slotIndex] = {
+              object_id: objectId,
+              frame_id: currentFrame,
+              start_frame: meta.data.start_frame,
+              end_frame: meta.data.end_frame,
+              is_inside: meta.data.is_inside,
+            };
+            // Ensure we don't exceed 2 slots (should already be fine)
+            return newSelection.slice(0, 2);
+          });
+          toast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
+          if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
+            setTimeout(() => panToSelectedObject(), 100);
+          }
+        },
+        onError: () => toast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
+      }
+    );
+  }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, toast]);
+
+  // Auto-pan effects (unchanged)
   useEffect(() => {
     if (!video || !mounted) return;
     const handleTimeUpdate = () => {
@@ -999,7 +1029,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [currentFrame, mounted]);
 
-  const objectMutation = useMutation({ mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) });
   const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
   const exportMutation = useMutation({
     mutationFn: () => exportTrk(projectId!),
@@ -1331,8 +1360,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Auto Pan", key: "A" },
     ] },
     { category: "Selection", items: [
+      { action: "Select as first object", key: "0-9" },
+      { action: "Select as second object", key: "Ctrl+0-9" },
       { action: "Cycle first selected object", key: "Tab" },
       { action: "Cycle second selected object", key: "CapsLock" },
+      { action: "Next page (if >10 objects)", key: "Shift+0-9" },
     ] },
     { category: "Panels", items: [
       { action: "Open ID Table", key: "M" },
@@ -1370,11 +1402,37 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("message", handleMessage);
   }, [handleFrameJump]);
 
-  // Keyboard handler (with popup keys)
+  // ========== KEYBOARD HANDLER (numeric shortcuts with slot selection) ==========
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
       if (!video || document.activeElement?.closest(".your-controls-class")) return;
+
+      const key = e.key;
+      if (/^[0-9]$/.test(key) && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        const numeric = parseInt(key, 10);
+        const idx = numeric === 0 ? 9 : numeric - 1;  // 0 → index 9, 1→0, ..., 9→8
+
+        let effectivePage = objectPage;
+        if (e.shiftKey && totalPages > 1) {
+          effectivePage = (objectPage + 1) % totalPages;
+        }
+        const pageStart = effectivePage * pageSize;
+        const targetIndex = pageStart + idx;
+
+        if (targetIndex < objectsInCurrentFrame.length) {
+          const targetObj = objectsInCurrentFrame[targetIndex];
+          // Determine slot: Ctrl for slot 1 (second), no modifier for slot 0 (first)
+          const slot = e.ctrlKey ? 1 : 0;
+          selectObjectForSlot(targetObj.id, slot);
+        } else if (objectsInCurrentFrame.length > 0) {
+          toast({ title: `No object assigned to key ${key} on this page`, duration: 1000 });
+        }
+        return;
+      }
+
+      // Existing keyboard shortcuts (Space, arrows, etc.) – unchanged
       switch (e.code) {
         case "Space": case "KeyP": e.preventDefault(); togglePlayPause(); break;
         case "ArrowLeft": e.preventDefault(); handleFrameStep(-1); break;
@@ -1389,20 +1447,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
-        case "KeyM":
-          e.preventDefault();
-          openUniqueIdsPopup();
-          break;
-        case "KeyC":
-          e.preventDefault();
-          openConfusionPopup();
-          break;
+        case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
+        case "KeyC": e.preventDefault(); openConfusionPopup(); break;
         case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot]);
 
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
@@ -1570,6 +1622,42 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 })}
               </Layer>
             </Stage>
+            
+            {/* Shortcut Panel (visible only when paused) */}
+            {!isPlaying && objectsInCurrentFrame.length > 0 && (
+              <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
+                <div className="text-xs font-mono mb-2">
+                  Objects in frame ({objectPage+1}/{totalPages || 1})
+                  {totalPages > 1 && <span className="ml-2 text-yellow-400">(Shift+0‑9 to change page)</span>}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <div className="font-bold text-yellow-300 text-xs">Key</div>
+                  <div className="font-bold text-yellow-300 text-xs">Object</div>
+                  {currentPageObjects.map((obj, idx) => {
+                    const keyLabel = idx === 9 ? '0' : (idx+1).toString();
+                    return (
+                      <React.Fragment key={obj.id}>
+                        <div className="font-mono font-bold text-yellow-300">{keyLabel}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: obj.color }} />
+                          <span>ID {obj.id}</span>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                {totalPages > 1 && (
+                  <div className="text-[10px] text-gray-400 mt-2 text-center">
+                    Page {objectPage+1} of {totalPages}
+                  </div>
+                )}
+                <div className="text-[10px] text-yellow-400 mt-2 text-center">
+                  💡 Ctrl+0-9: select as second obj
+                </div>
+              </div>
+            )}
+
+
             <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-3 py-1 rounded text-sm">
               {(stageScale.x*100).toFixed(0)}%
             </div>
@@ -1640,7 +1728,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
           
-          {/* VIDEO CONTROLS */}
+          {/* VIDEO CONTROLS (unchanged) */}
           <Separator />
           <div className="flex flex-col pt-1">
             <div className="flex items-center gap-2 flex-wrap">
