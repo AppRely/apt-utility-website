@@ -1436,6 +1436,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
       const key = e.key;
       if (/^[0-9]$/.test(key) && !e.altKey && !e.metaKey) {
+        const activeEl = document.activeElement;
+        // Allow typing in input/textarea fields
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
+          return;
+        }
         e.preventDefault();
         const numeric = parseInt(key, 10);
         const idx = numeric === 0 ? 9 : numeric - 1;  // 0 → index 9, 1→0, ..., 9→8
