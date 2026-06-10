@@ -314,6 +314,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const rootContainerRef = useRef<HTMLDivElement>(null);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
 
+  // ---------- NEW STATE FOR EXPANDABLE TOOLBAR ----------
+  const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+  // ------------------------------------------------------
+
   // ========== Helper functions (defined early) ==========
   const getObjectColor = useCallback((id: number) => {
     const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
@@ -1697,68 +1701,87 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md border border-slate-200 shadow-lg text-slate-700 px-3 py-1 rounded-xl text-sm font-medium">
               {(stageScale.x*100).toFixed(0)}%
             </div>
+            
+            {/* ========== EXPANDABLE HORIZONTAL TOOLBAR ========== */}
             <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl">
-              <Button 
-                variant={autoPanEnabled ? "default" : "ghost"} 
+              {/* Hamburger button */}
+              <Button
+                variant="ghost"
                 size="sm"
-                onClick={() => setAutoPanEnabled(!autoPanEnabled)}
-                className={`h-10 px-4 rounded-xl font-medium transition-all duration-200 shadow-sm hover:shadow-md ${autoPanEnabled ? "bg-gradient-to-r from-indigo-500 to-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}                
-                title="Auto-pan to selected object when zoomed in (Press 'A' key)"
+                onClick={() => setIsToolbarOpen(!isToolbarOpen)}
+                className="h-10 w-10 rounded-xl font-bold text-xl"
               >
-                <Target className="w-3 h-3 mr-1" />
-                {autoPanEnabled ? "Auto-Pan ON" : "Auto-Pan OFF"}
+                ☰
               </Button>
-              {downloadUrl ? (
-                <Button 
-                  className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-600" 
-                  onClick={() => { 
-                    const link = document.createElement("a"); 
-                    link.href = downloadUrl; 
-                    link.download = `project_${projectId}_v${trkVersion}.trk`; 
-                    link.click(); 
-                    setDownloadUrl(null); 
-                  }}
-                >
-                  <Image src="/images/download.svg" alt="Download" width={15} height={15} /> 
-                  Download TRK 
-                  <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
-                </Button>
-              ) : (
-                <Button 
-                  className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-10 px-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
-                  disabled={!projectId} 
-                  onClick={() => exportMutation.mutate()}
-                >
-                  <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} /> 
-                  Export 
-                  <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
-                </Button>
+              
+              {/* Expanded buttons – only visible when toolbar is open */}
+              {isToolbarOpen && (
+                <>
+                  <Button 
+                    variant={autoPanEnabled ? "default" : "ghost"} 
+                    size="sm"
+                    onClick={() => setAutoPanEnabled(!autoPanEnabled)}
+                    className={`h-10 px-4 rounded-xl font-medium transition-all duration-200 shadow-sm hover:shadow-md ${autoPanEnabled ? "bg-gradient-to-r from-indigo-500 to-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}                
+                    title="Auto-pan to selected object when zoomed in (Press 'A' key)"
+                  >
+                    <Target className="w-3 h-3 mr-1" />
+                    {autoPanEnabled ? "Auto-Pan ON" : "Auto-Pan OFF"}
+                  </Button>
+                  {downloadUrl ? (
+                    <Button 
+                      className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-600" 
+                      onClick={() => { 
+                        const link = document.createElement("a"); 
+                        link.href = downloadUrl; 
+                        link.download = `project_${projectId}_v${trkVersion}.trk`; 
+                        link.click(); 
+                        setDownloadUrl(null); 
+                      }}
+                    >
+                      <Image src="/images/download.svg" alt="Download" width={15} height={15} /> 
+                      Download TRK 
+                      <Image src="/images/downArrow.svg" alt="Down Arrow" width={13} height={7} />
+                    </Button>
+                  ) : (
+                    <Button 
+                      className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-10 px-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
+                      disabled={!projectId} 
+                      onClick={() => exportMutation.mutate()}
+                    >
+                      <Image src="/images/rightArrow.svg" alt="Right Arrow" width={15} height={15} /> 
+                      Export 
+                      <Image src="/images/exportDownArrow.svg" alt="Export Down Arrow" width={13} height={7} />
+                    </Button>
+                  )}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={openUniqueIdsPopup}
+                    className="bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+                  >
+                    i
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setShowShortcutModal(true)}
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+                  >
+                    ?
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={openConfusionPopup}
+                    className="bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+                  >
+                    C
+                  </Button>
+                </>
               )}
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={openUniqueIdsPopup}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
-              >
-                i
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setShowShortcutModal(true)}
-                className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
-              >
-                ?
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={openConfusionPopup}
-                className="bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
-              >
-                C
-              </Button>
             </div>
+            {/* ================================================ */}
+            
             <div className="absolute top-2 left-1 text-white px-2 py-1 rounded text-xs">
               Frame: {currentFrame}
             </div>

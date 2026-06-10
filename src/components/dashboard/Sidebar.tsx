@@ -723,7 +723,7 @@ export default function Sidebar({
             className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 2 || swapMutation.isPending}
             onClick={() => setSwapDialogOpen(true)}>
-            <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
+            <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />
             {swapMutation.isPending ? "Swapping..." : "Swap"}
           </Button>
 
@@ -732,7 +732,7 @@ export default function Sidebar({
             className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 1 || breakMutation.isPending}
             onClick={() => setBreakDialogOpen(true)}>
-            <Image src="/images/break.svg" alt="Break" width={15} height={15} />
+            <Image src="/images/break.svg" alt="Break" width={25} height={25} />
             {breakMutation.isPending ? "Breaking..." : "Break"}
           </Button>
         </div>
@@ -744,7 +744,7 @@ export default function Sidebar({
             className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 2 || linkMutation.isPending}
             onClick={() => setLinkDialogOpen(true)}>
-            <Image src="/images/link.svg" alt="Link" width={15} height={15} />
+            <Image src="/images/link.svg" alt="Link" width={25} height={25} />
             {linkMutation.isPending ? "Linking..." : "Link"}
           </Button>
 
@@ -757,8 +757,8 @@ export default function Sidebar({
             <Image
               src="/images/delete.png"
               alt="Delete"
-              width={25}
-              height={25}
+              width={35}
+              height={35}
             />
             {deleteMutation.isPending ? "Deleting..." : "Delete"}
           </Button>
@@ -775,6 +775,7 @@ export default function Sidebar({
             }
             onClick={handleInterpolate}
           >
+            <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25}/>
             {interpolateMutation.isPending
               ? "Interpolating..."
               : "Interpolate"}
@@ -785,6 +786,7 @@ export default function Sidebar({
             disabled={recalculateMutation.isPending || isConfusionRunning }
             onClick={() => recalculateMutation.mutate()}
           >
+              <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25}/>
             {
               isConfusionRunning
                 ? "Calculating..."
