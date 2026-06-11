@@ -61,7 +61,7 @@ export default function UniqueIdsTable({
                     }`}
                     onClick={() => onSelectRow(id)}
                   >
-                    <td className="border px-3 py-2 text-center whitespace-nowrap">ID: {id}</td>
+                    <td className="border px-3 py-2 text-left whitespace-nowrap">ID: {id}</td>
                   </tr>
                 ))
               )}

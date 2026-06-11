@@ -1446,8 +1446,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Space": case "KeyP": e.preventDefault(); togglePlayPause(); break;
         case "ArrowLeft": e.preventDefault(); handleFrameStep(-1); break;
         case "ArrowRight": e.preventDefault(); handleFrameStep(1); break;
-        case "KeyJ": e.preventDefault(); handleSkip(-5); break;
-        case "KeyL": e.preventDefault(); handleSkip(5); break;
+        // case "KeyJ": e.preventDefault(); handleSkip(-5); break;
+        // case "KeyL": e.preventDefault(); handleSkip(5); break;
         case "ArrowUp": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.min(16, +(r+0.1).toFixed(2))); else handleFrameStep(10); break;
         case "ArrowDown": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.max(0.1, +(r-0.1).toFixed(2))); else handleFrameStep(-10); break;
         case "Equal": e.preventDefault(); handleZoomIn(); break;

@@ -60,7 +60,7 @@ export default function UniqueIdsPopup() {
   return (
     <div className="p-4 h-screen flex flex-col bg-gray-50">
       <Card className="flex-1 flex flex-col overflow-hidden p-4">
-        <h2 className="text-lg font-bold mb-2">Trajectory Information (Popout)</h2>
+        <h2 className="text-lg font-bold mb-2">Linking Table</h2>
         <UniqueIdsTable
           data={data}
           isLoading={loading}

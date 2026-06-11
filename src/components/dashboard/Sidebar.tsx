@@ -488,6 +488,149 @@ export default function Sidebar({
     });
   };
 
+  // ========================
+  // KEYBOARD SHORTCUTS (Open dialogs)
+  // ========================
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if Ctrl (or Cmd on Mac) is pressed
+      if (!(e.ctrlKey || e.metaKey)) return;
+
+      const key = e.key.toLowerCase();
+
+      // Prevent browser defaults for these combos
+      const preventDefaultKeys = ["l", "s", "b", "d", "i", "r"];
+      if (preventDefaultKeys.includes(key)) {
+        e.preventDefault();
+      }
+
+      // ---- LINK (Ctrl+L) ----
+      if (key === "l") {
+        if (selectedObjects.length !== 2) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 2 objects to link.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!linkMutation.isPending) setLinkDialogOpen(true);
+      }
+
+      // ---- SWAP (Ctrl+S) ----
+      else if (key === "s") {
+        if (selectedObjects.length !== 2) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 2 objects to swap.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!swapMutation.isPending) setSwapDialogOpen(true);
+      }
+
+      // ---- BREAK (Ctrl+B) ----
+      else if (key === "b") {
+        if (selectedObjects.length !== 1) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 1 object to break.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!breakMutation.isPending) setBreakDialogOpen(true);
+      }
+
+      // ---- DELETE (Ctrl+D) ----
+      else if (key === "d") {
+        if (selectedObjects.length !== 1) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 1 object to delete.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!deleteMutation.isPending) setDeleteDialogOpen(true);
+      }
+
+      // ---- INTERPOLATE (Ctrl+I) ----
+      else if (key === "i") {
+        if (![1, 2].includes(selectedObjects.length)) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Select either 1 or 2 objects to interpolate.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!interpolateMutation.isPending) handleInterpolate();
+      }
+
+      // ---- RECALCULATE CONFUSION (Ctrl+R) ----
+      else if (key === "r") {
+        if (!recalculateMutation.isPending && !isConfusionRunning) {
+          recalculateMutation.mutate();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedObjects,
+    linkMutation.isPending,
+    swapMutation.isPending,
+    breakMutation.isPending,
+    deleteMutation.isPending,
+    interpolateMutation.isPending,
+    recalculateMutation.isPending,
+    isConfusionRunning,
+    toast,
+    handleInterpolate,
+  ]);
+
+  // ========================
+  // ENTER KEY CONFIRMATION FOR DIALOGS
+  // ========================
+  useEffect(() => {
+    const handleEnterConfirm = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      
+      // Only act if any dialog is open
+      if (linkDialogOpen) {
+        e.preventDefault();
+        if (!linkMutation.isPending) handleLinkObjects();
+      } 
+      else if (swapDialogOpen) {
+        e.preventDefault();
+        if (!swapMutation.isPending) handleSwapObjects();
+      }
+      else if (breakDialogOpen) {
+        e.preventDefault();
+        if (!breakMutation.isPending) handleBreakObject();
+      }
+      else if (deleteDialogOpen) {
+        e.preventDefault();
+        if (!deleteMutation.isPending) handleDeleteObject();
+      }
+    };
+
+    window.addEventListener('keydown', handleEnterConfirm);
+    return () => window.removeEventListener('keydown', handleEnterConfirm);
+  }, [
+    linkDialogOpen, swapDialogOpen, breakDialogOpen, deleteDialogOpen,
+    linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending,
+    handleLinkObjects, handleSwapObjects, handleBreakObject, handleDeleteObject
+  ]);
+
   // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
     if (isLoading || !initialLoadComplete) {

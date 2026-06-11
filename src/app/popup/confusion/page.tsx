@@ -34,7 +34,7 @@ export default function ConfusionPopup() {
   return (
     <div className="p-4 h-screen flex flex-col bg-gray-50">
       <Card className="flex-1 flex flex-col overflow-hidden p-4">
-        <h2 className="text-lg font-bold mb-2">Object Matching Uncertainty (Popout)</h2>
+        <h2 className="text-lg font-bold mb-2">Confusion Table</h2>
         <ConfusionTable rows={rows} loading={loading} onRowClick={handleRowClick} />
       </Card>
     </div>
