@@ -202,10 +202,28 @@ export default function Sidebar({
     mutationFn: (payload: any) =>
       interpolateTrajectory(Number(projectId), payload),
 
-    onSuccess: () => {
+    onSuccess: (response) => {
+
+      const result = response?.data;
+
+      if (
+        result?.interpolation_required === false
+      ) {
+
+        toast({
+          title: "Interpolation",
+          description:
+            "No missing frames found in the selected range.",
+          duration: 3000,
+        });
+
+        return;
+      }
+
       toast({
         title: "Success",
-        description: "Interpolation completed successfully",
+        description:
+          "Interpolation completed successfully",
         duration: 3000,
         className: "text-green-600",
       });
@@ -432,23 +450,41 @@ export default function Sidebar({
   };
 
   const handleInterpolate = () => {
-    if (selectedObjects.length !== 2) {
-      toast({
-        title: "Invalid Selection",
-        description: "Please select exactly 2 objects.",
-        variant: "destructive",
-        duration: 3000,
+
+    // NEW FLOW
+    if (selectedObjects.length === 1) {
+
+      const obj = selectedObjects[0];
+
+      interpolateMutation.mutate({
+        object_id: obj.object_id,
+        start_frame: obj.start_frame,
+        end_frame: obj.end_frame,
       });
+
       return;
     }
 
-    const [sourceObj, targetObj] = selectedObjects;
+    // EXISTING FLOW
+    if (selectedObjects.length === 2) {
 
-    interpolateMutation.mutate({
-      source_object_id: sourceObj.object_id,
-      source_end_frame: sourceObj.end_frame,
-      target_object_id: targetObj.object_id,
-      target_start_frame: targetObj.start_frame,
+      const [sourceObj, targetObj] = selectedObjects;
+
+      interpolateMutation.mutate({
+        source_object_id: sourceObj.object_id,
+        source_end_frame: sourceObj.end_frame,
+        target_object_id: targetObj.object_id,
+        target_start_frame: targetObj.start_frame,
+      });
+
+      return;
+    }
+
+    toast({
+      title: "Invalid Selection",
+      description: "Select either 1 object or 2 objects.",
+      variant: "destructive",
+      duration: 3000,
     });
   };
 
@@ -770,7 +806,7 @@ export default function Sidebar({
           <Button
             className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={
-              selectedObjects.length !== 2 ||
+              ![1, 2].includes(selectedObjects.length) ||
               interpolateMutation.isPending
             }
             onClick={handleInterpolate}
