@@ -40,7 +40,7 @@ const ObjectRangesTimeline = ({
   windowInput,
   setWindowInput,
 }: {
-  objects: UniqueIdObject[];
+  objects: { id: number; start_frame: number; end_frame: number }[];
   currentFrame: number;
   onSeek: (frame: number) => void;
   getObjectColor: (id: number) => string;
@@ -292,7 +292,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
-  const uniqueDataCacheRef = useRef<Map<string, UniqueIdObject[]>>(new Map());
+  const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map()); // stores raw API objects with object_id
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
@@ -356,7 +356,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
-  // Unique IDs helpers
+  // Unique IDs helpers (updated for object_id)
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
     return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
   }, []);
@@ -382,15 +382,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     loadedUniqueRangesRef.current = merged;
   }, []);
+  
+  // Merge cached raw objects (with object_id) into state as normalized objects with id
   const mergeUniqueCacheIntoState = useCallback(() => {
-    const allObjects: UniqueIdObject[] = [];
+    const allObjects: any[] = [];
     for (const objects of uniqueDataCacheRef.current.values()) {
       allObjects.push(...objects);
     }
-    const uniqueMap = new Map<number, UniqueIdObject>();
+    const uniqueMap = new Map<number, any>();
     for (const obj of allObjects) {
-      if (!uniqueMap.has(obj.id) || obj.end_frame > uniqueMap.get(obj.id)!.end_frame) {
-        uniqueMap.set(obj.id, obj);
+      // obj from API has object_id, start_frame, end_frame, etc.
+      const normalized = {
+        id: obj.object_id,
+        start_frame: obj.start_frame,
+        end_frame: obj.end_frame,
+        // keep other fields if needed
+      };
+      if (!uniqueMap.has(normalized.id) || normalized.end_frame > uniqueMap.get(normalized.id)!.end_frame) {
+        uniqueMap.set(normalized.id, normalized);
       }
     }
     setUniqueIdsData({
@@ -398,6 +407,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       data: { project_id: projectId!, objects: Array.from(uniqueMap.values()) },
     });
   }, [projectId]);
+
   const pruneUniqueRanges = useCallback((currentFrameNum: number, keepWindow: number) => {
     const minKeep = currentFrameNum - keepWindow;
     const maxKeep = currentFrameNum + keepWindow;
@@ -415,6 +425,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     });
     if (changed) mergeUniqueCacheIntoState();
   }, [mergeUniqueCacheIntoState]);
+
   const fetchUniqueRange = useCallback((startFrame: number, endFrame: number) => {
     if (!projectId) return;
     const rangeKey = `${startFrame}-${endFrame}`;
@@ -1278,11 +1289,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const allObjectIds = getAllObjectIds();
 
+  // UPDATED: getAllObjectIdList uses object_id from uniqueIdsData
   const getAllObjectIdList = useCallback(() => {
     if (!uniqueIdsData) return [];
     return (uniqueIdsData.data?.objects ?? []).map(obj => obj.id).sort((a, b) => a - b);
   }, [uniqueIdsData]);
 
+  // UPDATED: cycleSelectedObject uses obj.id and object_id correctly
   const cycleSelectedObject = useCallback((position: 0 | 1) => {
     const allIds = getAllObjectIdList();
     if (allIds.length === 0) return;
@@ -1457,8 +1470,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Space": case "KeyP": e.preventDefault(); togglePlayPause(); break;
         case "ArrowLeft": e.preventDefault(); handleFrameStep(-1); break;
         case "ArrowRight": e.preventDefault(); handleFrameStep(1); break;
-        // case "KeyJ": e.preventDefault(); handleSkip(-5); break;
-        // case "KeyL": e.preventDefault(); handleSkip(5); break;
         case "ArrowUp": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.min(16, +(r+0.1).toFixed(2))); else handleFrameStep(10); break;
         case "ArrowDown": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.max(0.1, +(r-0.1).toFixed(2))); else handleFrameStep(-10); break;
         case "Equal": e.preventDefault(); handleZoomIn(); break;
@@ -1992,7 +2003,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           )}
 
-          {/* TIMELINE 2: ALL OBJECTS START/END */}
+          {/* TIMELINE 2: ALL OBJECTS START/END – UPDATED TO MAP object_id -> id */}
           {isLoadingUnique && !uniqueIdsData && (
             <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
@@ -2006,7 +2017,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           )}
           {uniqueIdsData && (uniqueIdsData.data?.objects?.length ?? 0) > 0 && (
             <ObjectRangesTimeline
-              objects={uniqueIdsData.data.objects!}
+              objects={uniqueIdsData.data.objects!.map(obj => ({
+                id: obj.id,
+                start_frame: obj.start_frame,
+                end_frame: obj.end_frame,
+              }))}
               currentFrame={currentFrame}
               onSeek={handleFrameJump}
               getObjectColor={getObjectColor}
