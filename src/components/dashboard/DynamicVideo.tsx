@@ -1370,6 +1370,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Open Shortcuts", key: "?" },
       { action: "Open Confusion Table", key: "C" },
     ] },
+    {
+      category: "Operations",
+      items: [
+        { action: "Link Objects", key: "Ctrl + L" },
+        { action: "Swap Objects", key: "Ctrl + S" },
+        { action: "Break Object", key: "Ctrl + B" },
+        { action: "Delete Object", key: "Ctrl + D" },
+        { action: "Interpolate", key: "Ctrl + I" },
+        { action: "Recalculate Confusion", key: "Ctrl + R" },
+      ]
+    },
   ];
 
   const openUniqueIdsPopup = useCallback(() => {
