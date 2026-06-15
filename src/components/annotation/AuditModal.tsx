@@ -53,6 +53,20 @@ function normalizeObjects(
         obj2: null,
       };
 
+    case "interpolate":
+      return {
+        obj1: {
+          id: objectsData.source_object_id,
+          start_frame: undefined,
+          end_frame: objectsData.source_end_frame,
+        },
+        obj2: {
+          id: objectsData.target_object_id,
+          start_frame: objectsData.target_start_frame,
+          end_frame: undefined,
+        },
+      };
+
     default:
       return { obj1: {}, obj2: null };
   }

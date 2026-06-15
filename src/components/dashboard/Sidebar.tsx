@@ -17,6 +17,9 @@ import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
 import { ArrowLeft } from "lucide-react";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
+import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
+import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 
 export default function Sidebar({
   selectedObjects,
@@ -32,6 +35,7 @@ export default function Sidebar({
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isConfusionRunning, setIsConfusionRunning] = useState(false);
 
   // State for collapsing the object list - default to true (collapsed)
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
@@ -193,6 +197,122 @@ export default function Sidebar({
       );
     },
   });
+
+  const interpolateMutation = useMutation({
+    mutationFn: (payload: any) =>
+      interpolateTrajectory(Number(projectId), payload),
+
+    onSuccess: (response) => {
+
+      const result = response?.data;
+
+      if (
+        result?.interpolation_required === false
+      ) {
+
+        toast({
+          title: "Interpolation",
+          description:
+            "No missing frames found in the selected range.",
+          duration: 3000,
+        });
+
+        return;
+      }
+
+      toast({
+        title: "Success",
+        description:
+          "Interpolation completed successfully",
+        duration: 3000,
+        className: "text-green-600",
+      });
+
+      setSelectedObjects([]);
+
+      window.dispatchEvent(
+        new CustomEvent("operationComplete", {
+          detail: { frameId: Number(frameId) },
+        }),
+      );
+    },
+  });
+
+  const recalculateMutation = useMutation({
+    mutationFn: () =>
+      recalculateConfusion(Number(projectId)),
+
+    onSuccess: () => {
+
+      toast({
+        title: "Success",
+        description: "Confusion recalculation started",
+        duration: 3000,
+        className: "text-green-600",
+      });
+      setIsConfusionRunning(true);
+      const interval = setInterval(async () => {
+        try {
+
+          const response =
+            await getConfusionStatus(
+              Number(projectId)
+            );
+
+          const status =
+            response.confusion_status;
+
+          console.log(
+            "Confusion Status:",
+            status
+          );
+
+          if (status === "COMPLETED") {
+
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+
+            toast({
+              title: "Completed",
+              description:
+                "Confusion recalculation completed successfully",
+              duration: 5000,
+              className: "text-green-600",
+            });
+
+          }
+
+          if (status === "FAILED") {
+
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+
+            toast({
+              title: "Failed",
+              description:
+                "Confusion recalculation failed",
+              variant: "destructive",
+            });
+
+          }
+
+        } catch (error) {
+
+          clearInterval(interval);
+          setIsConfusionRunning(false);
+
+          toast({
+            title: "Error",
+            description:
+              "Failed to check confusion status",
+            variant: "destructive",
+          });
+        }
+
+      }, 8000);
+    },
+  });
+
   const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
   
   // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
@@ -328,6 +448,188 @@ export default function Sidebar({
     console.log(formData);
     deleteMutation.mutate(formData);
   };
+
+  const handleInterpolate = () => {
+
+    // NEW FLOW
+    if (selectedObjects.length === 1) {
+
+      const obj = selectedObjects[0];
+
+      interpolateMutation.mutate({
+        object_id: obj.object_id,
+        start_frame: obj.start_frame,
+        end_frame: obj.end_frame,
+      });
+
+      return;
+    }
+
+    // EXISTING FLOW
+    if (selectedObjects.length === 2) {
+
+      const [sourceObj, targetObj] = selectedObjects;
+
+      interpolateMutation.mutate({
+        source_object_id: sourceObj.object_id,
+        source_end_frame: sourceObj.end_frame,
+        target_object_id: targetObj.object_id,
+        target_start_frame: targetObj.start_frame,
+      });
+
+      return;
+    }
+
+    toast({
+      title: "Invalid Selection",
+      description: "Select either 1 object or 2 objects.",
+      variant: "destructive",
+      duration: 3000,
+    });
+  };
+
+  // ========================
+  // KEYBOARD SHORTCUTS (Open dialogs)
+  // ========================
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if Ctrl (or Cmd on Mac) is pressed
+      if (!(e.ctrlKey || e.metaKey)) return;
+
+      const key = e.key.toLowerCase();
+
+      // Prevent browser defaults for these combos
+      const preventDefaultKeys = ["l", "s", "b", "d", "i", "r"];
+      if (preventDefaultKeys.includes(key)) {
+        e.preventDefault();
+      }
+
+      // ---- LINK (Ctrl+L) ----
+      if (key === "l") {
+        if (selectedObjects.length !== 2) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 2 objects to link.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!linkMutation.isPending) setLinkDialogOpen(true);
+      }
+
+      // ---- SWAP (Ctrl+S) ----
+      else if (key === "s") {
+        if (selectedObjects.length !== 2) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 2 objects to swap.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!swapMutation.isPending) setSwapDialogOpen(true);
+      }
+
+      // ---- BREAK (Ctrl+B) ----
+      else if (key === "b") {
+        if (selectedObjects.length !== 1) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 1 object to break.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!breakMutation.isPending) setBreakDialogOpen(true);
+      }
+
+      // ---- DELETE (Ctrl+D) ----
+      else if (key === "d") {
+        if (selectedObjects.length !== 1) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Please select exactly 1 object to delete.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!deleteMutation.isPending) setDeleteDialogOpen(true);
+      }
+
+      // ---- INTERPOLATE (Ctrl+I) ----
+      else if (key === "i") {
+        if (![1, 2].includes(selectedObjects.length)) {
+          toast({
+            title: "⚠️ Invalid Selection",
+            description: "Select either 1 or 2 objects to interpolate.",
+            variant: "destructive",
+            duration: 3000,
+          });
+          return;
+        }
+        if (!interpolateMutation.isPending) handleInterpolate();
+      }
+
+      // ---- RECALCULATE CONFUSION (Ctrl+R) ----
+      else if (key === "r") {
+        if (!recalculateMutation.isPending && !isConfusionRunning) {
+          recalculateMutation.mutate();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedObjects,
+    linkMutation.isPending,
+    swapMutation.isPending,
+    breakMutation.isPending,
+    deleteMutation.isPending,
+    interpolateMutation.isPending,
+    recalculateMutation.isPending,
+    isConfusionRunning,
+    toast,
+    handleInterpolate,
+  ]);
+
+  // ========================
+  // ENTER KEY CONFIRMATION FOR DIALOGS
+  // ========================
+  useEffect(() => {
+    const handleEnterConfirm = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      
+      // Only act if any dialog is open
+      if (linkDialogOpen) {
+        e.preventDefault();
+        if (!linkMutation.isPending) handleLinkObjects();
+      } 
+      else if (swapDialogOpen) {
+        e.preventDefault();
+        if (!swapMutation.isPending) handleSwapObjects();
+      }
+      else if (breakDialogOpen) {
+        e.preventDefault();
+        if (!breakMutation.isPending) handleBreakObject();
+      }
+      else if (deleteDialogOpen) {
+        e.preventDefault();
+        if (!deleteMutation.isPending) handleDeleteObject();
+      }
+    };
+
+    window.addEventListener('keydown', handleEnterConfirm);
+    return () => window.removeEventListener('keydown', handleEnterConfirm);
+  }, [
+    linkDialogOpen, swapDialogOpen, breakDialogOpen, deleteDialogOpen,
+    linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending,
+    handleLinkObjects, handleSwapObjects, handleBreakObject, handleDeleteObject
+  ]);
 
   // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
@@ -483,9 +785,9 @@ export default function Sidebar({
   };
 
   return (
-    <Card className="border rounded-[7px] text-sm">
+    <Card className="bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm ">
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
-        <div className="bg-[#D9D9D9] h-10 w-10 rounded" />
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-[#595959] text-[16px] font-medium">
@@ -526,10 +828,10 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 border-l w-64 bg-gray-50 h-full border rounded-[7px]">
+        <div className="p-4 w-64 bg-white border border-slate-200 rounded-xl shadow-sm h-full">
           {/* title + clear button side-by-side */}
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-lg">Selected Objects</h2>
+           <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
             <Button
               variant="destructive"
               size="sm"
@@ -597,19 +899,19 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
           {/* Swap Button */}
           <Button
-            className="bg-[#4B84EE] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#4B84EE] flex-1 max-w-xs"
+            className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 2 || swapMutation.isPending}
             onClick={() => setSwapDialogOpen(true)}>
-            <Image src="/images/swap.svg" alt="Swap" width={15} height={15} />
+            <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />
             {swapMutation.isPending ? "Swapping..." : "Swap"}
           </Button>
 
           {/* Break Button - ORANGE */}
           <Button
-            className="bg-[#FF9500] text-white border-[2px] text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#F57C00] flex-1 max-w-xs"
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 1 || breakMutation.isPending}
             onClick={() => setBreakDialogOpen(true)}>
-            <Image src="/images/break.svg" alt="Break" width={15} height={15} />
+            <Image src="/images/break.svg" alt="Break" width={25} height={25} />
             {breakMutation.isPending ? "Breaking..." : "Break"}
           </Button>
         </div>
@@ -618,27 +920,61 @@ export default function Sidebar({
         <div className="flex justify-center gap-2 w-full">
           {/* Link Button */}
           <Button
-            className="bg-[#5EC16A] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#5EC16A] disabled:opacity-50 disabled:cursor-not-allowed flex-1 max-w-xs"
+            className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 2 || linkMutation.isPending}
             onClick={() => setLinkDialogOpen(true)}>
-            <Image src="/images/link.svg" alt="Link" width={15} height={15} />
+            <Image src="/images/link.svg" alt="Link" width={25} height={25} />
             {linkMutation.isPending ? "Linking..." : "Link"}
           </Button>
 
           {/* Delete Button - RED DANGER */}
           <Button
-            className="bg-[#DD524C] border-[2px] text-white text-[13px] px-3 py-2 border rounded-[7px] flex items-center gap-1 hover:bg-[#CC423C] flex-1 max-w-xs"
+            className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
             disabled={selectedObjects.length !== 1 || deleteMutation.isPending}
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}>
             <Image
               src="/images/delete.png"
               alt="Delete"
-              width={25}
-              height={25}
+              width={35}
+              height={35}
             />
             {deleteMutation.isPending ? "Deleting..." : "Delete"}
           </Button>
+        </div>
+
+        {/* Third Row: Interpolate + Recalculate */}
+        <div className="flex justify-center gap-2 w-full">
+
+          <Button
+            className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
+            disabled={
+              ![1, 2].includes(selectedObjects.length) ||
+              interpolateMutation.isPending
+            }
+            onClick={handleInterpolate}
+          >
+            <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25}/>
+            {interpolateMutation.isPending
+              ? "Interpolating..."
+              : "Interpolate"}
+          </Button>
+
+          <Button
+            className="bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2"
+            disabled={recalculateMutation.isPending || isConfusionRunning }
+            onClick={() => recalculateMutation.mutate()}
+          >
+              <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25}/>
+            {
+              isConfusionRunning
+                ? "Calculating..."
+                : recalculateMutation.isPending
+                  ? "Starting..."
+                  : "Confusion"
+            }
+          </Button>
+
         </div>
       </CardContent>
 
@@ -660,7 +996,7 @@ export default function Sidebar({
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button
             onClick={() => setObjectsCollapsed(!objectsCollapsed)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-md focus:outline-none transition"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition"
             aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}
           >
             Object List

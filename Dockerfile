@@ -1,85 +1,75 @@
-# ============================================================================
-# Stage 1: Dependencies
-# ============================================================================
-FROM node:20-alpine AS deps
+# syntax=docker/dockerfile:1
 
-# Set working directory
+# ============================================
+# BASE stage – shared configuration
+# ============================================
+FROM node:20-alpine AS base
+
 WORKDIR /app
 
-# Copy pnpm configuration if you have it
-COPY package.json ./
+# Install pnpm and force hoisted node_modules (fixes Windows symlink issues)
+RUN npm install -g pnpm && pnpm config set node-linker hoisted
 
-# Install pnpm
-RUN npm install -g pnpm
+# Copy dependency files for better caching
+COPY package.json pnpm-lock.yaml ./
 
-# Install dependencies
+# ============================================
+# DEVELOPMENT stage – hot reload, no build
+# ============================================
+FROM base AS dev
+
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# ============================================================================
-# Stage 2: Builder
-# ============================================================================
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Copy pnpm to builder stage
-RUN npm install -g pnpm
-
-# Copy package files
-# COPY package.json pnpm-lock.yaml* ./
-
-# Copy installed dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
-
 # Copy source code
-COPY src ./src
-COPY public ./public
-COPY next.config.ts tsconfig.json ./
-COPY tailwind.config.ts postcss.config.js ./
+COPY . .
 
-# Build arguments for environment variables
+# Create non‑root user (helps permission issues)
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+RUN mkdir -p /app/.next && chown -R nextjs:nodejs /app/.next
+RUN chown -R nextjs:nodejs /app
+
+USER nextjs
+
+ENV NODE_ENV=development
+EXPOSE 3000
+
+# Normal Next.js dev command – polling is enabled via environment variable
+CMD ["pnpm", "dev"]
+
+# ============================================
+# BUILDER stage – only for production
+# ============================================
+FROM base AS builder
+
+RUN pnpm install --frozen-lockfile
+COPY . .
+
 ARG NEXT_PUBLIC_API_URL
 ARG NODE_ENV=production
-
-# Set environment variables
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NODE_ENV=${NODE_ENV}
 
-# Build Next.js application in standalone mode (more efficient)
 RUN pnpm run build
 
-# ============================================================================
-# Stage 3: Runner
-# ============================================================================
+# ============================================
+# RUNNER stage – production server
+# ============================================
 FROM node:20-alpine AS runner
 
 WORKDIR /app
-
-# Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
-# Create nextjs user for security (non-root user)
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
-
-# Copy build output from builder stage
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
-# Set environment for production
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Expose port
 EXPOSE 3000
-
-# Switch to nextjs user
 USER nextjs
-
-# Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
-
-# Start Next.js server
 CMD ["node", "server.js"]
