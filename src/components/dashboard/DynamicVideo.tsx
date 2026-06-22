@@ -818,7 +818,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
   const getIdFontSize = () => Math.max(6, 12*(1/currentZoom));
-  const getBBoxStrokeWidth = () => Math.max(0.5, 2*(1/currentZoom));
+  const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
   const getLabelOffset = () => 8*(1/currentZoom);
   
   const handleMouseDown = (e: any) => {
