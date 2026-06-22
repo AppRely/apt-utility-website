@@ -493,8 +493,6 @@ export default function Sidebar({
   // ========================
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only trigger if Ctrl (or Cmd on Mac) is pressed
-      if (!(e.ctrlKey || e.metaKey)) return;
 
       const key = e.key.toLowerCase();
 
@@ -980,14 +978,14 @@ export default function Sidebar({
 
       <Separator />
 
-      <CardContent className="p-3 pt-2 flex-shrink-0">
+      {/* <CardContent className="p-3 pt-2 flex-shrink-0">
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
           Frame #{frameId}
         </p>
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
           fps : {fpsValue}
         </p>
-      </CardContent>
+      </CardContent> */}
 
       <Separator />
 

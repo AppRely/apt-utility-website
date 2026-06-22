@@ -62,7 +62,6 @@ const ObjectRangesTimeline = ({
   const padding = { left: 20, right: 20, top: 5, bottom: 15 };
   const MIN_CHART_WIDTH = 400;
 
-  // filteredObjects must be defined BEFORE the useEffect that uses it
   const filteredObjects = useMemo(() => {
     return objects.filter(obj =>
       (obj.start_frame >= minFrame && obj.start_frame <= maxFrame) ||
@@ -261,6 +260,21 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
 
+  // --- Zoom indicator state ---
+  const [zoomIndicatorVisible, setZoomIndicatorVisible] = useState(false);
+  const zoomIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // --- Bounding box scale (default 1×) ---
+  const [bboxScale, setBboxScale] = useState(1);
+
+  const showZoomIndicator = useCallback(() => {
+    setZoomIndicatorVisible(true);
+    if (zoomIndicatorTimeoutRef.current) clearTimeout(zoomIndicatorTimeoutRef.current);
+    zoomIndicatorTimeoutRef.current = setTimeout(() => {
+      setZoomIndicatorVisible(false);
+    }, 2000);
+  }, []);
+
   const stageRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
@@ -292,14 +306,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
-  const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map()); // stores raw API objects with object_id
+  const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
   
-  // UNIFIED FRAME WINDOW – single control for both timelines
   const [frameWindow, setFrameWindow] = useState(500);
   const [frameWindowInput, setFrameWindowInput] = useState("500");
 
@@ -383,7 +396,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedUniqueRangesRef.current = merged;
   }, []);
   
-  // Merge cached raw objects (with object_id) into state as normalized objects with id
   const mergeUniqueCacheIntoState = useCallback(() => {
     const allObjects: any[] = [];
     for (const objects of uniqueDataCacheRef.current.values()) {
@@ -391,12 +403,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     const uniqueMap = new Map<number, any>();
     for (const obj of allObjects) {
-      // obj from API has object_id, start_frame, end_frame, etc.
       const normalized = {
         id: obj.object_id,
         start_frame: obj.start_frame,
         end_frame: obj.end_frame,
-        // keep other fields if needed
       };
       if (!uniqueMap.has(normalized.id) || normalized.end_frame > uniqueMap.get(normalized.id)!.end_frame) {
         uniqueMap.set(normalized.id, normalized);
@@ -456,7 +466,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       });
   }, [projectId, isUniqueRangeLoaded, isUniqueRangeLoading, addUniqueLoadedRange, mergeUniqueCacheIntoState]);
 
-  // Main effect for unique IDs
   useEffect(() => {
     if (!projectId) return;
     const totalFrames = getTotalFrames();
@@ -803,7 +812,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const newPos = { x: pointer.x - mousePointTo.x * clampedScale, y: pointer.y - mousePointTo.y * clampedScale };
     setStageScale({ x: clampedScale, y: clampedScale });
     setStagePos(newPos);
-  }, []);
+    showZoomIndicator();
+  }, [showZoomIndicator]);
   
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
@@ -840,10 +850,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const handleContextMenu = (e: any) => e.evt.preventDefault();
   const handleTouchMove = useCallback((e: any) => {}, []);
   const handleTouchEnd = () => {};
-  const handleZoomIn = () => { const ns = Math.min(stageScale.x * 1.1, 10); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
-  const handleZoomOut = () => { const ns = Math.max(stageScale.x / 1.1, 1); setStageScale({x:ns,y:ns}); setCurrentZoom(ns); };
-  const handleResetZoom = () => { setStageScale({x:1,y:1}); setStagePos({x:0,y:0}); setCurrentZoom(1); setCursorStyle("grab"); };
+  const handleZoomIn = () => {
+    const ns = Math.min(stageScale.x * 1.1, 10);
+    setStageScale({x:ns,y:ns});
+    setCurrentZoom(ns);
+    showZoomIndicator();
+  };
+  const handleZoomOut = () => {
+    const ns = Math.max(stageScale.x / 1.1, 1);
+    setStageScale({x:ns,y:ns});
+    setCurrentZoom(ns);
+    showZoomIndicator();
+  };
+  const handleResetZoom = () => {
+    setStageScale({x:1,y:1});
+    setStagePos({x:0,y:0});
+    setCurrentZoom(1);
+    setCursorStyle("grab");
+    showZoomIndicator();
+  };
 
+  // Updated auto‑pan: only pan when object is near the edge, then center it.
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
@@ -863,30 +890,37 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const currentStageX = stage.x();
     const currentStageY = stage.y();
     const currentScale = stage.scaleX();
-    const margin = 80;
+
+    // Calculate viewport boundaries in stage coordinates
+    const margin = 80; // margin in screen pixels
     const marginInStage = margin / currentScale;
     const viewportLeft = -currentStageX / currentScale;
     const viewportRight = (stageWidth - currentStageX) / currentScale;
     const viewportTop = -currentStageY / currentScale;
     const viewportBottom = (stageHeight - currentStageY) / currentScale;
+
+    // Check if object is near or outside the viewport
     let needsPan = false;
-    let targetOffsetX = 0, targetOffsetY = 0;
-    if (stageObjX < viewportLeft + marginInStage) {
-      targetOffsetX = (stageObjX - (viewportLeft + marginInStage)) * currentScale;
+    let targetStageX = currentStageX;
+    let targetStageY = currentStageY;
+
+    // If object is outside or within margin, we pan to center it.
+    if (stageObjX < viewportLeft + marginInStage || stageObjX > viewportRight - marginInStage) {
       needsPan = true;
-    } else if (stageObjX > viewportRight - marginInStage) {
-      targetOffsetX = (stageObjX - (viewportRight - marginInStage)) * currentScale;
-      needsPan = true;
+      targetStageX = -stageObjX * currentScale + stageWidth / 2;
     }
-    if (stageObjY < viewportTop + marginInStage) {
-      targetOffsetY = (stageObjY - (viewportTop + marginInStage)) * currentScale;
+    if (stageObjY < viewportTop + marginInStage || stageObjY > viewportBottom - marginInStage) {
       needsPan = true;
-    } else if (stageObjY > viewportBottom - marginInStage) {
-      targetOffsetY = (stageObjY - (viewportBottom - marginInStage)) * currentScale;
-      needsPan = true;
+      targetStageY = -stageObjY * currentScale + stageHeight / 2;
     }
-    if (needsPan) setStagePos({ x: currentStageX - targetOffsetX, y: currentStageY - targetOffsetY });
-  }, [selectedObjects, currentFrame, annotationMap, currentZoom, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight]);
+
+    if (needsPan) {
+      // Apply a dead‑zone to avoid tiny jitter
+      const tolerance = 20;
+      if (Math.abs(targetStageX - currentStageX) < tolerance && Math.abs(targetStageY - currentStageY) < tolerance) return;
+      setStagePos({ x: targetStageX, y: targetStageY });
+    }
+  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom]);
 
   const objectMutation = useMutation({ 
     mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
@@ -972,9 +1006,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const newTrajectoryFrames: TrajectoryFrame[] = [];
       data.objects?.forEach((obj: { frames: any[]; object_id: number }) => {
         obj.frames.forEach((f: any) => {
-          loadedAnnotations.push({ object_id: obj.object_id, frame_id: f.frame_id, coordinates: f.coordinates });
-          if (f.coordinates?.length) newTrajectoryFrames.push({ frame_id: f.frame_id, object_id: obj.object_id, coordinate: f.coordinates[0] });
-        });
+        loadedAnnotations.push({ object_id: obj.object_id, frame_id: f.frame_id, coordinates: f.coordinates, average: f.average,});
+          if (f.average?.length === 2) newTrajectoryFrames.push({frame_id: f.frame_id, object_id: obj.object_id, coordinate: f.average,}); });
       });
       setAnnotationMap(prev => {
         const newMap = new Map(prev);
@@ -1289,13 +1322,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const allObjectIds = getAllObjectIds();
 
-  // UPDATED: getAllObjectIdList uses object_id from uniqueIdsData
   const getAllObjectIdList = useCallback(() => {
     if (!uniqueIdsData) return [];
     return (uniqueIdsData.data?.objects ?? []).map(obj => obj.id).sort((a, b) => a - b);
   }, [uniqueIdsData]);
 
-  // UPDATED: cycleSelectedObject uses obj.id and object_id correctly
   const cycleSelectedObject = useCallback((position: 0 | 1) => {
     const allIds = getAllObjectIdList();
     if (allIds.length === 0) return;
@@ -1368,7 +1399,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Zoom In", key: "=" },
       { action: "Zoom Out", key: "-" },
       { action: "Toggle Trajectory", key: "T" },
-      { action: "Auto Pan", key: "A" },
+      { action: "Auto Pan (edge only)", key: "A" },
+      { action: "Toggle BBox Scale 3×", key: "Z" },
     ] },
     { category: "Selection", items: [
       { action: "Select as first object", key: "0-9" },
@@ -1423,7 +1455,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("message", handleMessage);
   }, [handleFrameJump]);
 
-  // Keyboard handler (numeric shortcuts)
+  // Keyboard handler (numeric shortcuts + 'z' for bounding box)
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
@@ -1476,6 +1508,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
+        case "KeyZ": // Toggle bounding box scale between 1× and 3×
+          e.preventDefault();
+          setBboxScale(prev => {
+            const newScale = prev === 1 ? 3 : 1;
+            toast({ title: `Bounding box scale: ${newScale}×`, duration: 1000 });
+            return newScale;
+          });
+          break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
@@ -1485,7 +1525,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
+
+  // --- Compute shortcut key map for current frame ---
+  const shortcutMap = useMemo(() => {
+    const map = new Map<number, string>();
+    objectsInCurrentFrame.forEach((obj, idx) => {
+      const key = idx === 9 ? '0' : (idx + 1).toString();
+      map.set(obj.id, key);
+    });
+    return map;
+  }, [objectsInCurrentFrame]);
 
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
@@ -1521,6 +1571,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
               {isLoadingAnnotations && " 📥 LOADING"}
               {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
+              {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
             </div>
             
             {isLoadingAnnotations && !isFrameStepSequenceRef.current && (
@@ -1585,6 +1636,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   const ys = a.coordinates.map(([,y])=>mapY(y));
                   const minX = Math.min(...xs), minY = Math.min(...ys), maxX = Math.max(...xs), maxY = Math.max(...ys);
                   const boxWidth = maxX-minX, boxHeight = maxY-minY;
+                  const shortcutKey = shortcutMap.get(a.object_id);
+                  const labelText = `${a.object_id}${!isPlaying && shortcutKey ? ` : (${shortcutKey})` : ''}`;
                   return (
                     <Group 
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
@@ -1629,25 +1682,33 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                       <Text 
                         x={mapX(a.coordinates[0][0])+getLabelOffset()} 
                         y={mapY(a.coordinates[0][1])-getLabelOffset()} 
-                        text={`id:${a.object_id}`} 
+                        text={labelText}
                         fontSize={getIdFontSize()} 
                         fill={color} 
                         fontStyle="bold" 
                         shadowColor="black" 
                         shadowBlur={2} 
                       />
-                      {isSelected && (
-                        <Rect 
-                          x={minX-5} 
-                          y={minY-5} 
-                          width={boxWidth+10} 
-                          height={boxHeight+10} 
-                          stroke={color} 
-                          strokeWidth={getBBoxStrokeWidth()} 
-                          cornerRadius={4} 
-                          dash={[6,4]} 
-                        />
-                      )}
+                      {isSelected && (() => {
+                        // Apply bboxScale to expand bounding box around its center
+                        const centerX = (minX + maxX) / 2;
+                        const centerY = (minY + maxY) / 2;
+                        const halfWidth = (boxWidth / 2) * bboxScale;
+                        const halfHeight = (boxHeight / 2) * bboxScale;
+                        const pad = 5;
+                        return (
+                          <Rect 
+                            x={centerX - halfWidth - pad} 
+                            y={centerY - halfHeight - pad} 
+                            width={halfWidth * 2 + 2 * pad} 
+                            height={halfHeight * 2 + 2 * pad} 
+                            stroke={color} 
+                            strokeWidth={getBBoxStrokeWidth()} 
+                            cornerRadius={4} 
+                            dash={[6,4]} 
+                          />
+                        );
+                      })()}
                     </Group>
                   );
                 })}
@@ -1688,9 +1749,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               </div>
             )}
 
-            <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md border border-slate-200 shadow-lg text-slate-700 px-3 py-1 rounded-xl text-sm font-medium">
-              {(stageScale.x*100).toFixed(0)}%
-            </div>
+            {/* Zoom indicator */}
+            {zoomIndicatorVisible && (
+              <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md border border-slate-200 shadow-lg text-slate-700 px-3 py-1 rounded-xl text-sm font-medium transition-opacity duration-300">
+                {(stageScale.x*100).toFixed(0)}%
+              </div>
+            )}
             
             {/* Expandable Toolbar */}
             <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl">
@@ -2003,7 +2067,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           )}
 
-          {/* TIMELINE 2: ALL OBJECTS START/END – UPDATED TO MAP object_id -> id */}
+          {/* TIMELINE 2: ALL OBJECTS START/END */}
           {isLoadingUnique && !uniqueIdsData && (
             <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
