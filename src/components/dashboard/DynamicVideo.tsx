@@ -1418,12 +1418,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     {
       category: "Operations",
       items: [
-        { action: "Link Objects", key: "Ctrl + L" },
-        { action: "Swap Objects", key: "Ctrl + S" },
-        { action: "Break Object", key: "Ctrl + B" },
-        { action: "Delete Object", key: "Ctrl + D" },
-        { action: "Interpolate", key: "Ctrl + I" },
-        { action: "Recalculate Confusion", key: "Ctrl + R" },
+        { action: "Link Objects", key: "L" },
+        { action: "Swap Objects", key: "W" },
+        { action: "Break Object", key: "B" },
+        { action: "Delete Object", key: "D" },
+        { action: "Interpolate", key: "I" },
+        { action: "Recalculate Confusion", key: "R" },
       ]
     },
   ];

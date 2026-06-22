@@ -497,12 +497,12 @@ export default function Sidebar({
       const key = e.key.toLowerCase();
 
       // Prevent browser defaults for these combos
-      const preventDefaultKeys = ["l", "s", "b", "d", "i", "r"];
+      const preventDefaultKeys = ["l", "w", "b", "d", "i", "r"];
       if (preventDefaultKeys.includes(key)) {
         e.preventDefault();
       }
 
-      // ---- LINK (Ctrl+L) ----
+      // ---- LINK (L) ----
       if (key === "l") {
         if (selectedObjects.length !== 2) {
           toast({
@@ -516,8 +516,8 @@ export default function Sidebar({
         if (!linkMutation.isPending) setLinkDialogOpen(true);
       }
 
-      // ---- SWAP (Ctrl+S) ----
-      else if (key === "s") {
+      // ---- SWAP (W) ----
+      else if (key === "w") {
         if (selectedObjects.length !== 2) {
           toast({
             title: "⚠️ Invalid Selection",
@@ -530,7 +530,7 @@ export default function Sidebar({
         if (!swapMutation.isPending) setSwapDialogOpen(true);
       }
 
-      // ---- BREAK (Ctrl+B) ----
+      // ---- BREAK (B) ----
       else if (key === "b") {
         if (selectedObjects.length !== 1) {
           toast({
@@ -544,7 +544,7 @@ export default function Sidebar({
         if (!breakMutation.isPending) setBreakDialogOpen(true);
       }
 
-      // ---- DELETE (Ctrl+D) ----
+      // ---- DELETE (D) ----
       else if (key === "d") {
         if (selectedObjects.length !== 1) {
           toast({
@@ -558,7 +558,7 @@ export default function Sidebar({
         if (!deleteMutation.isPending) setDeleteDialogOpen(true);
       }
 
-      // ---- INTERPOLATE (Ctrl+I) ----
+      // ---- INTERPOLATE (I) ----
       else if (key === "i") {
         if (![1, 2].includes(selectedObjects.length)) {
           toast({
@@ -572,7 +572,7 @@ export default function Sidebar({
         if (!interpolateMutation.isPending) handleInterpolate();
       }
 
-      // ---- RECALCULATE CONFUSION (Ctrl+R) ----
+      // ---- RECALCULATE CONFUSION (R) ----
       else if (key === "r") {
         if (!recalculateMutation.isPending && !isConfusionRunning) {
           recalculateMutation.mutate();
