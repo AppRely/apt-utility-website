@@ -21,6 +21,17 @@ import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 
+// Helper to get consistent color per object ID (same palette as in DynamicVideo)
+const getObjectColor = (id: number) => {
+  const colors = [
+    "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+    "#00FFFF", "#FFA500", "#800080", "#008000", "#000080",
+    "#FF1493", "#00BFFF", "#7CFC00", "#FFD700", "#A52A2A",
+    "#DC143C", "#4B0082", "#8B4513", "#2E8B57", "#4682B4",
+  ];
+  return colors[id % colors.length];
+};
+
 export default function Sidebar({
   selectedObjects,
   setSelectedObjects,
@@ -86,7 +97,7 @@ export default function Sidebar({
   const totalFrames = useSessionStorage("totalFrames");
 
   // QUERY WITH PROPER CACHE INVALIDATION
-    const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", projectId, frameId],
     queryFn: () => getFrameData(Number(projectId!), Number(frameId!)),
     enabled: !!(projectId && frameId && !objectsCollapsed),
@@ -871,10 +882,10 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 w-64 bg-white border border-slate-200 rounded-xl shadow-sm h-full">
+        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm h-full">
           {/* title + clear button side-by-side */}
           <div className="flex items-center justify-between mb-3">
-           <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
+            <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
             <Button
               variant="destructive"
               size="sm"
@@ -897,43 +908,52 @@ export default function Sidebar({
             <p className="text-gray-500">No object selected</p>
           )}
 
-          {/* selected list */}
-          {selectedObjects.map((obj, i) => (
-            <div
-              key={i}
-              className="p-2 mt-2 border bg-white shadow-sm border rounded-[7px] flex justify-between items-start">
-              <div>
-                <p>
-                  <b>Object {i + 1} Selected:</b>
-                </p>
-                <p className="flex gap-3">
-                  <span>ID: {obj.object_id}</span>
-                  <span>Frame: {obj.frame_id}</span>
-                </p>
-                <p className="flex gap-3">
-                  <span>Start: {obj.start_frame}</span>
-                  <span>End: {obj.end_frame}</span>
-                </p>
-              </div>
+          {/* ✅ Enhanced selected objects list with color matching AND card size matching animal annotation cards */}
+          {selectedObjects.map((obj, i) => {
+            const color = getObjectColor(obj.object_id);
+            return (
+              <div
+                key={i}
+                className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start"
+                style={{ borderLeft: `5px solid ${color}` }}
+              >
+                <div>
+                  <p className="flex items-center gap-2">
+                    <span
+                      className="inline-block w-3 h-3 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <b>Object {i + 1}</b>
+                  </p>
+                  <p className="flex gap-3 text-sm">
+                    <span>ID: {obj.object_id}</span>
+                    <span>Frame: {obj.frame_id}</span>
+                  </p>
+                  <p className="flex gap-3 text-xs text-gray-600">
+                    <span>Start: {obj.start_frame}</span>
+                    <span>End: {obj.end_frame}</span>
+                  </p>
+                </div>
 
-              {/* Cross button */}
-              <button
-                onClick={() => {
-                  setSelectedObjects((prev) =>
-                    prev.filter((o) => o.object_id !== obj.object_id),
-                  );
-                  toast({
-                    title: "🗑️ Removed",
-                    description: `Object ${obj.object_id} removed from selection.`,
-                    variant: "default",
-                    duration: 3000,
-                  });
-                }}
-                className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
-                ×
-              </button>
-            </div>
-          ))}
+                {/* Cross button */}
+                <button
+                  onClick={() => {
+                    setSelectedObjects((prev) =>
+                      prev.filter((o) => o.object_id !== obj.object_id),
+                    );
+                    toast({
+                      title: "🗑️ Removed",
+                      description: `Object ${obj.object_id} removed from selection.`,
+                      variant: "default",
+                      duration: 3000,
+                    });
+                  }}
+                  className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
       </CardContent>
 
@@ -1008,12 +1028,12 @@ export default function Sidebar({
             disabled={recalculateMutation.isPending || isConfusionRunning }
             onClick={() => recalculateMutation.mutate()}
           >
-              <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25}/>
+            <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25}/>
             {
               isConfusionRunning
-                ? "Calculating..."
-                : recalculateMutation.isPending
-                  ? "Starting..."
+              ? "Calculating..."
+              : recalculateMutation.isPending
+                ? "Starting..."
                   : "Confusion"
             }
           </Button>
