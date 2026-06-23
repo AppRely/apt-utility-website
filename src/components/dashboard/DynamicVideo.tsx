@@ -1400,6 +1400,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   }, [mounted, selectedObjects.length, cycleSelectedObject]);
 
   const [showShortcutModal, setShowShortcutModal] = useState(false);
+  const [showObjectSelection, setShowObjectSelection] = useState(false);
   const shortcuts = [
     { category: "Playback", items: [
       { action: "Play / Pause", key: "Space / P" },
@@ -1434,6 +1435,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Open ID Table", key: "M" },
       { action: "Open Shortcuts", key: "?" },
       { action: "Open Confusion Table", key: "C" },
+      { action: "Toggle Object Selection", key: "O" },
     ] },
     {
       category: "Operations",
@@ -1549,6 +1551,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
         case "KeyC": e.preventDefault(); openConfusionPopup(); break;
         case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
+        case "KeyO": e.preventDefault(); setShowObjectSelection(prev => !prev); break;
       }
     };
     window.addEventListener("keydown", handler);
@@ -1779,7 +1782,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </Stage>
             
             {/* Shortcut Panel */}
-            {!isPlaying && objectsInCurrentFrame.length > 0 && (
+            {showObjectSelection && objectsInCurrentFrame.length > 0 && (
               <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
                 <div className="text-xs font-mono mb-2">
                   Objects in frame ({objectPage+1}/{totalPages || 1})
@@ -1887,6 +1890,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     className="bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
                   >
                     i
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setShowObjectSelection(prev => !prev)}
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 shadow-md hover:shadow-lg transition-all duration-200 rounded-full"
+                    title="Object Selection"
+                  >
+                    O
                   </Button>
                   <Button
                     size="icon"
