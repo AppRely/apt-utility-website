@@ -226,6 +226,7 @@ export default function AnnotationLandingPage() {
                     sessionStorage.setItem("height", p.height);
                     sessionStorage.setItem("duration", p.duration);
                     sessionStorage.setItem("total_frames", p.total_frames);
+                    sessionStorage.setItem("skeleton_graph", JSON.stringify(p.skeleton_graph));
                     router.push("/dashboard");
                   }}>
                   Edit

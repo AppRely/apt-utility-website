@@ -267,6 +267,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   // --- Bounding box scale (default 1×) ---
   const [bboxScale, setBboxScale] = useState(1);
 
+  // --- Skeleton graph state (NEW) ---
+  const [skeletonGraph, setSkeletonGraph] = useState<[number, number][]>([]);
+  const [showSkeleton, setShowSkeleton] = useState(true);
+
+  // Load skeleton graph from sessionStorage on mount (NEW)
+  useEffect(() => {
+    if (!mounted) return;
+    const stored = sessionStorage.getItem("skeleton_graph");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) setSkeletonGraph(parsed);
+      } catch (e) {
+        console.warn("Failed to parse skeleton_graph", e);
+      }
+    }
+  }, [mounted]);
+
   const showZoomIndicator = useCallback(() => {
     setZoomIndicatorVisible(true);
     if (zoomIndicatorTimeoutRef.current) clearTimeout(zoomIndicatorTimeoutRef.current);
@@ -820,7 +838,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getIdFontSize = () => Math.max(6, 12*(1/currentZoom));
   const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
   const getLabelOffset = () => 8*(1/currentZoom);
-  
+  // New helper for skeleton line width
+  const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
+
   const handleMouseDown = (e: any) => {
     if (e.evt.button === 0 || e.evt.button === 2) {
       if (e.target === e.target.getStage()) {
@@ -870,7 +890,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     showZoomIndicator();
   };
 
-  // Updated auto‑pan: only pan when object is near the edge, then center it.
+  // Auto‑pan
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
@@ -891,20 +911,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const currentStageY = stage.y();
     const currentScale = stage.scaleX();
 
-    // Calculate viewport boundaries in stage coordinates
-    const margin = 80; // margin in screen pixels
+    const margin = 80;
     const marginInStage = margin / currentScale;
     const viewportLeft = -currentStageX / currentScale;
     const viewportRight = (stageWidth - currentStageX) / currentScale;
     const viewportTop = -currentStageY / currentScale;
     const viewportBottom = (stageHeight - currentStageY) / currentScale;
 
-    // Check if object is near or outside the viewport
     let needsPan = false;
     let targetStageX = currentStageX;
     let targetStageY = currentStageY;
 
-    // If object is outside or within margin, we pan to center it.
     if (stageObjX < viewportLeft + marginInStage || stageObjX > viewportRight - marginInStage) {
       needsPan = true;
       targetStageX = -stageObjX * currentScale + stageWidth / 2;
@@ -915,7 +932,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
 
     if (needsPan) {
-      // Apply a dead‑zone to avoid tiny jitter
       const tolerance = 20;
       if (Math.abs(targetStageX - currentStageX) < tolerance && Math.abs(targetStageY - currentStageY) < tolerance) return;
       setStagePos({ x: targetStageX, y: targetStageY });
@@ -964,7 +980,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     );
   }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, toast]);
 
-  // Auto-pan effects
+  // Auto-pan effects (unchanged)
   useEffect(() => {
     if (!video || !mounted) return;
     const handleTimeUpdate = () => {
@@ -1039,6 +1055,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
 
+  // Pruning annotation map
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
     const maxFrames = 120 * stableFpsRef.current;
@@ -1055,6 +1072,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
+  // Prune trajectory (unchanged)
   useEffect(() => {
     if (!mounted) return;
     const maxTrajFrames = 60 * stableFpsRef.current;
@@ -1177,7 +1195,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // Dynamic stage resize
+  // Dynamic stage resize (unchanged)
   useEffect(() => {
     if (!rootContainerRef.current) return;
     const updateStageSize = () => {
@@ -1199,7 +1217,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
   }, []);
 
-  // Video initialization
+  // Video initialization (unchanged)
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
@@ -1401,6 +1419,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Toggle Trajectory", key: "T" },
       { action: "Auto Pan (edge only)", key: "A" },
       { action: "Toggle BBox Scale 3×", key: "Z" },
+      { action: "Toggle Skeleton", key: "K" }, // NEW shortcut
     ] },
     { category: "Selection", items: [
       { action: "Select as first object", key: "0-9" },
@@ -1455,7 +1474,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("message", handleMessage);
   }, [handleFrameJump]);
 
-  // Keyboard handler (numeric shortcuts + 'z' for bounding box)
+  // Keyboard handler – added 'k' for skeleton toggle
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
@@ -1508,12 +1527,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
-        case "KeyZ": // Toggle bounding box scale between 1× and 3×
+        case "KeyZ": // Toggle bounding box scale
           e.preventDefault();
           setBboxScale(prev => {
             const newScale = prev === 1 ? 3 : 1;
             toast({ title: `Bounding box scale: ${newScale}×`, duration: 1000 });
             return newScale;
+          });
+          break;
+        case "KeyK": // NEW: Toggle skeleton
+          e.preventDefault();
+          setShowSkeleton(prev => {
+            const newState = !prev;
+            toast({ title: `Skeleton ${newState ? "ON" : "OFF"}`, duration: 1000 });
+            return newState;
           });
           break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
@@ -1572,6 +1599,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               {isLoadingAnnotations && " 📥 LOADING"}
               {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
               {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
+              {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
             </div>
             
             {isLoadingAnnotations && !isFrameStepSequenceRef.current && (
@@ -1638,6 +1666,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   const boxWidth = maxX-minX, boxHeight = maxY-minY;
                   const shortcutKey = shortcutMap.get(a.object_id);
                   const labelText = `${a.object_id}${!isPlaying && shortcutKey ? ` : (${shortcutKey})` : ''}`;
+
+                  // Map all coordinates to stage positions for skeleton
+                  const mappedCoords = a.coordinates.map(([x, y]) => ({
+                    x: mapX(x),
+                    y: mapY(y),
+                  }));
+
                   return (
                     <Group 
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
@@ -1670,7 +1705,32 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         });
                       }}
                     >
-                      {a.coordinates.map(([x,y], idx) => (
+                      {/* ===== SKELETON LINES (NEW) ===== */}
+                      {showSkeleton && skeletonGraph.length > 0 && (
+                        <>
+                          {skeletonGraph.map(([idx1, idx2], edgeIndex) => {
+                            if (idx1 < mappedCoords.length && idx2 < mappedCoords.length) {
+                              const p1 = mappedCoords[idx1];
+                              const p2 = mappedCoords[idx2];
+                              return (
+                                <Line
+                                  key={`skeleton-${a.object_id}-${a.frame_id}-${edgeIndex}`}
+                                  points={[p1.x, p1.y, p2.x, p2.y]}
+                                  stroke={color}
+                                  strokeWidth={getSkeletonWidth()}
+                                  opacity={0.8}
+                                  lineCap="round"
+                                  lineJoin="round"
+                                />
+                              );
+                            }
+                            return null;
+                          })}
+                        </>
+                      )}
+
+                      {/* Keypoint circles */}
+                      {a.coordinates.map(([x, y], idx) => (
                         <Circle 
                           key={`circle-${a.object_id}-${a.frame_id}-${idx}`}
                           x={mapX(x)} 
@@ -1679,6 +1739,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           fill={color} 
                         />
                       ))}
+
                       <Text 
                         x={mapX(a.coordinates[0][0])+getLabelOffset()} 
                         y={mapY(a.coordinates[0][1])-getLabelOffset()} 
@@ -1689,8 +1750,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         shadowColor="black" 
                         shadowBlur={2} 
                       />
+
                       {isSelected && (() => {
-                        // Apply bboxScale to expand bounding box around its center
                         const centerX = (minX + maxX) / 2;
                         const centerY = (minY + maxY) / 2;
                         const halfWidth = (boxWidth / 2) * bboxScale;
@@ -1779,6 +1840,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <Target className="w-3 h-3 mr-1" />
                     {autoPanEnabled ? "Auto-Pan ON" : "Auto-Pan OFF"}
                   </Button>
+
+                  {/* NEW: Skeleton Toggle Button */}
+                  <Button
+                    variant={showSkeleton ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setShowSkeleton(prev => !prev)}
+                    className={`h-10 px-4 rounded-xl font-medium transition-all duration-200 shadow-sm hover:shadow-md ${showSkeleton ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                    title="Toggle skeleton overlay (Press 'K')"
+                  >
+                    {showSkeleton ? "Skeleton ON" : "Skeleton OFF"}
+                  </Button>
+
                   {downloadUrl ? (
                     <Button 
                       className="bg-green-600 text-white text-[13px] px-3 py-2 rounded-[5px] flex items-center gap-2 hover:bg-green-600" 
@@ -1838,7 +1911,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
           
-          {/* VIDEO CONTROLS */}
+          {/* VIDEO CONTROLS (unchanged) */}
           <Separator />
           <div className="flex flex-col pt-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1933,7 +2006,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
 
-          {/* TIMELINE 1: SELECTED OBJECTS COORDINATES */}
+          {/* TIMELINE 1: SELECTED OBJECTS COORDINATES (unchanged) */}
           {selectedObjects.length > 0 && timelinePoints.length > 0 && (
             <div className="px-2 py-1 bg-gray-900 rounded-md mt-2">
               <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
@@ -2067,7 +2140,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           )}
 
-          {/* TIMELINE 2: ALL OBJECTS START/END */}
+          {/* TIMELINE 2: ALL OBJECTS START/END (unchanged) */}
           {isLoadingUnique && !uniqueIdsData && (
             <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
