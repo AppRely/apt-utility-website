@@ -38,23 +38,22 @@ export default function UniqueIdsPopup() {
     }
     setSelectedIds(newSelected);
 
-    const base = data?.objects?.find((r: any) => r.id === newSelected[0]);
+    const base = data?.objects?.find((r: any) => r.object_id === newSelected[0]);
     if (base) {
       const startRange = base.end_frame + 1;
       const endRange = base.end_frame + 3;
       const matched = (data?.objects || [])
         .filter((r: any) => r.start_frame >= startRange && r.start_frame <= endRange)
-        .map((r: any) => r.id);
+        .map((r: any) => r.object_id);
       setLinkedIds(matched);
     } else {
       setLinkedIds([]);
     }
 
     // Communicate back to main window
-    const row = data?.objects?.find((r: any) => r.id === id);
+   const row = data?.objects?.find((r: any) => r.object_id === id);
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: "UNIQUE_SELECT", id, frame: row?.start_frame }, "*");
-    }
+      window.opener.postMessage({type: "UNIQUE_SELECT", id, frame: row?.end_frame, }, "*" );}
   };
 
   return (
