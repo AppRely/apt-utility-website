@@ -835,7 +835,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
-  const getIdFontSize = () => Math.max(6, 12*(1/currentZoom));
+  // *** UPDATED: minimum font size is now 14px, and it scales with zoom but never below 14 ***
+  const getIdFontSize = () => Math.max(14, 14 * (1 / currentZoom));
   const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
   const getLabelOffset = () => 8*(1/currentZoom);
   // New helper for skeleton line width
@@ -1747,8 +1748,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         fontSize={getIdFontSize()} 
                         fill={color} 
                         fontStyle="bold" 
-                        shadowColor="black" 
-                        shadowBlur={2} 
+                        stroke="black"
+                        strokeWidth={0.8}
+                        shadowColor="transparent"
                       />
 
                       {isSelected && (() => {
