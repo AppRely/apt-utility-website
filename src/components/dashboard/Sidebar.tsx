@@ -5,7 +5,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
 import { linkObjects } from "@/lib/api/linkObjects";
@@ -39,6 +39,9 @@ export default function Sidebar({
 
   // State for collapsing the object list - default to true (collapsed)
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
+
+  // Ref to store the ordered objects for linking
+  const linkOrderRef = useRef<{ obj1: any; obj2: any } | null>(null);
 
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
@@ -128,7 +131,30 @@ export default function Sidebar({
       });
       setLinkDialogOpen(false);
 
-      setSelectedObjects([]);
+      //  Update the selected object with merged range and keep it selected
+      if (linkOrderRef.current) {
+        const { obj1, obj2 } = linkOrderRef.current;
+        const mergedStart = Math.min(obj1.start_frame, obj2.start_frame);
+        const mergedEnd = Math.max(obj1.end_frame, obj2.end_frame);
+        // Keep the first object (the earlier one) with the new merged range
+        setSelectedObjects([
+          {
+            object_id: obj1.object_id,
+            frame_id: obj1.frame_id, // current frame from the earlier object
+            start_frame: mergedStart,
+            end_frame: mergedEnd,
+            is_inside: obj1.is_inside,
+          },
+        ]);
+        linkOrderRef.current = null;
+      } else {
+        // Fallback: keep the first object as is
+        if (selectedObjects.length > 0) {
+          setSelectedObjects([selectedObjects[0]]);
+        } else {
+          setSelectedObjects([]);
+        }
+      }
 
       // DISPATCH LINKING COMPLETE EVENT
       const currentFrameId = Number(frameId);
@@ -153,6 +179,7 @@ export default function Sidebar({
         variant: "destructive",
         duration: 3000,
       });
+      linkOrderRef.current = null;
     },
   });
 
@@ -365,20 +392,38 @@ export default function Sidebar({
         variant: "destructive",
         duration: 3000,
       });
-
       return;
     }
 
-    const [obj1, obj2] = selectedObjects;
+    let [obj1, obj2] = selectedObjects;
+
+    //  Ensure both objects have start_frame defined
+    if (obj1.start_frame === undefined || obj2.start_frame === undefined) {
+      toast({
+        title: "⚠️ Missing Data",
+        description: "One of the selected objects has no start frame.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    //  Always link from previous (earlier start_frame) to next (later start_frame)
+    if (obj1.start_frame > obj2.start_frame) {
+      [obj1, obj2] = [obj2, obj1];
+    }
+
+    // Store ordered objects for range update in onSuccess
+    linkOrderRef.current = { obj1, obj2 };
 
     const formData = new FormData();
     formData.append("object_1_id", String(obj1.object_id));
     formData.append("object_1_start", String(obj1.start_frame));
-    formData.append("object_1_end", String(obj1.end_frame));
+    formData.append("object_1_end", String(obj1.end_frame ?? obj1.start_frame)); // fallback to start if end undefined
 
     formData.append("object_2_id", String(obj2.object_id));
     formData.append("object_2_start", String(obj2.start_frame));
-    formData.append("object_2_end", String(obj2.end_frame));
+    formData.append("object_2_end", String(obj2.end_frame ?? obj2.start_frame));
 
     linkMutation.mutate(formData);
   };
