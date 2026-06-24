@@ -39,6 +39,9 @@ const ObjectRangesTimeline = ({
   onWindowChange,
   windowInput,
   setWindowInput,
+  showControls = true,
+  showXAxisLabels = true,
+  compact = false,
 }: {
   objects: { id: number; start_frame: number; end_frame: number }[];
   currentFrame: number;
@@ -49,18 +52,20 @@ const ObjectRangesTimeline = ({
   onWindowChange: (newWindow: number) => void;
   windowInput: string;
   setWindowInput: (val: string) => void;
+  showControls?: boolean;
+  showXAxisLabels?: boolean;
+  compact?: boolean;
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [, forceRedraw] = useState(0);
+  // Always centered: minFrame and maxFrame are symmetric around currentFrame
+  const minFrame = currentFrame - visibleWindow;
+  const maxFrame = currentFrame + visibleWindow;
 
-  const minFrame = useMemo(() => Math.max(0, currentFrame - visibleWindow), [currentFrame, visibleWindow]);
-  const maxFrame = useMemo(() => Math.min(totalFrames, currentFrame + visibleWindow), [currentFrame, visibleWindow, totalFrames]);
-
-  const [chartWidth, setChartWidth] = useState(800);
-  const chartHeight = 80;
-  const padding = { left: 20, right: 20, top: 5, bottom: 15 };
-  const MIN_CHART_WIDTH = 400;
+  // Fixed coordinate system width for the viewBox
+  const chartWidth = 800;
+  const chartHeight = compact ? 40 : 60;
+  const padding = compact
+    ? { left: 20, right: 20, top: 2, bottom: 4 }
+    : { left: 20, right: 20, top: 5, bottom: 15 };
 
   const filteredObjects = useMemo(() => {
     return objects.filter(obj =>
@@ -69,18 +74,6 @@ const ObjectRangesTimeline = ({
     );
   }, [objects, minFrame, maxFrame]);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver(entries => {
-      const containerWidth = entries[0].contentRect.width;
-      const newWidth = Math.max(containerWidth - padding.left - padding.right, MIN_CHART_WIDTH);
-      setChartWidth(newWidth);
-      forceRedraw(prev => prev + 1);
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [padding.left, padding.right]);
-
   const getX = useCallback((frame: number) => {
     if (maxFrame === minFrame) return 0;
     return ((frame - minFrame) / (maxFrame - minFrame)) * chartWidth;
@@ -88,130 +81,124 @@ const ObjectRangesTimeline = ({
 
   const markerY = padding.top + chartHeight / 2;
 
-  useEffect(() => {
-    if (!scrollContainerRef.current || filteredObjects.length === 0) return;
-    const container = scrollContainerRef.current;
-    const svg = container.querySelector("svg");
-    if (!svg) return;
-    const currentX = getX(currentFrame);
-    const containerRect = container.getBoundingClientRect();
-    const svgRect = svg.getBoundingClientRect();
-    const targetScrollLeft = currentX + svgRect.left - containerRect.left - containerRect.width / 2;
-    container.scrollTo({ left: Math.max(0, targetScrollLeft), behavior: "smooth" });
-  }, [currentFrame, getX, filteredObjects.length]);
-
   const handlePointClick = (frame: number) => onSeek(frame);
 
   if (filteredObjects.length === 0) {
+    if (compact) {
+      return (
+        <div className="bg-slate-900 rounded-md p-1 text-xs text-gray-500 text-center h-full flex items-center justify-center w-full">
+          No object ranges in window
+        </div>
+      );
+    }
     return (
-      <div className="bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-2xl p-2 text-sm">
-        No object start/end markers in the visible window (frames {minFrame}–{maxFrame}).
+      <div className="bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-2xl p-2 text-sm w-full">
+        No object start/end markers in the visible window (frames {Math.round(minFrame)}–{Math.round(maxFrame)}).
         Total objects: {objects.length}. Try increasing the window size.
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-xl p-2">
-      <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
-        <span className="text-xs text-gray-300">Start/End Timeline:</span>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-400">Window (frames):</span>
-            <input
-              type="number"
-              min="10"
-              max={totalFrames}
-              step="10"
-              value={windowInput}
-              onChange={(e) => setWindowInput(e.target.value)}
-              className="w-20 h-7 bg-gray-800 text-white text-xs rounded-md px-2 border border-gray-600"
-            />
-            <button
-              onClick={() => {
-                let newVal = parseInt(windowInput, 10);
-                if (isNaN(newVal)) newVal = 1000;
-                newVal = Math.min(Math.max(newVal, 10), totalFrames);
-                onWindowChange(Math.floor(newVal / 2));
-                setWindowInput(newVal.toString());
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md transition-colors"
-            >
-              Apply
-            </button>
+    <div className={compact ? "bg-slate-900 rounded-md h-full w-full" : "bg-slate-900 border border-slate-700 rounded-xl p-2 w-full"}>
+      {showControls && (
+        <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
+          <span className="text-xs text-gray-300">Start/End Timeline:</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-400">Window (frames):</span>
+              <input
+                type="number"
+                min="10"
+                max={totalFrames}
+                step="10"
+                value={windowInput}
+                onChange={(e) => setWindowInput(e.target.value)}
+                className="w-20 h-7 bg-gray-800 text-white text-xs rounded-md px-2 border border-gray-600"
+              />
+              <button
+                onClick={() => {
+                  let newVal = parseInt(windowInput, 10);
+                  if (isNaN(newVal)) newVal = 1000;
+                  newVal = Math.min(Math.max(newVal, 10), totalFrames);
+                  onWindowChange(Math.floor(newVal / 2));
+                  setWindowInput(newVal.toString());
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md transition-colors"
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-      <div ref={scrollContainerRef} className="overflow-x-auto" style={{ maxWidth: "100%" }}>
-        <div ref={containerRef} style={{ width: "100%", minWidth: `${chartWidth + padding.left + padding.right}px` }}>
-          <svg width={chartWidth + padding.left + padding.right} height={chartHeight + padding.top + padding.bottom} style={{ display: "block" }}>
-            <rect x={0} y={0} width="100%" height="100%" fill="#1f2937" rx="4" />
-            <line x1={padding.left} y1={markerY} x2={padding.left + chartWidth} y2={markerY} stroke="#374151" strokeWidth="0.5" strokeDasharray="4 2" />
-            <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#6b7280" strokeWidth="1" />
-            {(() => {
-              const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
-              const labels = [];
-              for (let f = minFrame; f <= maxFrame; f += step) {
-                const x = padding.left + getX(f);
-                labels.push(<text key={`label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">{f}</text>);
-              }
-              return labels;
-            })()}
-            {currentFrame >= minFrame && currentFrame <= maxFrame && (
-              <line x1={padding.left + getX(currentFrame)} y1={padding.top} x2={padding.left + getX(currentFrame)} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
-            )}
-            {filteredObjects.map(obj => {
-              const color = getObjectColor(obj.id);
-              const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
-              const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
-              const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
-              const startX = padding.left + getX(obj.start_frame);
-              const endX = padding.left + getX(obj.end_frame);
-              const baseY = markerY;
-              const startOffsetY = isOverlap ? -8 : 0;
-              const endOffsetY = isOverlap ? 8 : 0;
+      )}
+      <div className="w-full h-full">
+        <svg
+          viewBox={`0 0 ${chartWidth + padding.left + padding.right} ${chartHeight + padding.top + padding.bottom}`}
+          preserveAspectRatio="none"
+          style={{ display: "block", width: "100%", height: "100%" }}
+        >
+          <rect x={0} y={0} width="100%" height="100%" fill="#1f2937" rx={compact ? "0" : "4"} />
+          <line x1={padding.left} y1={markerY} x2={padding.left + chartWidth} y2={markerY} stroke="#374151" strokeWidth="0.5" strokeDasharray="4 2" />
+          <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#6b7280" strokeWidth="1" />
+          {showXAxisLabels && (() => {
+            const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
+            const labels = [];
+            for (let f = minFrame; f <= maxFrame; f += step) {
+              const x = padding.left + getX(f);
+              labels.push(<text key={`label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">{Math.round(f)}</text>);
+            }
+            return labels;
+          })()}
+          {/* Red line always at the center */}
+          <line x1={padding.left + chartWidth / 2} y1={padding.top} x2={padding.left + chartWidth / 2} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
+          {filteredObjects.map(obj => {
+            const color = getObjectColor(obj.id);
+            const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
+            const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
+            const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
+            const startX = padding.left + getX(obj.start_frame);
+            const endX = padding.left + getX(obj.end_frame);
+            const baseY = markerY;
+            const startOffsetY = isOverlap ? -8 : 0;
+            const endOffsetY = isOverlap ? 8 : 0;
 
-              return (
-                <g key={obj.id}>
-                  {showStart && (
-                    <rect
-                      x={startX - 5}
-                      y={baseY + startOffsetY - 5}
-                      width="6"
-                      height="10"
-                      rx="2"
-                      ry="2"
-                      fill={color}
-                      stroke="#fff"
-                      strokeWidth="1"
-                      style={{ cursor: "pointer" }}
-                      onClick={() => handlePointClick(obj.start_frame)}
-                    >
-                      <title>Object {obj.id} - Start frame: {obj.start_frame}</title>
-                    </rect>
-                  )}
-                  {showEnd && (
-                    <rect
-                      x={endX - 5}
-                      y={baseY + endOffsetY - 5}
-                      width="6"
-                      height="10"
-                      rx="2"
-                      ry="2"
-                      fill={color}
-                      stroke="#fff"
-                      strokeWidth="1.5"
-                      style={{ cursor: "pointer" }}
-                      onClick={() => handlePointClick(obj.end_frame)}
-                    >
-                      <title>Object {obj.id} - End frame: {obj.end_frame}</title>
-                    </rect>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+            return (
+              <g key={obj.id}>
+                {showStart && (
+                  <rect
+                    x={startX - 5}
+                    y={baseY + startOffsetY - 5}
+                    width="6"
+                    height="10"
+                    rx="2"
+                    ry="2"
+                    fill={color}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => handlePointClick(obj.start_frame)}
+                  >
+                    <title>Object {obj.id} - Start frame: {obj.start_frame}</title>
+                  </rect>
+                )}
+                {showEnd && (
+                  <rect
+                    x={endX - 5}
+                    y={baseY + endOffsetY - 5}
+                    width="6"
+                    height="10"
+                    rx="2"
+                    ry="2"
+                    fill={color}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => handlePointClick(obj.end_frame)}
+                  >
+                    <title>Object {obj.id} - End frame: {obj.end_frame}</title>
+                  </rect>
+                )}
+              </g>
+            );
+          })}
+        </svg>
       </div>
     </div>
   );
@@ -260,18 +247,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
 
-  // --- Zoom indicator state ---
   const [zoomIndicatorVisible, setZoomIndicatorVisible] = useState(false);
   const zoomIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // --- Bounding box scale (default 1×) ---
   const [bboxScale, setBboxScale] = useState(1);
 
-  // --- Skeleton graph state (NEW) ---
   const [skeletonGraph, setSkeletonGraph] = useState<[number, number][]>([]);
   const [showSkeleton, setShowSkeleton] = useState(true);
 
-  // --- Auto Interpolation state (NEW) ---
   const [autoInterpolation, setAutoInterpolation] = useState(() => {
     if (typeof window !== 'undefined') {
       const stored = sessionStorage.getItem("autoInterpolation");
@@ -280,12 +263,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return false;
   });
 
-  // Persist autoInterpolation to sessionStorage
   useEffect(() => {
     sessionStorage.setItem("autoInterpolation", String(autoInterpolation));
   }, [autoInterpolation]);
 
-  // Load skeleton graph from sessionStorage on mount (NEW)
   useEffect(() => {
     if (!mounted) return;
     const stored = sessionStorage.getItem("skeleton_graph");
@@ -345,8 +326,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
   
-  const [frameWindow, setFrameWindow] = useState(500);
-  const [frameWindowInput, setFrameWindowInput] = useState("500");
+  // Default window: 250 frames on each side => total 500 frames visible
+  const [frameWindow, setFrameWindow] = useState(250);
+  const [frameWindowInput, setFrameWindowInput] = useState("250");
 
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
@@ -366,7 +348,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return Math.floor(duration * stableFpsRef.current);
   }, [duration]);
 
-  // Numeric Shortcut System
   const [objectPage, setObjectPage] = useState(0);
   const pageSize = 10;
 
@@ -401,7 +382,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
-  // Unique IDs helpers (updated for object_id)
+  // Unique IDs helpers
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
     return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
   }, []);
@@ -498,6 +479,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       });
   }, [projectId, isUniqueRangeLoaded, isUniqueRangeLoading, addUniqueLoadedRange, mergeUniqueCacheIntoState]);
 
+  // Fetch unique ranges with a buffer – ensure at least 1000 frames total
   useEffect(() => {
     if (!projectId) return;
     const totalFrames = getTotalFrames();
@@ -505,8 +487,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     pruneUniqueRanges(currentFrame, frameWindow * 3);
     const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
     if (isCovered) return;
-    let start = Math.max(0, currentFrame - frameWindow);
-    let end = Math.min(currentFrame + frameWindow, totalFrames);
+    const buffer = Math.max(250, Math.round(frameWindow * 0.5));
+    let start = Math.max(0, currentFrame - frameWindow - buffer);
+    let end = Math.min(currentFrame + frameWindow + buffer, totalFrames);
     fetchUniqueRange(start, end);
   }, [projectId, currentFrame, getTotalFrames, frameWindow, pruneUniqueRanges, fetchUniqueRange]);
 
@@ -560,7 +543,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  // Timeline data (unified frameWindow)
+  // Timeline data (with buffer – minimum 250)
   useEffect(() => {
     if (!projectId || selectedObjects.length === 0) {
       setTimelinePoints([]);
@@ -572,8 +555,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         setTimelinePoints([]);
         return;
       }
-      let startFrame = Math.max(0, currentFrame - frameWindow);
-      let endFrame = Math.min(currentFrame + frameWindow, totalFrames);
+      const buffer = Math.max(250, Math.round(frameWindow * 0.5));
+      let startFrame = Math.max(0, currentFrame - frameWindow - buffer);
+      let endFrame = Math.min(currentFrame + frameWindow + buffer, totalFrames);
       if (startFrame > endFrame) [startFrame, endFrame] = [endFrame, startFrame];
       if (startFrame === endFrame) endFrame = Math.min(totalFrames, endFrame + 1);
       const objectIds = selectedObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
@@ -679,7 +663,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
 
-  // Cleanup
   useEffect(() => {
     return () => {
       if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
@@ -849,11 +832,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
-  // *** UPDATED: minimum font size is now 14px, and it scales with zoom but never below 14 ***
   const getIdFontSize = () => Math.max(14, 14 * (1 / currentZoom));
   const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
   const getLabelOffset = () => 8*(1/currentZoom);
-  // New helper for skeleton line width
   const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
 
   const handleMouseDown = (e: any) => {
@@ -995,7 +976,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     );
   }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, toast]);
 
-  // Auto-pan effects (unchanged)
   useEffect(() => {
     if (!video || !mounted) return;
     const handleTimeUpdate = () => {
@@ -1070,7 +1050,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
 
-  // Pruning annotation map
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
     const maxFrames = 120 * stableFpsRef.current;
@@ -1087,7 +1066,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
-  // Prune trajectory (unchanged)
   useEffect(() => {
     if (!mounted) return;
     const maxTrajFrames = 60 * stableFpsRef.current;
@@ -1210,7 +1188,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // Dynamic stage resize (unchanged)
   useEffect(() => {
     if (!rootContainerRef.current) return;
     const updateStageSize = () => {
@@ -1232,7 +1209,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
   }, []);
 
-  // Video initialization (unchanged)
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
@@ -1435,7 +1411,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Toggle Trajectory", key: "T" },
       { action: "Auto Pan (edge only)", key: "A" },
       { action: "Toggle BBox Scale 3×", key: "Z" },
-      { action: "Toggle Skeleton", key: "K" }, // NEW shortcut
+      { action: "Toggle Skeleton", key: "K" },
     ] },
     { category: "Selection", items: [
       { action: "Select as first object", key: "0-9" },
@@ -1491,7 +1467,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("message", handleMessage);
   }, [handleFrameJump]);
 
-  // Keyboard handler – added 'k' for skeleton toggle
+  // Keyboard handler
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
@@ -1544,7 +1520,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
-        case "KeyZ": // Toggle bounding box scale
+        case "KeyZ":
           e.preventDefault();
           setBboxScale(prev => {
             const newScale = prev === 1 ? 3 : 1;
@@ -1552,7 +1528,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             return newScale;
           });
           break;
-        case "KeyK": // NEW: Toggle skeleton
+        case "KeyK":
           e.preventDefault();
           setShowSkeleton(prev => {
             const newState = !prev;
@@ -1572,7 +1548,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
 
-  // --- Compute shortcut key map for current frame ---
   const shortcutMap = useMemo(() => {
     const map = new Map<number, string>();
     objectsInCurrentFrame.forEach((obj, idx) => {
@@ -1686,7 +1661,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   const shortcutKey = shortcutMap.get(a.object_id);
                   const labelText = `${a.object_id}${!isPlaying && shortcutKey ? ` : (${shortcutKey})` : ''}`;
 
-                  // Map all coordinates to stage positions for skeleton
                   const mappedCoords = a.coordinates.map(([x, y]) => ({
                     x: mapX(x),
                     y: mapY(y),
@@ -1724,7 +1698,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         });
                       }}
                     >
-                      {/* ===== SKELETON LINES (NEW) ===== */}
                       {showSkeleton && skeletonGraph.length > 0 && (
                         <>
                           {skeletonGraph.map(([idx1, idx2], edgeIndex) => {
@@ -1748,7 +1721,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         </>
                       )}
 
-                      {/* Keypoint circles */}
                       {a.coordinates.map(([x, y], idx) => (
                         <Circle 
                           key={`circle-${a.object_id}-${a.frame_id}-${idx}`}
@@ -1796,7 +1768,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               </Layer>
             </Stage>
             
-            {/* Shortcut Panel */}
             {showObjectSelection && objectsInCurrentFrame.length > 0 && (
               <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
                 <div className="text-xs font-mono mb-2">
@@ -1830,14 +1801,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               </div>
             )}
 
-            {/* Zoom indicator */}
             {zoomIndicatorVisible && (
               <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-md border border-slate-200 shadow-lg text-slate-700 px-3 py-1 rounded-xl text-sm font-medium transition-opacity duration-300">
                 {(stageScale.x*100).toFixed(0)}%
               </div>
             )}
             
-            {/* ======================= VERTICAL DROPDOWN TOOLBAR ======================= */}
             <div className="absolute top-3 right-3 z-50">
               <Button
                 variant="ghost"
@@ -1850,7 +1819,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
               {isToolbarOpen && (
                 <div className="absolute top-12 right-0 w-64 bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-slate-200/80 p-2 flex flex-col gap-1 animate-in slide-in-from-top-2 duration-200">
-                  {/* Auto-pan */}
                   <button
                     onClick={() => {
                       setAutoPanEnabled(!autoPanEnabled);
@@ -1866,7 +1834,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span>Auto-pan {autoPanEnabled ? "ON" : "OFF"}</span>
                   </button>
 
-                  {/* Skeleton */}
                   <button
                     onClick={() => {
                       setShowSkeleton(!showSkeleton);
@@ -1882,7 +1849,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span>Skeleton {showSkeleton ? "ON" : "OFF"}</span>
                   </button>
 
-                  {/* Auto Interpolation */}
                   <button
                     onClick={() => {
                       setAutoInterpolation(!autoInterpolation);
@@ -1900,7 +1866,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
                   <div className="border-t border-slate-200 my-1" />
 
-                  {/* Export */}
                   {downloadUrl ? (
                     <button
                       onClick={() => {
@@ -1928,7 +1893,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
                   <div className="border-t border-slate-200 my-1" />
 
-                  {/* Unique IDs */}
                   <button
                     onClick={openUniqueIdsPopup}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
@@ -1937,7 +1901,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span>Unique IDs</span>
                   </button>
 
-                  {/* Object Selection */}
                   <button
                     onClick={() => setShowObjectSelection(!showObjectSelection)}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
@@ -1946,7 +1909,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span>Object Selection</span>
                   </button>
 
-                  {/* Shortcuts */}
                   <button
                     onClick={() => setShowShortcutModal(true)}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
@@ -1955,7 +1917,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span>Shortcuts</span>
                   </button>
 
-                  {/* Confusion */}
                   <button
                     onClick={openConfusionPopup}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
@@ -1972,7 +1933,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
           
-          {/* VIDEO CONTROLS (unchanged) */}
           <Separator />
           <div className="flex flex-col pt-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -2067,172 +2027,191 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
 
-          {/* TIMELINE 1: SELECTED OBJECTS COORDINATES (unchanged) */}
-          {selectedObjects.length > 0 && timelinePoints.length > 0 && (
-            <div className="px-2 py-1 bg-gray-900 rounded-md mt-2">
-              <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
-                <span className="text-xs text-gray-300">
-                  Object Coordinates Timeline (selected: {selectedObjects.map(o => o.object_id).join(', ')})
-                </span>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={coordinateMode}
-                    onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy")}
-                    className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600"
-                  >
-                    <option value="x">X Axis</option>
-                    <option value="y">Y Axis</option>
-                    <option value="xy">X + Y</option>
-                  </select>
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-400">Frame window (±):</span>
-                    <input
-                      type="number"
-                      min="10"
-                      max={getTotalFrames()}
-                      step="10"
-                      value={frameWindowInput}
-                      onChange={(e) => setFrameWindowInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          let newVal = parseInt(frameWindowInput, 10);
-                          const total = getTotalFrames();
-                          if (isNaN(newVal)) newVal = 500;
-                          newVal = Math.min(Math.max(newVal, 10), total);
-                          setFrameWindow(newVal);
-                          setFrameWindowInput(newVal.toString());
-                        }
-                      }}
-                      className="w-24 h-7 bg-gray-800 text-white text-xs rounded-md px-2 border border-gray-600"
-                    />
-                    <button
-                      onClick={() => {
+          {/* ===== UNIFIED TIMELINE – COMPACT, CENTERED, ALWAYS VISIBLE ===== */}
+          <div className="px-2 py-1 bg-gray-900 rounded-md mt-2 h-44 flex flex-col overflow-hidden w-full">
+            <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0">
+              <span className="text-xs text-gray-300">
+                Object Timelines
+                {selectedObjects.length > 0 && ` (selected: ${selectedObjects.map(o => o.object_id).join(', ')})`}
+              </span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={coordinateMode}
+                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy")}
+                  className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600"
+                  disabled={selectedObjects.length === 0}
+                >
+                  <option value="x">X Axis</option>
+                  <option value="y">Y Axis</option>
+                  <option value="xy">X + Y</option>
+                </select>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-400">Window (±):</span>
+                  <input
+                    type="number"
+                    min="10"
+                    max={getTotalFrames()}
+                    step="10"
+                    value={frameWindowInput}
+                    onChange={(e) => setFrameWindowInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
                         let newVal = parseInt(frameWindowInput, 10);
                         const total = getTotalFrames();
-                        if (isNaN(newVal)) newVal = 500;
+                        if (isNaN(newVal)) newVal = 250;
                         newVal = Math.min(Math.max(newVal, 10), total);
                         setFrameWindow(newVal);
                         setFrameWindowInput(newVal.toString());
-                      }}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md"
-                    >
-                      Apply
-                    </button>
+                      }
+                    }}
+                    className="w-20 h-7 bg-gray-800 text-white text-xs rounded-md px-2 border border-gray-600"
+                  />
+                  <button
+                    onClick={() => {
+                      let newVal = parseInt(frameWindowInput, 10);
+                      const total = getTotalFrames();
+                      if (isNaN(newVal)) newVal = 250;
+                      newVal = Math.min(Math.max(newVal, 10), total);
+                      setFrameWindow(newVal);
+                      setFrameWindowInput(newVal.toString());
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full">
+              {/* Ranges timeline – compact 40px, centered, full width */}
+              <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
+                {isLoadingUnique ? (
+                  <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Loading object ranges…
+                  </div>
+                ) : uniqueIdsData && uniqueIdsData.data?.objects?.length > 0 ? (
+                  <ObjectRangesTimeline
+                    objects={uniqueIdsData.data.objects.map(obj => ({
+                      id: obj.id,
+                      start_frame: obj.start_frame,
+                      end_frame: obj.end_frame,
+                    }))}
+                    currentFrame={currentFrame}
+                    onSeek={handleFrameJump}
+                    getObjectColor={getObjectColor}
+                    totalFrames={getTotalFrames()}
+                    visibleWindow={frameWindow}
+                    onWindowChange={(newWindow) => {
+                      setFrameWindow(newWindow);
+                      setFrameWindowInput(newWindow.toString());
+                    }}
+                    windowInput={frameWindowInput}
+                    setWindowInput={setFrameWindowInput}
+                    showControls={false}
+                    showXAxisLabels={false}
+                    compact={true}
+                  />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
+                    No object ranges loaded
+                  </div>
+                )}
+              </div>
+
+              {/* Trajectory chart – always rendered with axes and centered red line */}
+              <div className="flex-1 min-h-0 relative w-full">
+                <div
+                  ref={timelineContainerRef}
+                  className="w-full h-full cursor-grab active:cursor-grabbing overflow-x-auto"
+                >
+                  <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
+                        margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                        onClick={handleChartClick}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        <XAxis
+                          dataKey="frame"
+                          type="number"
+                          domain={[
+                            currentFrame - frameWindow,
+                            currentFrame + frameWindow
+                          ]}
+                          tick={{ fill: '#ccc', fontSize: 10 }}
+                          tickFormatter={(frame) => frame.toString()}
+                          label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
+                        />
+                        <YAxis
+                          domain={['auto', 'auto']}
+                          tick={{ fill: '#ccc', fontSize: 10 }}
+                          label={{
+                            value: coordinateMode === 'x' ? 'X Coordinate' : coordinateMode === 'y' ? 'Y Coordinate' : 'X / Y',
+                            angle: -90,
+                            position: 'insideLeft',
+                            fill: '#aaa',
+                            fontSize: 10,
+                          }}
+                        />
+                        <Tooltip formatter={tooltipFormatter} labelFormatter={(label) => `Frame: ${label}`} />
+                        {/* Red line at currentFrame – always exactly at the center because domain is symmetric */}
+                        <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={2} label={{ value: '▶ Current', position: 'top', fill: '#ff3333', fontSize: 11 }} />
+                        {uniqueObjectIds.map((objectId) => {
+                          const color = getObjectColor(objectId);
+                          const lines = [];
+                          if (coordinateMode === 'x' || coordinateMode === 'xy') {
+                            lines.push(
+                              <RechartsLine
+                                key={`${objectId}-x`}
+                                type="linear"
+                                dataKey={`obj_${objectId}_x`}
+                                stroke={color}
+                                strokeWidth={1.5}
+                                dot={false}
+                                activeDot={{ r: 4, fill: color }}
+                                isAnimationActive={false}
+                                connectNulls
+                              />
+                            );
+                          }
+                          if (coordinateMode === 'y' || coordinateMode === 'xy') {
+                            lines.push(
+                              <RechartsLine
+                                key={`${objectId}-y`}
+                                type="linear"
+                                dataKey={`obj_${objectId}_y`}
+                                stroke={color}
+                                strokeWidth={1.5}
+                                strokeDasharray={coordinateMode === 'xy' ? '4 3' : undefined}
+                                dot={false}
+                                activeDot={{ r: 4, fill: color }}
+                                isAnimationActive={false}
+                                connectNulls
+                              />
+                            );
+                          }
+                          return lines;
+                        })}
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-              </div>
-              <div 
-                ref={timelineContainerRef}
-                className="overflow-x-auto cursor-grab active:cursor-grabbing"
-                style={{ maxWidth: '100%' }}
-              >
-                <div style={{ minWidth: '800px', width: '100%' }}>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-                      onClick={handleChartClick}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                      <XAxis
-                        dataKey="frame"
-                        type="number"
-                        domain={['auto', 'auto']}
-                        tick={{ fill: '#ccc', fontSize: 10 }}
-                        tickFormatter={(frame) => frame.toString()}
-                        label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
-                      />
-                      <YAxis
-                        domain={['auto', 'auto']}
-                        tick={{ fill: '#ccc', fontSize: 10 }}
-                        label={{
-                          value: coordinateMode === 'x' ? 'X Coordinate' : coordinateMode === 'y' ? 'Y Coordinate' : 'X / Y',
-                          angle: -90,
-                          position: 'insideLeft',
-                          fill: '#aaa',
-                          fontSize: 10,
-                        }}
-                      />
-                      <Tooltip formatter={tooltipFormatter} labelFormatter={(label) => `Frame: ${label}`} />
-                      <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={2} label={{ value: '▶ Current', position: 'top', fill: '#ff3333', fontSize: 11 }} />
-                      {uniqueObjectIds.map((objectId) => {
-                        const color = getObjectColor(objectId);
-                        const lines = [];
-                        if (coordinateMode === 'x' || coordinateMode === 'xy') {
-                          lines.push(
-                            <RechartsLine
-                              key={`${objectId}-x`}
-                              type="linear"
-                              dataKey={`obj_${objectId}_x`}
-                              stroke={color}
-                              strokeWidth={1.5}
-                              dot={false}
-                              activeDot={{ r: 4, fill: color }}
-                              isAnimationActive={false}
-                              connectNulls
-                            />
-                          );
-                        }
-                        if (coordinateMode === 'y' || coordinateMode === 'xy') {
-                          lines.push(
-                            <RechartsLine
-                              key={`${objectId}-y`}
-                              type="linear"
-                              dataKey={`obj_${objectId}_y`}
-                              stroke={color}
-                              strokeWidth={1.5}
-                              strokeDasharray={coordinateMode === 'xy' ? '4 3' : undefined}
-                              dot={false}
-                              activeDot={{ r: 4, fill: color }}
-                              isAnimationActive={false}
-                              connectNulls
-                            />
-                          );
-                        }
-                        return lines;
-                      })}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-              <div className="text-center text-xs text-gray-400 mt-1">
-                💡 Click or drag chart to seek | Adjust window size
+                {/* Overlay message when no object selected or no data */}
+                {selectedObjects.length === 0 || timelinePoints.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
+                      {selectedObjects.length === 0
+                        ? 'Select an object to see its trajectory'
+                        : 'No trajectory data for selected object(s)'}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
-          )}
-
-          {/* TIMELINE 2: ALL OBJECTS START/END (unchanged) */}
-          {isLoadingUnique && !uniqueIdsData && (
-            <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-              <span>Loading object start/end data...</span>
-            </div>
-          )}
-          {!isLoadingUnique && (!uniqueIdsData || (uniqueIdsData.data?.objects?.length ?? 0) === 0) && (
-            <div className="px-2 py-1 bg-gray-800 rounded-md mt-2 text-center text-xs text-gray-400">
-              No objects found in the current frame window.
-            </div>
-          )}
-          {uniqueIdsData && (uniqueIdsData.data?.objects?.length ?? 0) > 0 && (
-            <ObjectRangesTimeline
-              objects={uniqueIdsData.data.objects!.map(obj => ({
-                id: obj.id,
-                start_frame: obj.start_frame,
-                end_frame: obj.end_frame,
-              }))}
-              currentFrame={currentFrame}
-              onSeek={handleFrameJump}
-              getObjectColor={getObjectColor}
-              totalFrames={getTotalFrames()}
-              visibleWindow={frameWindow}
-              onWindowChange={(newWindow) => {
-                setFrameWindow(newWindow);
-                setFrameWindowInput(newWindow.toString());
-              }}
-              windowInput={frameWindowInput}
-              setWindowInput={setFrameWindowInput}
-            />
-          )}
+          </div>
         </Card>
       </div>
       {showShortcutModal && (
