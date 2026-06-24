@@ -1,5 +1,4 @@
 "use client";
-
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
@@ -96,6 +95,9 @@ export default function Sidebar({
   const trkFileName = useSessionStorage("trk_file_name");
   const totalFrames = useSessionStorage("totalFrames");
 
+  // --- Read autoInterpolation from sessionStorage ---
+  const autoInterpolation = useSessionStorage("autoInterpolation");
+
   // QUERY WITH PROPER CACHE INVALIDATION
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", projectId, frameId],
@@ -130,6 +132,49 @@ export default function Sidebar({
     },
   });
 
+  // --- Refactored handleInterpolate to accept explicit params ---
+  const handleInterpolate = useCallback((
+    params?: 
+      | { object_id: number; start_frame: number; end_frame: number }
+      | { source_object_id: number; source_end_frame: number; target_object_id: number; target_start_frame: number }
+  ) => {
+    // If called with explicit params, use them directly
+    if (params) {
+      interpolateMutation.mutate(params);
+      return;
+    }
+
+    // Otherwise, use the current selected objects (existing behavior)
+    if (selectedObjects.length === 1) {
+      const obj = selectedObjects[0];
+      interpolateMutation.mutate({
+        object_id: obj.object_id,
+        start_frame: obj.start_frame,
+        end_frame: obj.end_frame,
+      });
+      return;
+    }
+
+    if (selectedObjects.length === 2) {
+      const [sourceObj, targetObj] = selectedObjects;
+      interpolateMutation.mutate({
+        source_object_id: sourceObj.object_id,
+        source_end_frame: sourceObj.end_frame,
+        target_object_id: targetObj.object_id,
+        target_start_frame: targetObj.start_frame,
+      });
+      return;
+    }
+
+    toast({
+      title: "Invalid Selection",
+      description: "Select either 1 object or 2 objects.",
+      variant: "destructive",
+      duration: 3000,
+    });
+  }, [selectedObjects, toast]);
+
+  // --- linkMutation with auto-interpolation on success ---
   const linkMutation = useMutation({
     mutationFn: (formData: FormData) =>
       linkObjects(Number(projectId), formData),
@@ -142,22 +187,31 @@ export default function Sidebar({
       });
       setLinkDialogOpen(false);
 
-      //  Update the selected object with merged range and keep it selected
+      // Update the selected object with merged range and keep it selected
       if (linkOrderRef.current) {
         const { obj1, obj2 } = linkOrderRef.current;
         const mergedStart = Math.min(obj1.start_frame, obj2.start_frame);
         const mergedEnd = Math.max(obj1.end_frame, obj2.end_frame);
         // Keep the first object (the earlier one) with the new merged range
-        setSelectedObjects([
-          {
-            object_id: obj1.object_id,
-            frame_id: obj1.frame_id, // current frame from the earlier object
+        const mergedObj = {
+          object_id: obj1.object_id,
+          frame_id: obj1.frame_id, // current frame from the earlier object
+          start_frame: mergedStart,
+          end_frame: mergedEnd,
+          is_inside: obj1.is_inside,
+        };
+        setSelectedObjects([mergedObj]);
+        linkOrderRef.current = null;
+
+        // ---- AUTO INTERPOLATION ----
+        if (autoInterpolation === "true") {
+          // Interpolate the newly linked object
+          handleInterpolate({
+            object_id: mergedObj.object_id,
             start_frame: mergedStart,
             end_frame: mergedEnd,
-            is_inside: obj1.is_inside,
-          },
-        ]);
-        linkOrderRef.current = null;
+          });
+        }
       } else {
         // Fallback: keep the first object as is
         if (selectedObjects.length > 0) {
@@ -167,7 +221,7 @@ export default function Sidebar({
         }
       }
 
-      // DISPATCH LINKING COMPLETE EVENT
+      // DISPATCH LINKING COMPLETE EVENT – triggers refresh in main and sidebar
       const currentFrameId = Number(frameId);
       if (currentFrameId) {
         window.dispatchEvent(
@@ -221,7 +275,7 @@ export default function Sidebar({
     onSuccess: () => {
       toast({
         title: "Delete",
-        description: "Object delete successfully",
+        description: "Object deleted successfully",
         duration: 3000,
         className: "text-green-600",
       });
@@ -268,6 +322,7 @@ export default function Sidebar({
 
       setSelectedObjects([]);
 
+      // Dispatch event to refresh annotation data in main component & sidebar
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
@@ -353,19 +408,19 @@ export default function Sidebar({
 
   const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
   
-  // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
+  // LISTEN FOR LINKING/INTERPOLATION COMPLETION FROM MAIN COMPONENT
   useEffect(() => {
-    const handleLinkingComplete = (event: any) => {
-      console.log("📡 Sidebar received linking complete event");
+    const handleOperationComplete = (event: any) => {
+      console.log("📡 Sidebar received operation complete event");
       setTimeout(() => {
         refetch();
       }, 1000);
     };
 
-    window.addEventListener("operationComplete", handleLinkingComplete);
+    window.addEventListener("operationComplete", handleOperationComplete);
 
     return () => {
-      window.removeEventListener("operationComplete", handleLinkingComplete);
+      window.removeEventListener("operationComplete", handleOperationComplete);
     };
   }, [refetch]);
 
@@ -464,7 +519,7 @@ export default function Sidebar({
     if (selectedObjects.length !== 1) {
       toast({
         title: "⚠️ Invalid Selection",
-        description: "Please select exactly 1 objects to break.",
+        description: "Please select exactly 1 object to break.",
         variant: "destructive",
         duration: 3000,
       });
@@ -503,45 +558,6 @@ export default function Sidebar({
     formData.append("end_frame", String(obj.end_frame));
     console.log(formData);
     deleteMutation.mutate(formData);
-  };
-
-  const handleInterpolate = () => {
-
-    // NEW FLOW
-    if (selectedObjects.length === 1) {
-
-      const obj = selectedObjects[0];
-
-      interpolateMutation.mutate({
-        object_id: obj.object_id,
-        start_frame: obj.start_frame,
-        end_frame: obj.end_frame,
-      });
-
-      return;
-    }
-
-    // EXISTING FLOW
-    if (selectedObjects.length === 2) {
-
-      const [sourceObj, targetObj] = selectedObjects;
-
-      interpolateMutation.mutate({
-        source_object_id: sourceObj.object_id,
-        source_end_frame: sourceObj.end_frame,
-        target_object_id: targetObj.object_id,
-        target_start_frame: targetObj.start_frame,
-      });
-
-      return;
-    }
-
-    toast({
-      title: "Invalid Selection",
-      description: "Select either 1 object or 2 objects.",
-      variant: "destructive",
-      duration: 3000,
-    });
   };
 
   // ========================
@@ -1015,7 +1031,7 @@ export default function Sidebar({
               ![1, 2].includes(selectedObjects.length) ||
               interpolateMutation.isPending
             }
-            onClick={handleInterpolate}
+            onClick={() => handleInterpolate()}
           >
             <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25}/>
             {interpolateMutation.isPending
