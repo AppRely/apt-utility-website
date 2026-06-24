@@ -35,7 +35,7 @@ const ObjectRangesTimeline = ({
   onSeek,
   getObjectColor,
   totalFrames,
-  visibleWindow,
+  halfWindow,              // renamed: distance from center
   onWindowChange,
   windowInput,
   setWindowInput,
@@ -48,17 +48,17 @@ const ObjectRangesTimeline = ({
   onSeek: (frame: number) => void;
   getObjectColor: (id: number) => string;
   totalFrames: number;
-  visibleWindow: number;
-  onWindowChange: (newWindow: number) => void;
-  windowInput: string;
+  halfWindow: number;      // half of the visible range
+  onWindowChange: (newHalfWindow: number) => void;
+  windowInput: string;     // total visible frames (e.g., "500")
   setWindowInput: (val: string) => void;
   showControls?: boolean;
   showXAxisLabels?: boolean;
   compact?: boolean;
 }) => {
-  // Always centered: minFrame and maxFrame are symmetric around currentFrame
-  const minFrame = currentFrame - visibleWindow;
-  const maxFrame = currentFrame + visibleWindow;
+  // Visible range: currentFrame ± halfWindow
+  const minFrame = currentFrame - halfWindow;
+  const maxFrame = currentFrame + halfWindow;
 
   // Fixed coordinate system width for the viewBox
   const chartWidth = 800;
@@ -106,7 +106,7 @@ const ObjectRangesTimeline = ({
           <span className="text-xs text-gray-300">Start/End Timeline:</span>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
-              <span className="text-xs text-gray-400">Window (frames):</span>
+              <span className="text-xs text-gray-400">Visible frames:</span>
               <input
                 type="number"
                 min="10"
@@ -119,9 +119,9 @@ const ObjectRangesTimeline = ({
               <button
                 onClick={() => {
                   let newVal = parseInt(windowInput, 10);
-                  if (isNaN(newVal)) newVal = 1000;
+                  if (isNaN(newVal) || newVal < 10) newVal = 500;
                   newVal = Math.min(Math.max(newVal, 10), totalFrames);
-                  onWindowChange(Math.floor(newVal / 2));
+                  onWindowChange(Math.floor(newVal / 2));  // halfWindow
                   setWindowInput(newVal.toString());
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md transition-colors"
@@ -169,7 +169,7 @@ const ObjectRangesTimeline = ({
                   <rect
                     x={startX - 5}
                     y={baseY + startOffsetY - 5}
-                    width="6"
+                    width="3"
                     height="10"
                     rx="2"
                     ry="2"
@@ -326,9 +326,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
   
-  // Default window: 250 frames on each side => total 500 frames visible
-  const [frameWindow, setFrameWindow] = useState(250);
-  const [frameWindowInput, setFrameWindowInput] = useState("250");
+  // halfWindow = distance from center; total visible = 2 * halfWindow
+  // Default: total visible = 500 => halfWindow = 250
+  const [halfWindow, setHalfWindow] = useState(250);
+  const [totalVisibleInput, setTotalVisibleInput] = useState("500"); // displayed to user
 
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
@@ -484,21 +485,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
-    pruneUniqueRanges(currentFrame, frameWindow * 3);
+    pruneUniqueRanges(currentFrame, halfWindow * 3);
     const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
     if (isCovered) return;
-    const buffer = Math.max(250, Math.round(frameWindow * 0.5));
-    let start = Math.max(0, currentFrame - frameWindow - buffer);
-    let end = Math.min(currentFrame + frameWindow + buffer, totalFrames);
+    // buffer = max(250, halfWindow * 0.5) to have at least 1000 total fetch when halfWindow=250
+    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    let start = Math.max(0, currentFrame - halfWindow - buffer);
+    let end = Math.min(currentFrame + halfWindow + buffer, totalFrames);
     fetchUniqueRange(start, end);
-  }, [projectId, currentFrame, getTotalFrames, frameWindow, pruneUniqueRanges, fetchUniqueRange]);
+  }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange]);
 
   useEffect(() => {
     loadedUniqueRangesRef.current = [];
     pendingUniqueRangesRef.current.clear();
     uniqueDataCacheRef.current.clear();
     setUniqueIdsData(null);
-  }, [frameWindow]);
+  }, [halfWindow]);
 
   useEffect(() => {
     const handleOperationComplete = () => {
@@ -543,7 +545,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  // Timeline data (with buffer – minimum 250)
+  // Timeline data (with buffer)
   useEffect(() => {
     if (!projectId || selectedObjects.length === 0) {
       setTimelinePoints([]);
@@ -555,9 +557,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         setTimelinePoints([]);
         return;
       }
-      const buffer = Math.max(250, Math.round(frameWindow * 0.5));
-      let startFrame = Math.max(0, currentFrame - frameWindow - buffer);
-      let endFrame = Math.min(currentFrame + frameWindow + buffer, totalFrames);
+      const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+      let startFrame = Math.max(0, currentFrame - halfWindow - buffer);
+      let endFrame = Math.min(currentFrame + halfWindow + buffer, totalFrames);
       if (startFrame > endFrame) [startFrame, endFrame] = [endFrame, startFrame];
       if (startFrame === endFrame) endFrame = Math.min(totalFrames, endFrame + 1);
       const objectIds = selectedObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
@@ -587,7 +589,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     };
     fetchTimeline();
-  }, [projectId, selectedObjects, currentFrame, getTotalFrames, frameWindow]);
+  }, [projectId, selectedObjects, currentFrame, getTotalFrames, halfWindow]);
 
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
@@ -2046,34 +2048,34 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <option value="xy">X + Y</option>
                 </select>
                 <div className="flex items-center gap-1">
-                  <span className="text-xs text-gray-400">Window (±):</span>
+                  <span className="text-xs text-gray-400">Visible frames:</span>
                   <input
                     type="number"
                     min="10"
                     max={getTotalFrames()}
                     step="10"
-                    value={frameWindowInput}
-                    onChange={(e) => setFrameWindowInput(e.target.value)}
+                    value={totalVisibleInput}
+                    onChange={(e) => setTotalVisibleInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
-                        let newVal = parseInt(frameWindowInput, 10);
+                        let newVal = parseInt(totalVisibleInput, 10);
                         const total = getTotalFrames();
-                        if (isNaN(newVal)) newVal = 250;
+                        if (isNaN(newVal) || newVal < 10) newVal = 500;
                         newVal = Math.min(Math.max(newVal, 10), total);
-                        setFrameWindow(newVal);
-                        setFrameWindowInput(newVal.toString());
+                        setHalfWindow(Math.floor(newVal / 2));
+                        setTotalVisibleInput(newVal.toString());
                       }
                     }}
                     className="w-20 h-7 bg-gray-800 text-white text-xs rounded-md px-2 border border-gray-600"
                   />
                   <button
                     onClick={() => {
-                      let newVal = parseInt(frameWindowInput, 10);
+                      let newVal = parseInt(totalVisibleInput, 10);
                       const total = getTotalFrames();
-                      if (isNaN(newVal)) newVal = 250;
+                      if (isNaN(newVal) || newVal < 10) newVal = 500;
                       newVal = Math.min(Math.max(newVal, 10), total);
-                      setFrameWindow(newVal);
-                      setFrameWindowInput(newVal.toString());
+                      setHalfWindow(Math.floor(newVal / 2));
+                      setTotalVisibleInput(newVal.toString());
                     }}
                     className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md"
                   >
@@ -2102,13 +2104,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     onSeek={handleFrameJump}
                     getObjectColor={getObjectColor}
                     totalFrames={getTotalFrames()}
-                    visibleWindow={frameWindow}
-                    onWindowChange={(newWindow) => {
-                      setFrameWindow(newWindow);
-                      setFrameWindowInput(newWindow.toString());
+                    halfWindow={halfWindow}
+                    onWindowChange={(newHalf) => {
+                      setHalfWindow(newHalf);
+                      setTotalVisibleInput((newHalf * 2).toString());
                     }}
-                    windowInput={frameWindowInput}
-                    setWindowInput={setFrameWindowInput}
+                    windowInput={totalVisibleInput}
+                    setWindowInput={setTotalVisibleInput}
                     showControls={false}
                     showXAxisLabels={false}
                     compact={true}
@@ -2138,8 +2140,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           dataKey="frame"
                           type="number"
                           domain={[
-                            currentFrame - frameWindow,
-                            currentFrame + frameWindow
+                            currentFrame - halfWindow,
+                            currentFrame + halfWindow
                           ]}
                           tick={{ fill: '#ccc', fontSize: 10 }}
                           tickFormatter={(frame) => frame.toString()}
@@ -2157,7 +2159,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           }}
                         />
                         <Tooltip formatter={tooltipFormatter} labelFormatter={(label) => `Frame: ${label}`} />
-                        {/* Red line at currentFrame – always exactly at the center because domain is symmetric */}
+                        {/* Red line at currentFrame – always exactly at the center */}
                         <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={2} label={{ value: '▶ Current', position: 'top', fill: '#ff3333', fontSize: 11 }} />
                         {uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
