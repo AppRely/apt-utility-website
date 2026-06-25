@@ -145,6 +145,24 @@ export default function AnnotationLandingPage() {
     );
   };
 
+  // --------------------------------------------------------------
+  // Helper to store project data in sessionStorage and navigate
+  // --------------------------------------------------------------
+  const navigateToDashboard = (project: any) => {
+    sessionStorage.setItem("projectId", project.project_id);
+    sessionStorage.setItem("project_name", project.project_name);
+    sessionStorage.setItem("video_name", project.video_name);
+    sessionStorage.setItem("videoPath", project.video_path);
+    sessionStorage.setItem("trk_file_name", project.trk_file_name);
+    sessionStorage.setItem("fps", project.fps);
+    sessionStorage.setItem("width", project.width);
+    sessionStorage.setItem("height", project.height);
+    sessionStorage.setItem("duration", project.duration);
+    sessionStorage.setItem("total_frames", project.total_frames);
+    sessionStorage.setItem("skeleton_graph", JSON.stringify(project.skeleton_graph));
+    router.push("/dashboard");
+  };
+
   // TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
   const renderTable = (rows: any[], isCompleted: boolean) => (
     <Table>
@@ -171,26 +189,13 @@ export default function AnnotationLandingPage() {
             <TableRow key={p.project_id}>
               <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
               <TableCell>
-              <span
-                className="text-blue-600 hover:text-blue-800 cursor-pointer font-medium"
-                onClick={() => {
-                  sessionStorage.setItem("projectId", p.project_id);
-                  sessionStorage.setItem("project_name", p.project_name);
-                  sessionStorage.setItem("video_name", p.video_name);
-                  sessionStorage.setItem("videoPath", p.video_path);
-                  sessionStorage.setItem("trk_file_name", p.trk_file_name);
-                  sessionStorage.setItem("fps", p.fps);
-                  sessionStorage.setItem("width", p.width);
-                  sessionStorage.setItem("height", p.height);
-                  sessionStorage.setItem("duration", p.duration);
-                  sessionStorage.setItem("total_frames", p.total_frames);
-
-                  router.push("/dashboard");
-                }}
-              >
-                {p.project_name}
-              </span>
-           </TableCell>
+                <span
+                  className="text-blue-600 hover:text-blue-800 cursor-pointer font-medium"
+                  onClick={() => navigateToDashboard(p)} //  uses helper
+                >
+                  {p.project_name}
+                </span>
+              </TableCell>
 
               <TableCell
                 className="max-w-[220px] truncate"
@@ -215,20 +220,8 @@ export default function AnnotationLandingPage() {
                   size="sm"
                   disabled={isDeletingRow || isPendingProject}
                   className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                  onClick={() => {
-                    sessionStorage.setItem("projectId", p.project_id);
-                    sessionStorage.setItem("project_name", p.project_name);
-                    sessionStorage.setItem("video_name", p.video_name);
-                    sessionStorage.setItem("videoPath", p.video_path);
-                    sessionStorage.setItem("trk_file_name", p.trk_file_name);
-                    sessionStorage.setItem("fps", p.fps);
-                    sessionStorage.setItem("width", p.width);
-                    sessionStorage.setItem("height", p.height);
-                    sessionStorage.setItem("duration", p.duration);
-                    sessionStorage.setItem("total_frames", p.total_frames);
-                    sessionStorage.setItem("skeleton_graph", JSON.stringify(p.skeleton_graph));
-                    router.push("/dashboard");
-                  }}>
+                  onClick={() => navigateToDashboard(p)} //  uses helper
+                >
                   Edit
                 </Button>
 
