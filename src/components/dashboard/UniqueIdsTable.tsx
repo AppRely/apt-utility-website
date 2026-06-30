@@ -27,6 +27,7 @@ interface Props {
   isLoading?: boolean;
   selectedIds: number[];
   linkedIds: number[];
+  highlightedId: number | null;
   onSelectRow: (id: number) => void;
   onClear?: () => void;
 }
@@ -36,6 +37,7 @@ export default function UniqueIdsTable({
   isLoading,
   selectedIds,
   linkedIds,
+  highlightedId,
   onSelectRow,
 }: Props) {
   const tableData = data?.objects || [];
@@ -55,68 +57,122 @@ export default function UniqueIdsTable({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Main table */}
-      <div className="border rounded overflow-hidden flex flex-col flex-1 min-h-0">
-        <div className="overflow-y-auto flex-1">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse table-auto min-w-[800px]">
-              <thead className="sticky top-0 z-10 bg-gray-200">
-                <tr>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">ID</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">Frames</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">Start</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">End</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">Best Match ID</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">Best Score</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">Uncertainty</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">2nd Match ID</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">2nd Score</th>
-                  <th className="border px-3 py-2 text-center whitespace-nowrap bg-gray-200">Other Matches</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={10} className="text-center py-3">Loading...</td>
-                  </tr>
-                ) : (
-                  tableData.map(row => (
-                    <tr
-                      key={row.object_id}
-                      ref={el => { rowRefs.current[row.object_id] = el; }}
-                      className="cursor-pointer hover:bg-blue-50"
-                      onClick={() => onSelectRow(row.object_id)}
-                    >
-                      <td className="border px-3 py-2 text-center whitespace-nowrap font-medium">{row.object_id}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.N_frame}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.start_frame}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.end_frame}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.best_match ?? "-"}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{formatNumber(row.best_match_score)}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{formatNumber(row.best_match_uncertainty)}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{row.second_match ?? "-"}</td>
-                      <td className="border px-3 py-2 text-center whitespace-nowrap">{formatNumber(row.second_match_score)}</td>
-                      <td className="border px-3 py-2 text-left whitespace-nowrap">
-                        {row.other_matches && row.other_matches.length > 0 ? (
-                          <div className="flex flex-col gap-0.5">
-                            {row.other_matches.slice(0, 3).map(m => (
-                              <div key={m.object_id} className="whitespace-nowrap">
-                                ID {m.object_id}: {formatNumber(m.match_score)} (r{m.rank})
-                              </div>
-                            ))}
-                            {row.other_matches.length > 3 && (
-                              <div className="text-gray-500 text-[10px]">+{row.other_matches.length - 3} more</div>
-                            )}
+      <div className="flex-1 min-h-0 overflow-auto border rounded">
+        <table className="w-full min-w-[800px] border-collapse text-xs table-auto">
+          <thead>
+            <tr>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                ID
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                Frames
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                Start
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                End
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                Best Match ID
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                Best Score
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                Uncertainty
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                2nd Match ID
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                2nd Score
+              </th>
+              <th className="sticky top-0 z-20 bg-gray-200 border px-3 py-2 text-center whitespace-nowrap">
+                Other Matches
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr>
+                <td colSpan={10} className="py-3 text-center">
+                  Loading...
+                </td>
+              </tr>
+            ) : (
+              tableData.map((row) => (
+                <tr
+                    key={row.object_id}
+                    ref={(el) => {
+                      rowRefs.current[row.object_id] = el;
+                    }}
+                    onClick={() => onSelectRow(row.object_id)}
+                    className={`
+                      cursor-pointer
+                      transition-all
+                      duration-500
+                      hover:bg-blue-50
+                      ${
+                        highlightedId === row.object_id
+                          ? "bg-yellow-200 ring-2 ring-yellow-400"
+                          : ""
+                      }
+                    `}
+                  >
+                  <td className="border px-3 py-2 text-center font-medium whitespace-nowrap">
+                    {row.object_id}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {row.N_frame}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {row.start_frame}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {row.end_frame}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {row.best_match ?? "-"}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {formatNumber(row.best_match_score)}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {formatNumber(row.best_match_uncertainty)}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {row.second_match ?? "-"}
+                  </td>
+                  <td className="border px-3 py-2 text-center whitespace-nowrap">
+                    {formatNumber(row.second_match_score)}
+                  </td>
+                  <td className="border px-3 py-2 text-left">
+                    {row.other_matches?.length ? (
+                      <div className="flex flex-col gap-0.5">
+                        {row.other_matches.slice(0, 3).map((m) => (
+                          <div
+                            key={m.object_id}
+                            className="whitespace-nowrap"
+                          >
+                            ID {m.object_id}: {formatNumber(m.match_score)} (r{m.rank})
                           </div>
-                        ) : "-"}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                        ))}
+                        {row.other_matches.length > 3 && (
+                          <div className="text-[10px] text-gray-500">
+                            +{row.other_matches.length - 3} more
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

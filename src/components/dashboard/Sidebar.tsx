@@ -1,11 +1,10 @@
 "use client";
-
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
 import { linkObjects } from "@/lib/api/linkObjects";
@@ -20,6 +19,17 @@ import { formatFileName } from "@/lib/utils/formatFileName";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
+
+// Helper to get consistent color per object ID (same palette as in DynamicVideo)
+const getObjectColor = (id: number) => {
+  const colors = [
+    "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+    "#00FFFF", "#FFA500", "#800080", "#008000", "#000080",
+    "#FF1493", "#00BFFF", "#7CFC00", "#FFD700", "#A52A2A",
+    "#DC143C", "#4B0082", "#8B4513", "#2E8B57", "#4682B4",
+  ];
+  return colors[id % colors.length];
+};
 
 export default function Sidebar({
   selectedObjects,
@@ -39,6 +49,9 @@ export default function Sidebar({
 
   // State for collapsing the object list - default to true (collapsed)
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
+
+  // Ref to store the ordered objects for linking
+  const linkOrderRef = useRef<{ obj1: any; obj2: any } | null>(null);
 
   // CUSTOM HOOK FOR SESSION STORAGE WITH BETTER POLLING
   const useSessionStorage = (key: string) => {
@@ -82,8 +95,11 @@ export default function Sidebar({
   const trkFileName = useSessionStorage("trk_file_name");
   const totalFrames = useSessionStorage("totalFrames");
 
+  // --- Read autoInterpolation from sessionStorage ---
+  const autoInterpolation = useSessionStorage("autoInterpolation");
+
   // QUERY WITH PROPER CACHE INVALIDATION
-    const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["frameData", projectId, frameId],
     queryFn: () => getFrameData(Number(projectId!), Number(frameId!)),
     enabled: !!(projectId && frameId && !objectsCollapsed),
@@ -116,6 +132,49 @@ export default function Sidebar({
     },
   });
 
+  // --- Refactored handleInterpolate to accept explicit params ---
+  const handleInterpolate = useCallback((
+    params?: 
+      | { object_id: number; start_frame: number; end_frame: number }
+      | { source_object_id: number; source_end_frame: number; target_object_id: number; target_start_frame: number }
+  ) => {
+    // If called with explicit params, use them directly
+    if (params) {
+      interpolateMutation.mutate(params);
+      return;
+    }
+
+    // Otherwise, use the current selected objects (existing behavior)
+    if (selectedObjects.length === 1) {
+      const obj = selectedObjects[0];
+      interpolateMutation.mutate({
+        object_id: obj.object_id,
+        start_frame: obj.start_frame,
+        end_frame: obj.end_frame,
+      });
+      return;
+    }
+
+    if (selectedObjects.length === 2) {
+      const [sourceObj, targetObj] = selectedObjects;
+      interpolateMutation.mutate({
+        source_object_id: sourceObj.object_id,
+        source_end_frame: sourceObj.end_frame,
+        target_object_id: targetObj.object_id,
+        target_start_frame: targetObj.start_frame,
+      });
+      return;
+    }
+
+    toast({
+      title: "Invalid Selection",
+      description: "Select either 1 object or 2 objects.",
+      variant: "destructive",
+      duration: 3000,
+    });
+  }, [selectedObjects, toast]);
+
+  // --- linkMutation with auto-interpolation on success ---
   const linkMutation = useMutation({
     mutationFn: (formData: FormData) =>
       linkObjects(Number(projectId), formData),
@@ -128,9 +187,41 @@ export default function Sidebar({
       });
       setLinkDialogOpen(false);
 
-      setSelectedObjects([]);
+      // Update the selected object with merged range and keep it selected
+      if (linkOrderRef.current) {
+        const { obj1, obj2 } = linkOrderRef.current;
+        const mergedStart = Math.min(obj1.start_frame, obj2.start_frame);
+        const mergedEnd = Math.max(obj1.end_frame, obj2.end_frame);
+        // Keep the first object (the earlier one) with the new merged range
+        const mergedObj = {
+          object_id: obj1.object_id,
+          frame_id: obj1.frame_id, // current frame from the earlier object
+          start_frame: mergedStart,
+          end_frame: mergedEnd,
+          is_inside: obj1.is_inside,
+        };
+        setSelectedObjects([mergedObj]);
+        linkOrderRef.current = null;
 
-      // DISPATCH LINKING COMPLETE EVENT
+        // ---- AUTO INTERPOLATION ----
+        if (autoInterpolation === "true") {
+          // Interpolate the newly linked object
+          handleInterpolate({
+            object_id: mergedObj.object_id,
+            start_frame: mergedStart,
+            end_frame: mergedEnd,
+          });
+        }
+      } else {
+        // Fallback: keep the first object as is
+        if (selectedObjects.length > 0) {
+          setSelectedObjects([selectedObjects[0]]);
+        } else {
+          setSelectedObjects([]);
+        }
+      }
+
+      // DISPATCH LINKING COMPLETE EVENT – triggers refresh in main and sidebar
       const currentFrameId = Number(frameId);
       if (currentFrameId) {
         window.dispatchEvent(
@@ -153,6 +244,7 @@ export default function Sidebar({
         variant: "destructive",
         duration: 3000,
       });
+      linkOrderRef.current = null;
     },
   });
 
@@ -183,7 +275,7 @@ export default function Sidebar({
     onSuccess: () => {
       toast({
         title: "Delete",
-        description: "Object delete successfully",
+        description: "Object deleted successfully",
         duration: 3000,
         className: "text-green-600",
       });
@@ -230,6 +322,7 @@ export default function Sidebar({
 
       setSelectedObjects([]);
 
+      // Dispatch event to refresh annotation data in main component & sidebar
       window.dispatchEvent(
         new CustomEvent("operationComplete", {
           detail: { frameId: Number(frameId) },
@@ -315,19 +408,19 @@ export default function Sidebar({
 
   const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
   
-  // LISTEN FOR LINKING COMPLETION FROM MAIN COMPONENT
+  // LISTEN FOR LINKING/INTERPOLATION COMPLETION FROM MAIN COMPONENT
   useEffect(() => {
-    const handleLinkingComplete = (event: any) => {
-      console.log("📡 Sidebar received linking complete event");
+    const handleOperationComplete = (event: any) => {
+      console.log("📡 Sidebar received operation complete event");
       setTimeout(() => {
         refetch();
       }, 1000);
     };
 
-    window.addEventListener("operationComplete", handleLinkingComplete);
+    window.addEventListener("operationComplete", handleOperationComplete);
 
     return () => {
-      window.removeEventListener("operationComplete", handleLinkingComplete);
+      window.removeEventListener("operationComplete", handleOperationComplete);
     };
   }, [refetch]);
 
@@ -365,20 +458,38 @@ export default function Sidebar({
         variant: "destructive",
         duration: 3000,
       });
-
       return;
     }
 
-    const [obj1, obj2] = selectedObjects;
+    let [obj1, obj2] = selectedObjects;
+
+    //  Ensure both objects have start_frame defined
+    if (obj1.start_frame === undefined || obj2.start_frame === undefined) {
+      toast({
+        title: "⚠️ Missing Data",
+        description: "One of the selected objects has no start frame.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    //  Always link from previous (earlier start_frame) to next (later start_frame)
+    if (obj1.start_frame > obj2.start_frame) {
+      [obj1, obj2] = [obj2, obj1];
+    }
+
+    // Store ordered objects for range update in onSuccess
+    linkOrderRef.current = { obj1, obj2 };
 
     const formData = new FormData();
     formData.append("object_1_id", String(obj1.object_id));
     formData.append("object_1_start", String(obj1.start_frame));
-    formData.append("object_1_end", String(obj1.end_frame));
+    formData.append("object_1_end", String(obj1.end_frame ?? obj1.start_frame)); // fallback to start if end undefined
 
     formData.append("object_2_id", String(obj2.object_id));
     formData.append("object_2_start", String(obj2.start_frame));
-    formData.append("object_2_end", String(obj2.end_frame));
+    formData.append("object_2_end", String(obj2.end_frame ?? obj2.start_frame));
 
     linkMutation.mutate(formData);
   };
@@ -408,7 +519,7 @@ export default function Sidebar({
     if (selectedObjects.length !== 1) {
       toast({
         title: "⚠️ Invalid Selection",
-        description: "Please select exactly 1 objects to break.",
+        description: "Please select exactly 1 object to break.",
         variant: "destructive",
         duration: 3000,
       });
@@ -449,62 +560,21 @@ export default function Sidebar({
     deleteMutation.mutate(formData);
   };
 
-  const handleInterpolate = () => {
-
-    // NEW FLOW
-    if (selectedObjects.length === 1) {
-
-      const obj = selectedObjects[0];
-
-      interpolateMutation.mutate({
-        object_id: obj.object_id,
-        start_frame: obj.start_frame,
-        end_frame: obj.end_frame,
-      });
-
-      return;
-    }
-
-    // EXISTING FLOW
-    if (selectedObjects.length === 2) {
-
-      const [sourceObj, targetObj] = selectedObjects;
-
-      interpolateMutation.mutate({
-        source_object_id: sourceObj.object_id,
-        source_end_frame: sourceObj.end_frame,
-        target_object_id: targetObj.object_id,
-        target_start_frame: targetObj.start_frame,
-      });
-
-      return;
-    }
-
-    toast({
-      title: "Invalid Selection",
-      description: "Select either 1 object or 2 objects.",
-      variant: "destructive",
-      duration: 3000,
-    });
-  };
-
   // ========================
   // KEYBOARD SHORTCUTS (Open dialogs)
   // ========================
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only trigger if Ctrl (or Cmd on Mac) is pressed
-      if (!(e.ctrlKey || e.metaKey)) return;
 
       const key = e.key.toLowerCase();
 
       // Prevent browser defaults for these combos
-      const preventDefaultKeys = ["l", "s", "b", "d", "i", "r"];
+      const preventDefaultKeys = ["l", "w", "b", "d", "i", "r"];
       if (preventDefaultKeys.includes(key)) {
         e.preventDefault();
       }
 
-      // ---- LINK (Ctrl+L) ----
+      // ---- LINK (L) ----
       if (key === "l") {
         if (selectedObjects.length !== 2) {
           toast({
@@ -518,8 +588,8 @@ export default function Sidebar({
         if (!linkMutation.isPending) setLinkDialogOpen(true);
       }
 
-      // ---- SWAP (Ctrl+S) ----
-      else if (key === "s") {
+      // ---- SWAP (W) ----
+      else if (key === "w") {
         if (selectedObjects.length !== 2) {
           toast({
             title: "⚠️ Invalid Selection",
@@ -532,7 +602,7 @@ export default function Sidebar({
         if (!swapMutation.isPending) setSwapDialogOpen(true);
       }
 
-      // ---- BREAK (Ctrl+B) ----
+      // ---- BREAK (B) ----
       else if (key === "b") {
         if (selectedObjects.length !== 1) {
           toast({
@@ -546,7 +616,7 @@ export default function Sidebar({
         if (!breakMutation.isPending) setBreakDialogOpen(true);
       }
 
-      // ---- DELETE (Ctrl+D) ----
+      // ---- DELETE (D) ----
       else if (key === "d") {
         if (selectedObjects.length !== 1) {
           toast({
@@ -560,7 +630,7 @@ export default function Sidebar({
         if (!deleteMutation.isPending) setDeleteDialogOpen(true);
       }
 
-      // ---- INTERPOLATE (Ctrl+I) ----
+      // ---- INTERPOLATE (I) ----
       else if (key === "i") {
         if (![1, 2].includes(selectedObjects.length)) {
           toast({
@@ -574,7 +644,7 @@ export default function Sidebar({
         if (!interpolateMutation.isPending) handleInterpolate();
       }
 
-      // ---- RECALCULATE CONFUSION (Ctrl+R) ----
+      // ---- RECALCULATE CONFUSION (R) ----
       else if (key === "r") {
         if (!recalculateMutation.isPending && !isConfusionRunning) {
           recalculateMutation.mutate();
@@ -828,10 +898,10 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 w-64 bg-white border border-slate-200 rounded-xl shadow-sm h-full">
+        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm h-full">
           {/* title + clear button side-by-side */}
           <div className="flex items-center justify-between mb-3">
-           <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
+            <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
             <Button
               variant="destructive"
               size="sm"
@@ -854,43 +924,52 @@ export default function Sidebar({
             <p className="text-gray-500">No object selected</p>
           )}
 
-          {/* selected list */}
-          {selectedObjects.map((obj, i) => (
-            <div
-              key={i}
-              className="p-2 mt-2 border bg-white shadow-sm border rounded-[7px] flex justify-between items-start">
-              <div>
-                <p>
-                  <b>Object {i + 1} Selected:</b>
-                </p>
-                <p className="flex gap-3">
-                  <span>ID: {obj.object_id}</span>
-                  <span>Frame: {obj.frame_id}</span>
-                </p>
-                <p className="flex gap-3">
-                  <span>Start: {obj.start_frame}</span>
-                  <span>End: {obj.end_frame}</span>
-                </p>
-              </div>
+          {/* ✅ Enhanced selected objects list with color matching AND card size matching animal annotation cards */}
+          {selectedObjects.map((obj, i) => {
+            const color = getObjectColor(obj.object_id);
+            return (
+              <div
+                key={i}
+                className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start"
+                style={{ borderLeft: `5px solid ${color}` }}
+              >
+                <div>
+                  <p className="flex items-center gap-2">
+                    <span
+                      className="inline-block w-3 h-3 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <b>Object {i + 1}</b>
+                  </p>
+                  <p className="flex gap-3 text-sm">
+                    <span>ID: {obj.object_id}</span>
+                    <span>Frame: {obj.frame_id}</span>
+                  </p>
+                  <p className="flex gap-3 text-xs text-gray-600">
+                    <span>Start: {obj.start_frame}</span>
+                    <span>End: {obj.end_frame}</span>
+                  </p>
+                </div>
 
-              {/* Cross button */}
-              <button
-                onClick={() => {
-                  setSelectedObjects((prev) =>
-                    prev.filter((o) => o.object_id !== obj.object_id),
-                  );
-                  toast({
-                    title: "🗑️ Removed",
-                    description: `Object ${obj.object_id} removed from selection.`,
-                    variant: "default",
-                    duration: 3000,
-                  });
-                }}
-                className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
-                ×
-              </button>
-            </div>
-          ))}
+                {/* Cross button */}
+                <button
+                  onClick={() => {
+                    setSelectedObjects((prev) =>
+                      prev.filter((o) => o.object_id !== obj.object_id),
+                    );
+                    toast({
+                      title: "🗑️ Removed",
+                      description: `Object ${obj.object_id} removed from selection.`,
+                      variant: "default",
+                      duration: 3000,
+                    });
+                  }}
+                  className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
       </CardContent>
 
@@ -952,7 +1031,7 @@ export default function Sidebar({
               ![1, 2].includes(selectedObjects.length) ||
               interpolateMutation.isPending
             }
-            onClick={handleInterpolate}
+            onClick={() => handleInterpolate()}
           >
             <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25}/>
             {interpolateMutation.isPending
@@ -965,12 +1044,12 @@ export default function Sidebar({
             disabled={recalculateMutation.isPending || isConfusionRunning }
             onClick={() => recalculateMutation.mutate()}
           >
-              <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25}/>
+            <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25}/>
             {
               isConfusionRunning
-                ? "Calculating..."
-                : recalculateMutation.isPending
-                  ? "Starting..."
+              ? "Calculating..."
+              : recalculateMutation.isPending
+                ? "Starting..."
                   : "Confusion"
             }
           </Button>
@@ -980,14 +1059,14 @@ export default function Sidebar({
 
       <Separator />
 
-      <CardContent className="p-3 pt-2 flex-shrink-0">
+      {/* <CardContent className="p-3 pt-2 flex-shrink-0">
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
           Frame #{frameId}
         </p>
         <p className="text-[#494949] text-[13px] leading-[13px] font-medium pt-2 pb-2">
           fps : {fpsValue}
         </p>
-      </CardContent>
+      </CardContent> */}
 
       <Separator />
 

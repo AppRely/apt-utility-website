@@ -12,6 +12,7 @@ export type Annotation = {
   object_id: number;
   frame_id: number;
   coordinates: [number, number][];
+  average?: [number, number];
 };
 
 /* Trajectory */
