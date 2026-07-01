@@ -530,8 +530,8 @@ export default function Sidebar({
 
     const formData = new FormData();
     formData.append("object_id", String(obj.object_id));
-    formData.append("video_id", String(videoId));
-    formData.append("break_frame", String(obj.frame_id));
+    formData.append("video_id", String(projectId));
+    formData.append("break_frame", String(frameId));
     formData.append("start_frame", String(obj.start_frame));
     formData.append("end_frame", String(obj.end_frame));
 
@@ -1183,7 +1183,7 @@ export default function Sidebar({
                   <strong>Object:</strong> ID {selectedObjects[0].object_id}
                 </p>
                 <p>
-                  <strong>At Frame:</strong> {selectedObjects[0].frame_id}
+                  <strong>At Frame:</strong> {frameId}
                 </p>
                 <p>
                   <strong>Current Range:</strong> Frame{" "}
