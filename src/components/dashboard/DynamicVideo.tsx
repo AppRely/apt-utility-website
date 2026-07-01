@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/Button";
@@ -334,6 +334,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
@@ -1190,26 +1191,53 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  useEffect(() => {
-    if (!rootContainerRef.current) return;
-    const updateStageSize = () => {
-      const rect = rootContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const availableHeight = window.innerHeight - rect.top - 280;
-      const newHeight = Math.min(Math.max(availableHeight, 300), 600);
-      const newWidth = Math.min(rect.width - 32, 1200);
-      setStageWidth(newWidth);
-      setStageHeight(newHeight);
-    };
+  // ============================================================
+  // RESPONSIVE STAGE SIZING – using useLayoutEffect for immediate sizing
+  // ============================================================
+  const updateStageSize = useCallback(() => {
+    if (!videoContainerRef.current) return;
+    const container = videoContainerRef.current;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    if (containerWidth <= 0 || containerHeight <= 0) return;
+
+    let newWidth = containerWidth;
+    let newHeight = containerHeight;
+
+    if (videoWidth && videoHeight) {
+      const aspectRatio = videoWidth / videoHeight;
+      let w = containerWidth;
+      let h = w / aspectRatio;
+      if (h > containerHeight) {
+        h = containerHeight;
+        w = h * aspectRatio;
+      }
+      newWidth = w;
+      newHeight = h;
+    } else {
+      newWidth = containerWidth;
+      newHeight = containerHeight;
+    }
+
+    setStageWidth(newWidth);
+    setStageHeight(newHeight);
+  }, [videoWidth, videoHeight]);
+
+  useLayoutEffect(() => {
     updateStageSize();
+  }, [updateStageSize]);
+
+  useEffect(() => {
+    if (!videoContainerRef.current) return;
+    const container = videoContainerRef.current;
     const resizeObserver = new ResizeObserver(updateStageSize);
-    resizeObserver.observe(rootContainerRef.current);
+    resizeObserver.observe(container);
     window.addEventListener('resize', updateStageSize);
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateStageSize);
     };
-  }, []);
+  }, [updateStageSize]);
 
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
@@ -1585,8 +1613,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         </div>
       )}
       <div ref={rootContainerRef} className="flex flex-col gap-2 w-full h-full">
-        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 h-auto">
-          <div className="relative flex items-center justify-center mb-2 w-full bg-black">
+        {/* Card now uses flex-1 to fill remaining space */}
+        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 flex-1 min-h-0">
+          <div
+            ref={videoContainerRef}
+            className="relative flex items-center justify-center mb-2 w-full bg-black flex-1 min-h-0 overflow-hidden"
+          >
             <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
               FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
               {isSeekingRef.current && " 🔄 SEEKING"}
