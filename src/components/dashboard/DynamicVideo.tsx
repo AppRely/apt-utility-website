@@ -25,17 +25,17 @@ import { getUniqueIdsData, UniqueIdsResponse, UniqueIdObject } from "@/lib/api/g
 import { exportTrk } from "@/lib/api/exportTrk";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
-  LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
+  LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
-// ==================== TIMELINE 2 – SHOW ALL OBJECTS (FIXED) ====================
+// ==================== TIMELINE – SHOW ALL OBJECTS (FIXED) ====================
 const ObjectRangesTimeline = ({
   objects,
   currentFrame,
   onSeek,
   getObjectColor,
   totalFrames,
-  halfWindow,              // renamed: distance from center
+  halfWindow,
   onWindowChange,
   windowInput,
   setWindowInput,
@@ -48,19 +48,18 @@ const ObjectRangesTimeline = ({
   onSeek: (frame: number) => void;
   getObjectColor: (id: number) => string;
   totalFrames: number;
-  halfWindow: number;      // half of the visible range
+  halfWindow: number;
   onWindowChange: (newHalfWindow: number) => void;
-  windowInput: string;     // total visible frames (e.g., "500")
+  windowInput: string;
   setWindowInput: (val: string) => void;
   showControls?: boolean;
   showXAxisLabels?: boolean;
   compact?: boolean;
 }) => {
-  // Visible range: currentFrame ± halfWindow
+  // Use the same domain as the chart
   const minFrame = currentFrame - halfWindow;
   const maxFrame = currentFrame + halfWindow;
 
-  // Fixed coordinate system width for the viewBox
   const chartWidth = 800;
   const chartHeight = compact ? 40 : 60;
   const padding = compact
@@ -121,7 +120,7 @@ const ObjectRangesTimeline = ({
                   let newVal = parseInt(windowInput, 10);
                   if (isNaN(newVal) || newVal < 10) newVal = 500;
                   newVal = Math.min(Math.max(newVal, 10), totalFrames);
-                  onWindowChange(Math.floor(newVal / 2));  // halfWindow
+                  onWindowChange(Math.floor(newVal / 2));
                   setWindowInput(newVal.toString());
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded-md transition-colors"
@@ -150,7 +149,7 @@ const ObjectRangesTimeline = ({
             }
             return labels;
           })()}
-          {/* Red line always at the center */}
+          {/* Red line – always exactly in the middle */}
           <line x1={padding.left + chartWidth / 2} y1={padding.top} x2={padding.left + chartWidth / 2} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
           {filteredObjects.map(obj => {
             const color = getObjectColor(obj.id);
@@ -218,29 +217,29 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [videoWidth, setVideoWidth] = useState<number | null>(null);
   const [videoHeight, setVideoHeight] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
-  
+
   const [annotationMap, setAnnotationMap] = useState<Map<string, Annotation>>(new Map());
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
-  
+
   const isFrameStepRef = useRef(false);
   const isFrameStepSequenceRef = useRef(false);
   const frameStepTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const isSeekingRef = useRef(false);
   const pendingFrameRef = useRef<number | null>(null);
   const [pendingFrameVisual, setPendingFrameVisual] = useState<number | null>(null);
-  
+
   const [currentFrame, setCurrentFrame] = useState(0);
   const currentDisplayFrameRef = useRef<number>(0);
-  
+
   const lastSeekFrameRef = useRef<number>(-1);
   const lastSeekTimeRef = useRef<number>(-1);
   const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
-  
+
   const [stageScale, setStageScale] = useState({ x: 1, y: 1 });
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -293,16 +292,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const lastMousePosRef = useRef({ x: 0, y: 0 });
 
   const { toast } = useToast();
-  
+
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
   const lastPanFrameRef = useRef<number>(-1);
-  
+
   const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
   const trajectoriesRef = useRef<TrajectoryMap>(new Map());
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
-  
+
   const [frameInput, setFrameInput] = useState("");
   const [showSpeed, setShowSpeed] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
@@ -325,19 +324,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
-  
-  // halfWindow = distance from center; total visible = 2 * halfWindow
-  // Default: total visible = 500 => halfWindow = 250
+
   const [halfWindow, setHalfWindow] = useState(250);
-  const [totalVisibleInput, setTotalVisibleInput] = useState("500"); // displayed to user
+  const [totalVisibleInput, setTotalVisibleInput] = useState("500");
 
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
-  const [showToolsMenu, setShowToolsMenu] = useState(false);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+
+  // ---------- Shared visible range ----------
+  const minFrame = currentFrame - halfWindow;
+  const maxFrame = currentFrame + halfWindow;
 
   // ========== Helper functions ==========
   const getObjectColor = useCallback((id: number) => {
@@ -384,7 +384,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
-  // Unique IDs helpers
+  // Unique IDs helpers (unchanged)
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
     return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
   }, []);
@@ -481,7 +481,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       });
   }, [projectId, isUniqueRangeLoaded, isUniqueRangeLoading, addUniqueLoadedRange, mergeUniqueCacheIntoState]);
 
-  // Fetch unique ranges with a buffer – ensure at least 1000 frames total
   useEffect(() => {
     if (!projectId) return;
     const totalFrames = getTotalFrames();
@@ -489,7 +488,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     pruneUniqueRanges(currentFrame, halfWindow * 3);
     const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
     if (isCovered) return;
-    // buffer = max(250, halfWindow * 0.5) to have at least 1000 total fetch when halfWindow=250
     const buffer = Math.max(250, Math.round(halfWindow * 0.5));
     let start = Math.max(0, currentFrame - halfWindow - buffer);
     let end = Math.min(currentFrame + halfWindow + buffer, totalFrames);
@@ -546,7 +544,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  // Timeline data (with buffer)
+  // Timeline data
   useEffect(() => {
     if (!projectId || selectedObjects.length === 0) {
       setTimelinePoints([]);
@@ -606,22 +604,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
 
+  // ---------- Chart mouse mapping ----------
   const seekFromChartMouse = useCallback((clientX: number) => {
-    if (!timelineContainerRef.current || timelinePoints.length === 0) return;
+    if (!timelineContainerRef.current) return;
     const svg = timelineContainerRef.current.querySelector('svg');
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
     const chartWidth = rect.width;
     if (chartWidth <= 0) return;
-    let relativeX = (clientX - rect.left) / chartWidth;
+    const margin = 20;
+    const plotWidth = chartWidth - 2 * margin;
+    let relativeX = (clientX - rect.left - margin) / plotWidth;
     relativeX = Math.min(Math.max(relativeX, 0), 1);
-    const frames = timelinePoints.map(p => p.frame);
-    const minFrame = Math.min(...frames);
-    const maxFrame = Math.max(...frames);
     const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
     const targetTime = frame / stableFpsRef.current;
     handleSeek(targetTime);
-  }, [timelinePoints]);
+  }, [minFrame, maxFrame]);
 
   useEffect(() => {
     if (!timelineContainerRef.current || selectedObjects.length === 0) return;
@@ -699,6 +697,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (fps !== stableFpsRef.current) setFps(stableFpsRef.current);
   }, [fps, mounted]);
 
+  // ---------- handleSeek with immediate UI update ----------
   const handleSeek = async (time: number) => {
     if (!video) return;
     if (isSeekingRef.current) {
@@ -714,7 +713,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     lastSeekFrameRef.current = targetFrame;
     lastSeekTimeRef.current = safeTime;
     isSeekingRef.current = true;
-    pendingFrameRef.current = null;
+    pendingFrameRef.current = targetFrame;
+
+    // --- Update UI immediately ---
+    currentDisplayFrameRef.current = targetFrame;
+    setCurrentFrame(targetFrame);
+    setCurrentTime(safeTime);
+    setSelectedFrameIndex(targetFrame);
 
     const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
     if (!isWithinLoadedRange) {
@@ -730,11 +735,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       video.pause();
       setIsPlaying(false);
       video.currentTime = safeTime;
-      setCurrentTime(safeTime);
       setDragTime(null);
-      setSelectedFrameIndex(targetFrame);
-      currentDisplayFrameRef.current = targetFrame;
-      setCurrentFrame(targetFrame);
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
       isSeekingRef.current = false;
@@ -744,11 +745,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     video.pause();
     setIsPlaying(false);
     video.currentTime = safeTime;
-    setCurrentTime(safeTime);
     setDragTime(null);
-    setSelectedFrameIndex(targetFrame);
-    currentDisplayFrameRef.current = targetFrame;
-    setCurrentFrame(targetFrame);
     clearLoadedRanges();
     setAnnotationsReady(false);
     if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
@@ -764,6 +761,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
+  // ---------- togglePlayPause ----------
   const togglePlayPause = useCallback(() => {
     if (!video) return;
     if (video.paused) {
@@ -774,6 +772,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
+  // ---------- Trajectory update interval ----------
   const trajectoryUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (!mounted) return;
@@ -815,6 +814,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
   
+  // ---------- Stage interactions ----------
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -889,7 +889,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     showZoomIndicator();
   };
 
-  // Auto‑pan
+  // ---------- Auto‑pan ----------
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
@@ -1000,6 +1000,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
   }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
+  // ---------- Annotation chunk fetch ----------
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
@@ -1053,6 +1054,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
 
+  // Cleanup old annotations
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
     const maxFrames = 120 * stableFpsRef.current;
@@ -1069,6 +1071,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
+  // Prune trajectory
   useEffect(() => {
     if (!mounted) return;
     const maxTrajFrames = 60 * stableFpsRef.current;
@@ -1085,6 +1088,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [currentFrame, mounted]);
 
+  // Undo / Redo
   const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
   const exportMutation = useMutation({
     mutationFn: () => exportTrk(projectId!),
@@ -1124,6 +1128,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
+  // ---------- Frame stepping ----------
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
     if (!video) return;
     if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
@@ -1151,7 +1156,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
     const newTime = newFrame / currentFps;
     isSeekingRef.current = true;
-    pendingFrameRef.current = null;
+    pendingFrameRef.current = newFrame;
     currentDisplayFrameRef.current = newFrame;
     setCurrentFrame(newFrame);
     video.currentTime = newTime;
@@ -1191,9 +1196,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // ============================================================
-  // RESPONSIVE STAGE SIZING – using useLayoutEffect for immediate sizing
-  // ============================================================
+  // ---------- Responsive stage sizing ----------
   const updateStageSize = useCallback(() => {
     if (!videoContainerRef.current) return;
     const container = videoContainerRef.current;
@@ -1239,6 +1242,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
   }, [updateStageSize]);
 
+  // ---------- Video loading ----------
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
@@ -1254,13 +1258,30 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         vid.playsInline = true;
         const lockedFps = stableFpsRef.current;
         const handleSeeked = () => {
-          const actualTime = vid.currentTime;
-          const actualFrame = Math.round(actualTime * lockedFps);
           const targetFrame = pendingFrameRef.current;
-          if (targetFrame !== null && actualFrame !== targetFrame) {
-            vid.currentTime = targetFrame / lockedFps;
+          if (targetFrame !== null) {
+            const frame = targetFrame;
+            isSeekingRef.current = false;
+            pendingFrameRef.current = null;
+            currentDisplayFrameRef.current = frame;
+            setCurrentFrame(frame);
+            setCurrentTime(vid.currentTime);
+            setSelectedFrameIndex(frame);
+            if (layerRef.current) layerRef.current.batchDraw();
+            if (!isFrameLoaded(frame)) {
+              const windowFrames = Math.round(6 * lockedFps);
+              const totalFrames = Math.floor(vid.duration * lockedFps);
+              const windowStart = Math.max(0, frame - 50);
+              const windowEnd = Math.min(frame + windowFrames, totalFrames);
+              if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
+              chunkMutation.mutate({ start: windowStart, end: windowEnd });
+            } else {
+              setAnnotationsReady(true);
+              setIsLoadingAnnotations(false);
+            }
             return;
           }
+          const actualFrame = Math.round(vid.currentTime * lockedFps);
           isSeekingRef.current = false;
           currentDisplayFrameRef.current = actualFrame;
           setCurrentFrame(actualFrame);
@@ -1288,6 +1309,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         vid.onloadedmetadata = async () => {
           setIsLoadingAnnotations(true);
           setInitialLoadComplete(false);
+          // Set initial frame from sessionStorage or 0
+          const storedFrame = sessionStorage.getItem("frameId");
+          const initialFrame = storedFrame ? parseInt(storedFrame, 10) : 0;
+          setCurrentFrame(initialFrame);
+          currentDisplayFrameRef.current = initialFrame;
           chunkMutation.mutate({ start: 0, end: 150 });
         };
         vid.onerror = () => toast({ title: "Error loading video", variant: "destructive", duration: 1500 });
@@ -1299,6 +1325,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadVideo();
   }, [mounted, originalFpsLoadedRef.current]);
 
+  // Undo/Redo mutations
   const undoMutation = useMutation({
     mutationFn: () => undoAction(projectId!),
     onSuccess: () => { toast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
@@ -1326,14 +1353,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => { if(video && mounted) video.playbackRate = playbackRate; }, [video, playbackRate, mounted]);
   useEffect(() => { if(!video || !layerRef.current || !mounted) return; let id: number; const update = () => { layerRef.current?.batchDraw(); id = requestAnimationFrame(update); }; update(); return () => cancelAnimationFrame(id); }, [video, mounted]);
 
+  // ---------- timeupdate handler ----------
   useEffect(() => {
     if (!video || !mounted) return;
     const vid = video;
     const handleTimeUpdate = () => {
       const newFrame = Math.round(vid.currentTime * stableFpsRef.current);
-      currentDisplayFrameRef.current = newFrame;
-      setCurrentFrame(newFrame);
-      setCurrentTime(vid.currentTime);
+      // Only update if not in the middle of a seek or if seek is complete
+      if (!isSeekingRef.current || pendingFrameRef.current === null) {
+        currentDisplayFrameRef.current = newFrame;
+        setCurrentFrame(newFrame);
+        setCurrentTime(vid.currentTime);
+      }
       const now = performance.now();
       if (isPlaying && now - lastAnnoLoadTs.current > 500) {
         if (currentAnnoWindowRef.current) {
@@ -1356,7 +1387,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     vid.addEventListener("timeupdate", handleTimeUpdate);
     vid.addEventListener("play", handlePlay);
     vid.addEventListener("pause", handlePause);
-    return () => { vid.removeEventListener("timeupdate", handleTimeUpdate); vid.removeEventListener("play", handlePlay); vid.removeEventListener("pause", handlePause); };
+    return () => {
+      vid.removeEventListener("timeupdate", handleTimeUpdate);
+      vid.removeEventListener("play", handlePlay);
+      vid.removeEventListener("pause", handlePause);
+    };
   }, [video, isPlaying, duration, mounted, ANNO_PREFETCH_THRESHOLD]);
 
   const allObjectIds = getAllObjectIds();
@@ -1404,6 +1439,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     );
   }, [getAllObjectIdList, selectedObjects, uniqueIdsData, projectId, objectMutation, setSelectedObjects, handleFrameJump, toast]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     if (!mounted) return;
     const keydownHandler = (e: KeyboardEvent) => {
@@ -1613,7 +1649,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         </div>
       )}
       <div ref={rootContainerRef} className="flex flex-col gap-2 w-full h-full">
-        {/* Card now uses flex-1 to fill remaining space */}
         <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 flex-1 min-h-0">
           <div
             ref={videoContainerRef}
@@ -2118,7 +2153,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
 
             <div className="flex flex-col flex-1 min-h-0 gap-0 w-full">
-              {/* Ranges timeline – compact 40px, centered, full width */}
+              {/* Ranges timeline – compact 40px */}
               <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
                 {isLoadingUnique ? (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
@@ -2154,30 +2189,38 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 )}
               </div>
 
-              {/* Trajectory chart – always rendered with axes and centered red line */}
+              {/* Trajectory chart – fixed red line overlay */}
               <div className="flex-1 min-h-0 relative w-full">
                 <div
                   ref={timelineContainerRef}
-                  className="w-full h-full cursor-grab active:cursor-grabbing overflow-x-auto"
+                  className="w-full h-full cursor-grab active:cursor-grabbing overflow-x-auto relative"
                 >
+                  {/* Red line overlay – always centered */}
+                  <div
+                    className="absolute top-0 bottom-0 pointer-events-none z-10"
+                    style={{
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: '2px',
+                      background: '#ff3333',
+                    }}
+                  />
                   <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
                         data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
-                        margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                        margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
                         onClick={handleChartClick}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
                         <XAxis
                           dataKey="frame"
                           type="number"
-                          domain={[
-                            currentFrame - halfWindow,
-                            currentFrame + halfWindow
-                          ]}
+                          domain={[minFrame, maxFrame]}
                           tick={{ fill: '#ccc', fontSize: 10 }}
                           tickFormatter={(frame) => frame.toString()}
                           label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
+                          scale="linear"
                         />
                         <YAxis
                           domain={['auto', 'auto']}
@@ -2191,8 +2234,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           }}
                         />
                         <Tooltip formatter={tooltipFormatter} labelFormatter={(label) => `Frame: ${label}`} />
-                        {/* Red line at currentFrame – always exactly at the center */}
-                        <ReferenceLine x={currentFrame} stroke="#ff3333" strokeWidth={2} label={{ value: '▶ Current', position: 'top', fill: '#ff3333', fontSize: 11 }} />
                         {uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
@@ -2233,7 +2274,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {/* Overlay message when no object selected or no data */}
                 {selectedObjects.length === 0 || timelinePoints.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
