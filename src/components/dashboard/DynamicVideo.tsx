@@ -1346,6 +1346,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
+      const isDialogOpen = sessionStorage.getItem("dialogOpen") === "true";
+      if (isDialogOpen) {return;}
       if (e.ctrlKey && e.key === "z" && canUndo) { e.preventDefault(); undoMutation.mutate(); }
       if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z")) && canRedo) { e.preventDefault(); redoMutation.mutate(); }
     };
@@ -1447,6 +1449,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => {
     if (!mounted) return;
     const keydownHandler = (e: KeyboardEvent) => {
+      const isDialogOpen =
+          sessionStorage.getItem("dialogOpen") === "true";
+
+        if (isDialogOpen) {
+          return;
+        }
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
       if (e.code === 'Tab') {
@@ -1541,6 +1549,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
+      const isDialogOpen = sessionStorage.getItem("dialogOpen") === "true";
+      if (isDialogOpen) {return;}
       if (!video) return;
       const activeEl = document.activeElement;
       const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
@@ -2239,6 +2249,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   ref={timelineContainerRef}
                   className="w-full h-full cursor-grab active:cursor-grabbing overflow-x-auto relative"
                 >
+                  {/* Red line overlay – always centered */}
                   <div
                     className="absolute top-0 bottom-0 pointer-events-none z-10"
                     style={{
