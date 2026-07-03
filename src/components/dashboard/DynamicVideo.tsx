@@ -56,7 +56,6 @@ const ObjectRangesTimeline = ({
   showXAxisLabels?: boolean;
   compact?: boolean;
 }) => {
-  // Use the same domain as the chart
   const minFrame = currentFrame - halfWindow;
   const maxFrame = currentFrame + halfWindow;
 
@@ -149,7 +148,6 @@ const ObjectRangesTimeline = ({
             }
             return labels;
           })()}
-          {/* Red line – always exactly in the middle */}
           <line x1={padding.left + chartWidth / 2} y1={padding.top} x2={padding.left + chartWidth / 2} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
           {filteredObjects.map(obj => {
             const color = getObjectColor(obj.id);
@@ -335,6 +333,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
 
+  // ========== NEW USER CONTROLS ==========
+  const [trajectoryDuration, setTrajectoryDuration] = useState(60); // seconds
+  const [labelOffsetScale, setLabelOffsetScale] = useState(1);
+  const [textSizeScale, setTextSizeScale] = useState(1);
+
   // ---------- Shared visible range ----------
   const minFrame = currentFrame - halfWindow;
   const maxFrame = currentFrame + halfWindow;
@@ -383,6 +386,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
+
+  // ========== NEW HELPER FUNCTIONS (modified) ==========
+  const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
+  const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
+  const getIdFontSize = () => (14 * textSizeScale) * (1 / currentZoom);
+  const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
+  const getLabelOffset = () => (8 * labelOffsetScale) * (1 / currentZoom);
+  const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
 
   // Unique IDs helpers (unchanged)
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
@@ -784,8 +795,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => { if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current); };
   }, [mounted]);
   
+  // ========== MODIFIED: addTrajectoryPoints with trajectoryDuration ==========
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
-    const MAX_TRAJ_FRAMES = 60 * stableFpsRef.current;
+    const MAX_TRAJ_FRAMES = trajectoryDuration * stableFpsRef.current;
     const currentFrameNum = currentDisplayFrameRef.current;
     const cutoff = Math.max(0, currentFrameNum - MAX_TRAJ_FRAMES);
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
@@ -797,19 +809,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     });
     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
-  }, []);
+  }, [trajectoryDuration]);
 
+  // ========== MODIFIED: getTrajectoryPointsUpToCurrent ==========
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
     const frameTrajectory = trajectoryMap.get(objectId);
     if (!frameTrajectory || frameTrajectory.size < 2) return [];
-    const twoMinFrames = 2 * 60 * stableFpsRef.current;
-    const cutoffFrame = Math.max(0, upToFrame - twoMinFrames);
+    const durationFrames = trajectoryDuration * stableFpsRef.current;
+    const cutoffFrame = Math.max(0, upToFrame - durationFrames);
     const sortedFrames = Array.from(frameTrajectory.keys()).sort((a,b)=>a-b).filter(fid => fid >= cutoffFrame && fid <= upToFrame);
     if (sortedFrames.length < 2) return [];
     const points: number[] = [];
     sortedFrames.forEach(fid => { const [x,y] = frameTrajectory.get(fid)!; points.push(x,y); });
     return points;
-  }, [trajectoryMap]);
+  }, [trajectoryMap, trajectoryDuration]);
 
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
@@ -833,12 +846,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     showZoomIndicator();
   }, [showZoomIndicator]);
   
-  const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
-  const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
-  const getIdFontSize = () => Math.max(14, 14 * (1 / currentZoom));
-  const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
-  const getLabelOffset = () => 8*(1/currentZoom);
-  const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
+  // (getCircleRadius, getTrajectoryWidth, getIdFontSize, getBBoxStrokeWidth, getLabelOffset, getSkeletonWidth already updated)
 
   const handleMouseDown = (e: any) => {
     if (e.evt.button === 0 || e.evt.button === 2) {
@@ -1038,10 +1046,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
       if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      if (!initialLoadComplete && video && video.paused && mounted) {
-        setInitialLoadComplete(true);
-        setTimeout(() => video.play().then(() => setIsPlaying(true)).catch(() => {}), 100);
-      }
+      // REMOVED: auto-play logic – video stays paused
     },
     onError: (_, { start, end }) => {
       const key = `${start}-${end}`;
@@ -1071,10 +1076,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
-  // Prune trajectory
+  // ========== MODIFIED: prune trajectory using trajectoryDuration ==========
   useEffect(() => {
     if (!mounted) return;
-    const maxTrajFrames = 60 * stableFpsRef.current;
+    const maxTrajFrames = trajectoryDuration * stableFpsRef.current;
     const cutoffFrame = Math.max(0, currentFrame - maxTrajFrames);
     let prunedAny = false;
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame);
@@ -1086,7 +1091,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setTrajectoryMap(new Map(trajectoriesRef.current));
       setTrajectoryPointCount(persistentTrajectoryRef.current.length);
     }
-  }, [currentFrame, mounted]);
+  }, [currentFrame, mounted, trajectoryDuration]);
 
   // Undo / Redo
   const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
@@ -1309,12 +1314,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         vid.onloadedmetadata = async () => {
           setIsLoadingAnnotations(true);
           setInitialLoadComplete(false);
-          // Set initial frame from sessionStorage or 0
           const storedFrame = sessionStorage.getItem("frameId");
           const initialFrame = storedFrame ? parseInt(storedFrame, 10) : 0;
           setCurrentFrame(initialFrame);
           currentDisplayFrameRef.current = initialFrame;
           chunkMutation.mutate({ start: 0, end: 150 });
+          // Video will remain paused; no auto‑play
         };
         vid.onerror = () => toast({ title: "Error loading video", variant: "destructive", duration: 1500 });
         setVideo(vid);
@@ -1359,7 +1364,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const vid = video;
     const handleTimeUpdate = () => {
       const newFrame = Math.round(vid.currentTime * stableFpsRef.current);
-      // Only update if not in the middle of a seek or if seek is complete
       if (!isSeekingRef.current || pendingFrameRef.current === null) {
         currentDisplayFrameRef.current = newFrame;
         setCurrentFrame(newFrame);
@@ -1800,6 +1804,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         />
                       ))}
 
+                      {/* Removed stroke from Text */}
                       <Text 
                         x={mapX(a.coordinates[0][0])+getLabelOffset()} 
                         y={mapY(a.coordinates[0][1])-getLabelOffset()} 
@@ -1807,8 +1812,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         fontSize={getIdFontSize()} 
                         fill={color} 
                         fontStyle="bold" 
-                        stroke="black"
-                        strokeWidth={0.8}
                         shadowColor="transparent"
                       />
 
@@ -1841,7 +1844,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
                 <div className="text-xs font-mono mb-2">
                   Objects in frame ({objectPage+1}/{totalPages || 1})
-                  {totalPages > 1 && <span className="ml-2 text-yellow-400">(Shift+0‑9 to change page)</span>}
+                  {totalPages > 1 && <span className="ml-2 text-yellow-400">(Shift+0‑9 to cycle pages)</span>}
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <div className="font-bold text-yellow-300 text-xs">Key</div>
@@ -1861,7 +1864,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 </div>
                 {totalPages > 1 && (
                   <div className="text-[10px] text-gray-400 mt-2 text-center">
-                    Page {objectPage+1} of {totalPages}
+                    Page {objectPage+1} of {totalPages} – {totalPages - (objectPage+1)} page(s) remaining
                   </div>
                 )}
                 <div className="text-[10px] text-yellow-400 mt-2 text-center">
@@ -1933,6 +1936,47 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span>Auto Interpolation {autoInterpolation ? "ON" : "OFF"}</span>
                   </button>
 
+                  <div className="border-t border-slate-200 my-1" />
+
+                  {/* ===== NEW CONTROLS ===== */}
+                  <div className="flex items-center gap-2 px-3 py-1">
+                    <span className="text-xs text-slate-600">Trajectory (sec):</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="300"
+                      step="1"
+                      value={trajectoryDuration}
+                      onChange={(e) => setTrajectoryDuration(Number(e.target.value))}
+                      className="w-16 h-7 bg-white border border-slate-300 rounded text-xs px-2"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1">
+                    <span className="text-xs text-slate-600">Label offset:</span>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      value={labelOffsetScale}
+                      onChange={(e) => setLabelOffsetScale(Number(e.target.value))}
+                      className="w-24"
+                    />
+                    <span className="text-xs text-slate-500 w-8">{labelOffsetScale.toFixed(1)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1">
+                    <span className="text-xs text-slate-600">Text size:</span>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      value={textSizeScale}
+                      onChange={(e) => setTextSizeScale(Number(e.target.value))}
+                      className="w-24"
+                    />
+                    <span className="text-xs text-slate-500 w-8">{textSizeScale.toFixed(1)}</span>
+                  </div>
                   <div className="border-t border-slate-200 my-1" />
 
                   {downloadUrl ? (
@@ -2195,7 +2239,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   ref={timelineContainerRef}
                   className="w-full h-full cursor-grab active:cursor-grabbing overflow-x-auto relative"
                 >
-                  {/* Red line overlay – always centered */}
                   <div
                     className="absolute top-0 bottom-0 pointer-events-none z-10"
                     style={{
