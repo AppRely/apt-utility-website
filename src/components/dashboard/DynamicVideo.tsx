@@ -36,7 +36,6 @@ function useFrameMapping(
   leftPadding = 20,
   rightPadding = 20
 ) {
-  // Always symmetric around currentFrame – no clamping
   const minFrame = currentFrame - halfWindow;
   const maxFrame = currentFrame + halfWindow;
   const plotWidth = Math.max(1, containerWidth - leftPadding - rightPadding);
@@ -98,7 +97,7 @@ const ObjectRangesTimeline = ({
   maxFrame: number;
   plotWidth: number;
 }) => {
-  const chartHeight = compact ? 40 : 60;
+  const chartHeight = compact ? 30 : 60;
   const padding = compact
     ? { left: 20, right: 20, top: 2, bottom: 4 }
     : { left: 20, right: 20, top: 5, bottom: 15 };
@@ -386,7 +385,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
 
-  // NEW USER CONTROLS
   const [trajectoryDuration, setTrajectoryDuration] = useState(60);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
   const [textSizeScale, setTextSizeScale] = useState(1);
@@ -408,11 +406,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     timelineWidth,
     currentFrame,
     halfWindow,
-    20, // left padding (matches Recharts margin.left)
-    20  // right padding (matches margin.right)
+    20,
+    20
   );
 
-  // ========== Helper functions ==========
   const getObjectColor = useCallback((id: number) => {
     const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
     return colors[id % colors.length];
@@ -443,7 +440,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setObjectPage(0);
   }, [currentFrame]);
 
-  // Geometry
   const scale = useMemo(() => {
     if (videoWidth && videoHeight) return Math.min(stageWidth / videoWidth, stageHeight / videoHeight);
     return 1;
@@ -719,7 +715,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (fps !== stableFpsRef.current) setFps(stableFpsRef.current);
   }, [fps, mounted]);
 
-  // ---------- Trajectory update interval ----------
   const trajectoryUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (!mounted) return;
@@ -761,7 +756,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
   
-  // ---------- Stage interactions ----------
+  // Stage interactions
   const handleWheel = useCallback((e: any) => {
     e.evt.preventDefault();
     if (!stageRef.current) return;
@@ -829,7 +824,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     showZoomIndicator();
   };
 
-  // ---------- Auto‑pan ----------
+  // Auto‑pan
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
     if (!stageRef.current || !video) return;
@@ -940,7 +935,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
   }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
 
-  // ---------- Annotation chunk fetch ----------
+  // Annotation chunk fetch
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
@@ -1064,7 +1059,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
-  // ---------- Frame stepping ----------
+  // Frame stepping
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
     if (!video) return;
     if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
@@ -1132,7 +1127,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
-  // ---------- handleSeek ----------
   const handleSeek = async (time: number) => {
     if (!video) return;
     if (isSeekingRef.current) {
@@ -1195,14 +1189,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
-  // ---------- Chart mouse mapping for dragging (only) ----------
+  // Chart mouse mapping for dragging
   const seekFromChartMouse = useCallback((clientX: number) => {
     if (!timelineContainerRef.current) return;
     const container = timelineContainerRef.current;
     const svg = container.querySelector('svg');
     if (!svg) return;
 
-    // Find the actual plot area by locating the X-axis line
     let plotLeft: number, plotWidthActual: number;
     const axisLine = svg.querySelector('.recharts-cartesian-axis-line line');
     if (axisLine) {
@@ -1211,7 +1204,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       plotLeft = rect.left - containerRect.left;
       plotWidthActual = rect.width;
     } else {
-      // Fallback: use container bounding rect with margin estimate
       const rect = container.getBoundingClientRect();
       const margin = 20;
       plotLeft = margin;
@@ -1226,7 +1218,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     handleSeek(targetTime);
   }, [minFrame, maxFrame, handleSeek, stableFpsRef]);
 
-  // Mouse events – do NOT seek on mousedown (let the chart's onClick handle that)
   useEffect(() => {
     if (!timelineContainerRef.current || selectedObjects.length === 0) return;
     const container = timelineContainerRef.current;
@@ -1235,7 +1226,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (!svg || !svg.contains(e.target as Node)) return;
       e.preventDefault();
       setIsChartDragging(true);
-      // No seek here – click will be handled by the chart's onClick
     };
     const onMouseMove = (e: MouseEvent) => {
       if (isChartDragging) seekFromChartMouse(e.clientX);
@@ -1251,7 +1241,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
   }, [selectedObjects.length, seekFromChartMouse, isChartDragging]);
 
-  // ---------- Chart click handler (uses Recharts exact frame) ----------
   const handleChartClick = (data: any) => {
     if (data && data.activeLabel !== undefined) {
       const frame = Math.round(data.activeLabel);
@@ -1262,7 +1251,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
-  // ---------- Tooltip formatter ----------
   const tooltipFormatter = useCallback((value: any, name: string | number | undefined) => {
     if (name === undefined) return [String(value), ""];
     const safeName = String(name);
@@ -1275,7 +1263,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return [Number(value).toFixed(2), `Object ${objId}`];
   }, [coordinateMode]);
 
-  // ---------- togglePlayPause ----------
   const togglePlayPause = useCallback(() => {
     if (!video) return;
     if (video.paused) {
@@ -1286,7 +1273,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, toast]);
 
-  // ---------- Responsive stage sizing ----------
+  // Responsive stage sizing
   const updateStageSize = useCallback(() => {
     if (!videoContainerRef.current) return;
     const container = videoContainerRef.current;
@@ -1332,7 +1319,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
   }, [updateStageSize]);
 
-  // ---------- Video loading ----------
+  // Video loading
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
@@ -1414,7 +1401,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadVideo();
   }, [mounted, originalFpsLoadedRef.current]);
 
-  // Undo/Redo mutations
   const undoMutation = useMutation({
     mutationFn: () => undoAction(projectId!),
     onSuccess: () => { toast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
@@ -1444,7 +1430,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => { if(video && mounted) video.playbackRate = playbackRate; }, [video, playbackRate, mounted]);
   useEffect(() => { if(!video || !layerRef.current || !mounted) return; let id: number; const update = () => { layerRef.current?.batchDraw(); id = requestAnimationFrame(update); }; update(); return () => cancelAnimationFrame(id); }, [video, mounted]);
 
-  // ---------- timeupdate handler ----------
+  // timeupdate handler
   useEffect(() => {
     if (!video || !mounted) return;
     const vid = video;
@@ -1625,7 +1611,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("message", handleMessage);
   }, [handleFrameJump]);
 
-  // Keyboard handler
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
@@ -1742,11 +1727,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </div>
       )}
-      <div ref={rootContainerRef} className="flex flex-col gap-2 w-full h-full">
-        <Card className="flex flex-col border rounded-[7px] overflow-hidden p-2 flex-1 min-h-0">
+      {/* Main container – full viewport, no scroll */}
+      <div ref={rootContainerRef} className="h-screen overflow-hidden flex flex-col gap-1 p-2 bg-slate-100">
+        <Card className="flex-1 flex flex-col border rounded-[7px] overflow-hidden p-2 min-h-0">
+          {/* Video container – takes all remaining vertical space */}
           <div
             ref={videoContainerRef}
-            className="relative flex items-center justify-center mb-2 w-full bg-black flex-1 min-h-0 overflow-hidden"
+            className="relative flex items-center justify-center w-full bg-black rounded-lg flex-1 min-h-0 overflow-hidden"
           >
             <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
               FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
@@ -2134,103 +2121,103 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
           
-          <Separator />
-          <div className="flex flex-col pt-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button size="icon" variant="ghost" onClick={() => undoMutation.mutate()} disabled={!canUndo || !projectId}>
-                <Undo className="w-4 h-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => redoMutation.mutate()} disabled={!canRedo || !projectId}>
-                <Redo className="w-4 h-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => handleFrameStep(-1)}>
-                <SkipBack />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={togglePlayPause} disabled={!video}>
-                {isPlaying ? <Pause /> : <Play />}
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => handleFrameStep(1)}>
-                <SkipForward />
-              </Button>
-              <Slider 
-                value={[dragTime ?? currentTime]} 
-                max={duration || 100} 
-                step={0.01} 
-                onValueChange={handleSliderChange} 
-                onValueCommit={(val) => { handleSeek(val[0]); setDragTime(null); }} 
-                className="flex-1 min-w-[240px]" 
+          <Separator className="my-1" />
+          
+          {/* Controls row – fixed height, no shrink */}
+          <div className="flex items-center gap-2 flex-wrap flex-shrink-0 py-1">
+            <Button size="icon" variant="ghost" onClick={() => undoMutation.mutate()} disabled={!canUndo || !projectId}>
+              <Undo className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant="ghost" onClick={() => redoMutation.mutate()} disabled={!canRedo || !projectId}>
+              <Redo className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant="ghost" onClick={() => handleFrameStep(-1)}>
+              <SkipBack />
+            </Button>
+            <Button size="icon" variant="ghost" onClick={togglePlayPause} disabled={!video}>
+              {isPlaying ? <Pause /> : <Play />}
+            </Button>
+            <Button size="icon" variant="ghost" onClick={() => handleFrameStep(1)}>
+              <SkipForward />
+            </Button>
+            <Slider 
+              value={[dragTime ?? currentTime]} 
+              max={duration || 100} 
+              step={0.01} 
+              onValueChange={handleSliderChange} 
+              onValueCommit={(val) => { handleSeek(val[0]); setDragTime(null); }} 
+              className="flex-1 min-w-[240px]" 
+            />
+            <span className="text-[11px] text-[#5A5A5A] px-2 whitespace-nowrap tabular-nums">
+              {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
+            </span>
+            <Button size="icon" variant="ghost" onClick={handleZoomOut}>
+              <ZoomOut className="w-3 h-3" />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleResetZoom} className="px-2 text-xs font-semibold">
+              Reset
+            </Button>
+            <Button size="icon" variant="ghost" onClick={handleZoomIn}>
+              <ZoomIn className="w-3 h-3" />
+            </Button>
+            <Button size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
+              Track
+            </Button>
+            <div className="flex items-center gap-1 ml-1">
+              <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">Frame</span>
+              <Input 
+                type="number" 
+                placeholder="0" 
+                min="0" 
+                max={video?.duration ? Math.floor(video.duration * stableFpsRef.current) : undefined} 
+                className="w-20 h-8 text-xs px-2" 
+                value={frameInput} 
+                onChange={(e) => setFrameInput(e.target.value)} 
+                onKeyDown={(e) => { 
+                  if(e.key==="Enter"){ 
+                    const f=parseInt(e.currentTarget.value,10); 
+                    if(!isNaN(f)) handleFrameJump(f); 
+                  } 
+                }} 
               />
-              <span className="text-[11px] text-[#5A5A5A] px-2 whitespace-nowrap tabular-nums">
-                {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
-              </span>
-              <Button size="icon" variant="ghost" onClick={handleZoomOut}>
-                <ZoomOut className="w-3 h-3" />
+              <Button size="icon" variant="ghost" onClick={() => { const f=parseInt(frameInput,10); if(!isNaN(f)) handleFrameJump(f); }} className="h-8 w-8">
+                <SkipForward className="w-3 h-3" />
               </Button>
-              <Button size="sm" variant="ghost" onClick={handleResetZoom} className="px-2 text-xs font-semibold">
-                Reset
-              </Button>
-              <Button size="icon" variant="ghost" onClick={handleZoomIn}>
-                <ZoomIn className="w-3 h-3" />
-              </Button>
-              <Button size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
-                Track
-              </Button>
-              <div className="flex items-center gap-1 ml-1">
-                <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">Frame</span>
-                <Input 
-                  type="number" 
-                  placeholder="0" 
-                  min="0" 
-                  max={video?.duration ? Math.floor(video.duration * stableFpsRef.current) : undefined} 
-                  className="w-20 h-8 text-xs px-2" 
-                  value={frameInput} 
-                  onChange={(e) => setFrameInput(e.target.value)} 
-                  onKeyDown={(e) => { 
-                    if(e.key==="Enter"){ 
-                      const f=parseInt(e.currentTarget.value,10); 
-                      if(!isNaN(f)) handleFrameJump(f); 
-                    } 
-                  }} 
-                />
-                <Button size="icon" variant="ghost" onClick={() => { const f=parseInt(frameInput,10); if(!isNaN(f)) handleFrameJump(f); }} className="h-8 w-8">
-                  <SkipForward className="w-3 h-3" />
-                </Button>
-              </div>
-              <div className="relative">
-                <button className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
-                  <Clock className="w-4 h-4" />
-                  <span>{playbackRate.toFixed(2).replace(/\.00$/,"")}x</span>
-                  <ChevronRight className={`w-3 h-3 transition-transform ${showSpeed?"rotate-90":""}`} />
-                </button>
-                {showSpeed && (
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center bg-[#181818] border border-gray-700 rounded-lg px-3 py-2 w-16 z-50 shadow-xl">
-                    <div className="text-white text-[11px] mb-1 font-bold">
-                      {playbackRate.toFixed(2).replace(/\.00$/,"")}x
-                    </div>
-                    <div className="relative h-32 flex items-center">
-                      <input 
-                        type="range" 
-                        min="0.1" 
-                        max="16" 
-                        step="0.1" 
-                        value={playbackRate} 
-                        onChange={(e)=>setPlaybackRate(parseFloat(e.target.value))} 
-                        className="absolute top-0 left-1/2 -translate-x-1/2 h-32 w-6 appearance-none bg-transparent [writing-mode:vertical-lr] [direction:rtl]" 
-                        style={{ 
-                          background: `linear-gradient(to top, #3b82f6 0%, #3b82f6 ${((playbackRate-0.1)/(16-0.1))*100}%, #374151 ${((playbackRate-0.1)/(16-0.1))*100}%, #374151 100%)`, 
-                          borderRadius:"999px" 
-                        }} 
-                      />
-                    </div>
+            </div>
+            <div className="relative">
+              <button className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
+                <Clock className="w-4 h-4" />
+                <span>{playbackRate.toFixed(2).replace(/\.00$/,"")}x</span>
+                <ChevronRight className={`w-3 h-3 transition-transform ${showSpeed?"rotate-90":""}`} />
+              </button>
+              {showSpeed && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center bg-[#181818] border border-gray-700 rounded-lg px-3 py-2 w-16 z-50 shadow-xl">
+                  <div className="text-white text-[11px] mb-1 font-bold">
+                    {playbackRate.toFixed(2).replace(/\.00$/,"")}x
                   </div>
-                )}
-              </div>
+                  <div className="relative h-32 flex items-center">
+                    <input 
+                      type="range" 
+                      min="0.1" 
+                      max="16" 
+                      step="0.1" 
+                      value={playbackRate} 
+                      onChange={(e)=>setPlaybackRate(parseFloat(e.target.value))} 
+                      className="absolute top-0 left-1/2 -translate-x-1/2 h-32 w-6 appearance-none bg-transparent [writing-mode:vertical-lr] [direction:rtl]" 
+                      style={{ 
+                        background: `linear-gradient(to top, #3b82f6 0%, #3b82f6 ${((playbackRate-0.1)/(16-0.1))*100}%, #374151 ${((playbackRate-0.1)/(16-0.1))*100}%, #374151 100%)`, 
+                        borderRadius:"999px" 
+                      }} 
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* ===== UNIFIED TIMELINE – COMPACT, CENTERED, ALWAYS VISIBLE ===== */}
-          <div className="px-2 py-1 bg-gray-900 rounded-md mt-2 h-44 flex flex-col overflow-hidden w-full">
-            <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0">
+          {/* ===== UNIFIED TIMELINE – FIXED HEIGHT (short) ===== */}
+          <div className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
+            <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines
                 {selectedObjects.length > 0 && ` (selected: ${selectedObjects.map(o => o.object_id).join(', ')})`}
@@ -2284,8 +2271,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full" ref={timelineContainerRef}>
-              {/* Trajectory chart (Recharts) */}
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-hidden" ref={timelineContainerRef}>
+              {/* Trajectory chart – flex-1 fills available space inside h-44 */}
               <div className="flex-1 min-h-0 relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
@@ -2375,7 +2362,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 ) : null}
               </div>
 
-              {/* Object ranges timeline */}
+              {/* Object ranges timeline – fixed small height */}
               <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
                 {isLoadingUnique ? (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
