@@ -28,7 +28,41 @@ import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
-// ==================== TIMELINE – SHOW ALL OBJECTS (FIXED) ====================
+// ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
+function useFrameMapping(
+  containerWidth: number,
+  currentFrame: number,
+  halfWindow: number,
+  leftPadding = 20,
+  rightPadding = 20
+) {
+  // Always symmetric around currentFrame – no clamping
+  const minFrame = currentFrame - halfWindow;
+  const maxFrame = currentFrame + halfWindow;
+  const plotWidth = Math.max(1, containerWidth - leftPadding - rightPadding);
+
+  const frameToX = useCallback(
+    (frame: number) => {
+      const frac = (frame - minFrame) / (maxFrame - minFrame);
+      const clampedFrac = Math.min(Math.max(frac, 0), 1);
+      return leftPadding + clampedFrac * plotWidth;
+    },
+    [minFrame, maxFrame, plotWidth, leftPadding]
+  );
+
+  const xToFrame = useCallback(
+    (x: number) => {
+      const clampedX = Math.min(Math.max(x, leftPadding), leftPadding + plotWidth);
+      const frac = (clampedX - leftPadding) / plotWidth;
+      return minFrame + frac * (maxFrame - minFrame);
+    },
+    [minFrame, maxFrame, plotWidth, leftPadding]
+  );
+
+  return { frameToX, xToFrame, minFrame, maxFrame, plotWidth };
+}
+
+// ==================== OBJECT RANGES TIMELINE (USES SHARED MAPPING) ====================
 const ObjectRangesTimeline = ({
   objects,
   currentFrame,
@@ -42,6 +76,10 @@ const ObjectRangesTimeline = ({
   showControls = true,
   showXAxisLabels = true,
   compact = false,
+  frameToX,
+  minFrame,
+  maxFrame,
+  plotWidth,
 }: {
   objects: { id: number; start_frame: number; end_frame: number }[];
   currentFrame: number;
@@ -55,11 +93,11 @@ const ObjectRangesTimeline = ({
   showControls?: boolean;
   showXAxisLabels?: boolean;
   compact?: boolean;
+  frameToX: (frame: number) => number;
+  minFrame: number;
+  maxFrame: number;
+  plotWidth: number;
 }) => {
-  const minFrame = currentFrame - halfWindow;
-  const maxFrame = currentFrame + halfWindow;
-
-  const chartWidth = 800;
   const chartHeight = compact ? 40 : 60;
   const padding = compact
     ? { left: 20, right: 20, top: 2, bottom: 4 }
@@ -71,11 +109,6 @@ const ObjectRangesTimeline = ({
       (obj.end_frame >= minFrame && obj.end_frame <= maxFrame)
     );
   }, [objects, minFrame, maxFrame]);
-
-  const getX = useCallback((frame: number) => {
-    if (maxFrame === minFrame) return 0;
-    return ((frame - minFrame) / (maxFrame - minFrame)) * chartWidth;
-  }, [minFrame, maxFrame, chartWidth]);
 
   const markerY = padding.top + chartHeight / 2;
 
@@ -132,30 +165,49 @@ const ObjectRangesTimeline = ({
       )}
       <div className="w-full h-full">
         <svg
-          viewBox={`0 0 ${chartWidth + padding.left + padding.right} ${chartHeight + padding.top + padding.bottom}`}
+          viewBox={`0 0 ${plotWidth + padding.left + padding.right} ${chartHeight + padding.top + padding.bottom}`}
           preserveAspectRatio="none"
           style={{ display: "block", width: "100%", height: "100%" }}
         >
           <rect x={0} y={0} width="100%" height="100%" fill="#1f2937" rx={compact ? "0" : "4"} />
-          <line x1={padding.left} y1={markerY} x2={padding.left + chartWidth} y2={markerY} stroke="#374151" strokeWidth="0.5" strokeDasharray="4 2" />
-          <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#6b7280" strokeWidth="1" />
+          <line x1={padding.left} y1={markerY} x2={padding.left + plotWidth} y2={markerY} stroke="#374151" strokeWidth="0.5" strokeDasharray="4 2" />
+          <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + plotWidth} y2={padding.top + chartHeight} stroke="#6b7280" strokeWidth="1" />
           {showXAxisLabels && (() => {
             const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
             const labels = [];
             for (let f = minFrame; f <= maxFrame; f += step) {
-              const x = padding.left + getX(f);
-              labels.push(<text key={`label-${f}`} x={x} y={padding.top + chartHeight + 12} fill="#9ca3af" fontSize="8" textAnchor="middle">{Math.round(f)}</text>);
+              const x = frameToX(f);
+              labels.push(
+                <text
+                  key={`label-${f}`}
+                  x={x}
+                  y={padding.top + chartHeight + 12}
+                  fill="#9ca3af"
+                  fontSize="8"
+                  textAnchor="middle"
+                >
+                  {Math.round(f)}
+                </text>
+              );
             }
             return labels;
           })()}
-          <line x1={padding.left + chartWidth / 2} y1={padding.top} x2={padding.left + chartWidth / 2} y2={padding.top + chartHeight} stroke="#ff3333" strokeWidth="1.5" strokeDasharray="4 2" />
+          <line
+            x1={frameToX(currentFrame)}
+            y1={padding.top}
+            x2={frameToX(currentFrame)}
+            y2={padding.top + chartHeight}
+            stroke="#ff3333"
+            strokeWidth="1.5"
+            strokeDasharray="4 2"
+          />
           {filteredObjects.map(obj => {
             const color = getObjectColor(obj.id);
             const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
             const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
             const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
-            const startX = padding.left + getX(obj.start_frame);
-            const endX = padding.left + getX(obj.end_frame);
+            const startX = frameToX(obj.start_frame);
+            const endX = frameToX(obj.end_frame);
             const baseY = markerY;
             const startOffsetY = isOverlap ? -8 : 0;
             const endOffsetY = isOverlap ? 8 : 0;
@@ -203,6 +255,7 @@ const ObjectRangesTimeline = ({
 
 // ==================== MAIN COMPONENT ====================
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
+  // All state and refs (unchanged)
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -333,14 +386,31 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
 
-  // ========== NEW USER CONTROLS ==========
-  const [trajectoryDuration, setTrajectoryDuration] = useState(60); // seconds
+  // NEW USER CONTROLS
+  const [trajectoryDuration, setTrajectoryDuration] = useState(60);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
   const [textSizeScale, setTextSizeScale] = useState(1);
 
-  // ---------- Shared visible range ----------
-  const minFrame = currentFrame - halfWindow;
-  const maxFrame = currentFrame + halfWindow;
+  // ========== Shared frame mapping ==========
+  const [timelineWidth, setTimelineWidth] = useState(800);
+
+  useEffect(() => {
+    if (!timelineContainerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setTimelineWidth(width);
+    });
+    ro.observe(timelineContainerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const { frameToX, xToFrame, minFrame, maxFrame, plotWidth } = useFrameMapping(
+    timelineWidth,
+    currentFrame,
+    halfWindow,
+    20, // left padding (matches Recharts margin.left)
+    20  // right padding (matches margin.right)
+  );
 
   // ========== Helper functions ==========
   const getObjectColor = useCallback((id: number) => {
@@ -387,7 +457,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
-  // ========== NEW HELPER FUNCTIONS (modified) ==========
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
   const getIdFontSize = () => (14 * textSizeScale) * (1 / currentZoom);
@@ -615,64 +684,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
 
-  // ---------- Chart mouse mapping ----------
-  const seekFromChartMouse = useCallback((clientX: number) => {
-    if (!timelineContainerRef.current) return;
-    const svg = timelineContainerRef.current.querySelector('svg');
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const chartWidth = rect.width;
-    if (chartWidth <= 0) return;
-    const margin = 20;
-    const plotWidth = chartWidth - 2 * margin;
-    let relativeX = (clientX - rect.left - margin) / plotWidth;
-    relativeX = Math.min(Math.max(relativeX, 0), 1);
-    const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
-    const targetTime = frame / stableFpsRef.current;
-    handleSeek(targetTime);
-  }, [minFrame, maxFrame]);
-
-  useEffect(() => {
-    if (!timelineContainerRef.current || selectedObjects.length === 0) return;
-    const container = timelineContainerRef.current;
-    const onMouseDown = (e: MouseEvent) => {
-      const svg = container.querySelector('svg');
-      if (!svg || !svg.contains(e.target as Node)) return;
-      e.preventDefault();
-      setIsChartDragging(true);
-      seekFromChartMouse(e.clientX);
-    };
-    const onMouseMove = (e: MouseEvent) => { if (isChartDragging) seekFromChartMouse(e.clientX); };
-    const onMouseUp = () => setIsChartDragging(false);
-    container.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    return () => {
-      container.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-  }, [selectedObjects.length, seekFromChartMouse, isChartDragging]);
-
-  const handleChartClick = (data: any) => {
-    if (data && data.activePayload && data.activePayload[0]) {
-      const frame = data.activePayload[0].payload.frame;
-      handleSeek(frame / stableFpsRef.current);
-    }
-  };
-
-  const tooltipFormatter = useCallback((value: any, name: string | number | undefined) => {
-    if (name === undefined) return [String(value), ""];
-    const safeName = String(name);
-    const match = safeName.match(/obj_(\d+)(?:_(x|y))?/);
-    if (!match) return [String(value), safeName];
-    const objId = match[1];
-    const coordType = match[2] || (coordinateMode === "x" ? "x" : coordinateMode === "y" ? "y" : null);
-    if (coordType === "x") return [`X: ${Number(value).toFixed(2)}`, `Object ${objId}`];
-    if (coordType === "y") return [`Y: ${Number(value).toFixed(2)}`, `Object ${objId}`];
-    return [Number(value).toFixed(2), `Object ${objId}`];
-  }, [coordinateMode]);
-
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
 
   useEffect(() => {
@@ -708,81 +719,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (fps !== stableFpsRef.current) setFps(stableFpsRef.current);
   }, [fps, mounted]);
 
-  // ---------- handleSeek with immediate UI update ----------
-  const handleSeek = async (time: number) => {
-    if (!video) return;
-    if (isSeekingRef.current) {
-      const targetFrame = Math.round(time * stableFpsRef.current);
-      setPendingFrameVisual(targetFrame);
-      setTimeout(() => setPendingFrameVisual(null), 500);
-      pendingFrameRef.current = targetFrame;
-      return;
-    }
-    const safeTime = Math.min(Math.max(time, 0), video.duration);
-    const targetFrame = Math.round(safeTime * stableFpsRef.current);
-    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) return;
-    lastSeekFrameRef.current = targetFrame;
-    lastSeekTimeRef.current = safeTime;
-    isSeekingRef.current = true;
-    pendingFrameRef.current = targetFrame;
-
-    // --- Update UI immediately ---
-    currentDisplayFrameRef.current = targetFrame;
-    setCurrentFrame(targetFrame);
-    setCurrentTime(safeTime);
-    setSelectedFrameIndex(targetFrame);
-
-    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
-    if (!isWithinLoadedRange) {
-      setAnnotationMap(new Map());
-      persistentTrajectoryRef.current = [];
-      trajectoriesRef.current = new Map();
-      setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
-      clearLoadedRanges();
-    }
-
-    if (isFrameLoaded(targetFrame)) {
-      video.pause();
-      setIsPlaying(false);
-      video.currentTime = safeTime;
-      setDragTime(null);
-      setIsLoadingAnnotations(false);
-      setAnnotationsReady(true);
-      isSeekingRef.current = false;
-      return;
-    }
-
-    video.pause();
-    setIsPlaying(false);
-    video.currentTime = safeTime;
-    setDragTime(null);
-    clearLoadedRanges();
-    setAnnotationsReady(false);
-    if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
-    const windowFrames = Math.round(6 * stableFpsRef.current);
-    const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
-    const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
-    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
-    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-      chunkMutation.mutate({ start: windowStart, end: windowEnd });
-    } else {
-      setIsLoadingAnnotations(false);
-    }
-  };
-
-  // ---------- togglePlayPause ----------
-  const togglePlayPause = useCallback(() => {
-    if (!video) return;
-    if (video.paused) {
-      video.play().then(() => setIsPlaying(true)).catch(() => toast({ title: "Click the play button", duration: 1500 }));
-    } else {
-      video.pause();
-      setIsPlaying(false);
-    }
-  }, [video, toast]);
-
   // ---------- Trajectory update interval ----------
   const trajectoryUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
@@ -795,7 +731,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => { if (trajectoryUpdateIntervalRef.current) clearInterval(trajectoryUpdateIntervalRef.current); };
   }, [mounted]);
   
-  // ========== MODIFIED: addTrajectoryPoints with trajectoryDuration ==========
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
     const MAX_TRAJ_FRAMES = trajectoryDuration * stableFpsRef.current;
     const currentFrameNum = currentDisplayFrameRef.current;
@@ -811,7 +746,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
   }, [trajectoryDuration]);
 
-  // ========== MODIFIED: getTrajectoryPointsUpToCurrent ==========
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
     const frameTrajectory = trajectoryMap.get(objectId);
     if (!frameTrajectory || frameTrajectory.size < 2) return [];
@@ -845,8 +779,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setStagePos(newPos);
     showZoomIndicator();
   }, [showZoomIndicator]);
-  
-  // (getCircleRadius, getTrajectoryWidth, getIdFontSize, getBBoxStrokeWidth, getLabelOffset, getSkeletonWidth already updated)
 
   const handleMouseDown = (e: any) => {
     if (e.evt.button === 0 || e.evt.button === 2) {
@@ -1046,7 +978,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
       if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      // REMOVED: auto-play logic – video stays paused
     },
     onError: (_, { start, end }) => {
       const key = `${start}-${end}`;
@@ -1076,7 +1007,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
-  // ========== MODIFIED: prune trajectory using trajectoryDuration ==========
+  // Prune trajectory using trajectoryDuration
   useEffect(() => {
     if (!mounted) return;
     const maxTrajFrames = trajectoryDuration * stableFpsRef.current;
@@ -1201,6 +1132,160 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setFrameInput("");
   };
 
+  // ---------- handleSeek ----------
+  const handleSeek = async (time: number) => {
+    if (!video) return;
+    if (isSeekingRef.current) {
+      const targetFrame = Math.round(time * stableFpsRef.current);
+      setPendingFrameVisual(targetFrame);
+      setTimeout(() => setPendingFrameVisual(null), 500);
+      pendingFrameRef.current = targetFrame;
+      return;
+    }
+    const safeTime = Math.min(Math.max(time, 0), video.duration);
+    const targetFrame = Math.round(safeTime * stableFpsRef.current);
+    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) return;
+    lastSeekFrameRef.current = targetFrame;
+    lastSeekTimeRef.current = safeTime;
+    isSeekingRef.current = true;
+    pendingFrameRef.current = targetFrame;
+
+    currentDisplayFrameRef.current = targetFrame;
+    setCurrentFrame(targetFrame);
+    setCurrentTime(safeTime);
+    setSelectedFrameIndex(targetFrame);
+
+    const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
+    if (!isWithinLoadedRange) {
+      setAnnotationMap(new Map());
+      persistentTrajectoryRef.current = [];
+      trajectoriesRef.current = new Map();
+      setTrajectoryMap(new Map());
+      setTrajectoryPointCount(0);
+      clearLoadedRanges();
+    }
+
+    if (isFrameLoaded(targetFrame)) {
+      video.pause();
+      setIsPlaying(false);
+      video.currentTime = safeTime;
+      setDragTime(null);
+      setIsLoadingAnnotations(false);
+      setAnnotationsReady(true);
+      isSeekingRef.current = false;
+      return;
+    }
+
+    video.pause();
+    setIsPlaying(false);
+    video.currentTime = safeTime;
+    setDragTime(null);
+    clearLoadedRanges();
+    setAnnotationsReady(false);
+    if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
+    const windowFrames = Math.round(6 * stableFpsRef.current);
+    const totalFrames = Math.floor(video.duration * stableFpsRef.current);
+    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
+    const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
+    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
+    if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+      chunkMutation.mutate({ start: windowStart, end: windowEnd });
+    } else {
+      setIsLoadingAnnotations(false);
+    }
+  };
+
+  // ---------- Chart mouse mapping for dragging (only) ----------
+  const seekFromChartMouse = useCallback((clientX: number) => {
+    if (!timelineContainerRef.current) return;
+    const container = timelineContainerRef.current;
+    const svg = container.querySelector('svg');
+    if (!svg) return;
+
+    // Find the actual plot area by locating the X-axis line
+    let plotLeft: number, plotWidthActual: number;
+    const axisLine = svg.querySelector('.recharts-cartesian-axis-line line');
+    if (axisLine) {
+      const rect = axisLine.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      plotLeft = rect.left - containerRect.left;
+      plotWidthActual = rect.width;
+    } else {
+      // Fallback: use container bounding rect with margin estimate
+      const rect = container.getBoundingClientRect();
+      const margin = 20;
+      plotLeft = margin;
+      plotWidthActual = rect.width - 2 * margin;
+    }
+
+    if (plotWidthActual <= 0) return;
+    const mouseX = clientX - container.getBoundingClientRect().left;
+    const relativeX = Math.min(Math.max((mouseX - plotLeft) / plotWidthActual, 0), 1);
+    const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
+    const targetTime = frame / stableFpsRef.current;
+    handleSeek(targetTime);
+  }, [minFrame, maxFrame, handleSeek, stableFpsRef]);
+
+  // Mouse events – do NOT seek on mousedown (let the chart's onClick handle that)
+  useEffect(() => {
+    if (!timelineContainerRef.current || selectedObjects.length === 0) return;
+    const container = timelineContainerRef.current;
+    const onMouseDown = (e: MouseEvent) => {
+      const svg = container.querySelector('svg');
+      if (!svg || !svg.contains(e.target as Node)) return;
+      e.preventDefault();
+      setIsChartDragging(true);
+      // No seek here – click will be handled by the chart's onClick
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (isChartDragging) seekFromChartMouse(e.clientX);
+    };
+    const onMouseUp = () => setIsChartDragging(false);
+    container.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      container.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [selectedObjects.length, seekFromChartMouse, isChartDragging]);
+
+  // ---------- Chart click handler (uses Recharts exact frame) ----------
+  const handleChartClick = (data: any) => {
+    if (data && data.activeLabel !== undefined) {
+      const frame = Math.round(data.activeLabel);
+      handleSeek(frame / stableFpsRef.current);
+    } else if (data && data.activePayload && data.activePayload[0]) {
+      const frame = data.activePayload[0].payload.frame;
+      handleSeek(frame / stableFpsRef.current);
+    }
+  };
+
+  // ---------- Tooltip formatter ----------
+  const tooltipFormatter = useCallback((value: any, name: string | number | undefined) => {
+    if (name === undefined) return [String(value), ""];
+    const safeName = String(name);
+    const match = safeName.match(/obj_(\d+)(?:_(x|y))?/);
+    if (!match) return [String(value), safeName];
+    const objId = match[1];
+    const coordType = match[2] || (coordinateMode === "x" ? "x" : coordinateMode === "y" ? "y" : null);
+    if (coordType === "x") return [`X: ${Number(value).toFixed(2)}`, `Object ${objId}`];
+    if (coordType === "y") return [`Y: ${Number(value).toFixed(2)}`, `Object ${objId}`];
+    return [Number(value).toFixed(2), `Object ${objId}`];
+  }, [coordinateMode]);
+
+  // ---------- togglePlayPause ----------
+  const togglePlayPause = useCallback(() => {
+    if (!video) return;
+    if (video.paused) {
+      video.play().then(() => setIsPlaying(true)).catch(() => toast({ title: "Click the play button", duration: 1500 }));
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
+  }, [video, toast]);
+
   // ---------- Responsive stage sizing ----------
   const updateStageSize = useCallback(() => {
     if (!videoContainerRef.current) return;
@@ -1319,7 +1404,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           setCurrentFrame(initialFrame);
           currentDisplayFrameRef.current = initialFrame;
           chunkMutation.mutate({ start: 0, end: 150 });
-          // Video will remain paused; no auto‑play
         };
         vid.onerror = () => toast({ title: "Error loading video", variant: "destructive", duration: 1500 });
         setVideo(vid);
@@ -1449,12 +1533,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   useEffect(() => {
     if (!mounted) return;
     const keydownHandler = (e: KeyboardEvent) => {
-      const isDialogOpen =
-          sessionStorage.getItem("dialogOpen") === "true";
-
-        if (isDialogOpen) {
-          return;
-        }
+      const isDialogOpen = sessionStorage.getItem("dialogOpen") === "true";
+      if (isDialogOpen) { return; }
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
       if (e.code === 'Tab') {
@@ -1814,7 +1894,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         />
                       ))}
 
-                      {/* Removed stroke from Text */}
                       <Text 
                         x={mapX(a.coordinates[0][0])+getLabelOffset()} 
                         y={mapY(a.coordinates[0][1])-getLabelOffset()} 
@@ -1948,7 +2027,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
                   <div className="border-t border-slate-200 my-1" />
 
-                  {/* ===== NEW CONTROLS ===== */}
                   <div className="flex items-center gap-2 px-3 py-1">
                     <span className="text-xs text-slate-600">Trajectory (sec):</span>
                     <input
@@ -2206,59 +2284,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full">
-              {/* Ranges timeline – compact 40px */}
-              <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
-                {isLoadingUnique ? (
-                  <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Loading object ranges…
-                  </div>
-                ) : uniqueIdsData && uniqueIdsData.data?.objects?.length > 0 ? (
-                  <ObjectRangesTimeline
-                    objects={uniqueIdsData.data.objects.map(obj => ({
-                      id: obj.id,
-                      start_frame: obj.start_frame,
-                      end_frame: obj.end_frame,
-                    }))}
-                    currentFrame={currentFrame}
-                    onSeek={handleFrameJump}
-                    getObjectColor={getObjectColor}
-                    totalFrames={getTotalFrames()}
-                    halfWindow={halfWindow}
-                    onWindowChange={(newHalf) => {
-                      setHalfWindow(newHalf);
-                      setTotalVisibleInput((newHalf * 2).toString());
-                    }}
-                    windowInput={totalVisibleInput}
-                    setWindowInput={setTotalVisibleInput}
-                    showControls={false}
-                    showXAxisLabels={false}
-                    compact={true}
-                  />
-                ) : (
-                  <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
-                    No object ranges loaded
-                  </div>
-                )}
-              </div>
-
-              {/* Trajectory chart – fixed red line overlay */}
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full" ref={timelineContainerRef}>
+              {/* Trajectory chart (Recharts) */}
               <div className="flex-1 min-h-0 relative w-full">
-                <div
-                  ref={timelineContainerRef}
-                  className="w-full h-full cursor-grab active:cursor-grabbing overflow-x-auto relative"
-                >
-                  {/* Red line overlay – always centered */}
-                  <div
-                    className="absolute top-0 bottom-0 pointer-events-none z-10"
-                    style={{
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      width: '2px',
-                      background: '#ff3333',
-                    }}
-                  />
+                <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
@@ -2271,6 +2300,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           dataKey="frame"
                           type="number"
                           domain={[minFrame, maxFrame]}
+                          allowDataOverflow={true}
+                          ticks={(() => {
+                            const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
+                            const ticks = [];
+                            for (let f = minFrame; f <= maxFrame; f += step) ticks.push(f);
+                            return ticks;
+                          })()}
                           tick={{ fill: '#ccc', fontSize: 10 }}
                           tickFormatter={(frame) => frame.toString()}
                           label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
@@ -2337,6 +2373,46 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     </span>
                   </div>
                 ) : null}
+              </div>
+
+              {/* Object ranges timeline */}
+              <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
+                {isLoadingUnique ? (
+                  <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Loading object ranges…
+                  </div>
+                ) : uniqueIdsData && uniqueIdsData.data?.objects?.length > 0 ? (
+                  <ObjectRangesTimeline
+                    objects={uniqueIdsData.data.objects.map(obj => ({
+                      id: obj.id,
+                      start_frame: obj.start_frame,
+                      end_frame: obj.end_frame,
+                    }))}
+                    currentFrame={currentFrame}
+                    onSeek={handleFrameJump}
+                    getObjectColor={getObjectColor}
+                    totalFrames={getTotalFrames()}
+                    halfWindow={halfWindow}
+                    onWindowChange={(newHalf) => {
+                      setHalfWindow(newHalf);
+                      setTotalVisibleInput((newHalf * 2).toString());
+                    }}
+                    windowInput={totalVisibleInput}
+                    setWindowInput={setTotalVisibleInput}
+                    showControls={false}
+                    showXAxisLabels={false}
+                    compact={true}
+                    frameToX={frameToX}
+                    minFrame={minFrame}
+                    maxFrame={maxFrame}
+                    plotWidth={plotWidth}
+                  />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
+                    No object ranges loaded
+                  </div>
+                )}
               </div>
             </div>
           </div>
