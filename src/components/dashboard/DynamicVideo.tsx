@@ -1605,7 +1605,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       { action: "Cycle first selected object", key: "Tab" },
       { action: "Cycle second selected object", key: "CapsLock" },
       { action: "Clear selection of object", key: "Backspace" },
-      { action: "Next page (if >10 objects)", key: "Shift" }, // Changed to just Shift
+      { action: "Next page (if >10 objects)", key: "Shift" },
     ] },
     { category: "Panels", items: [
       { action: "Open ID Table", key: "M" },
@@ -1683,19 +1683,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         const idx = numeric === 0 ? 9 : numeric - 1;
         let effectivePage = objectPage;
         if (e.shiftKey && totalPages > 1) {
-          // If Shift is held, we cycle to the next page (as already handled)
-          // But we want Shift alone to cycle, not Shift+digit.
-          // The current logic already uses Shift to cycle, but it also applies when selecting?
-          // Actually in the code above, we already handle Shift+digit to cycle page, but we want Shift alone to cycle.
-          // The current handler already does: if e.shiftKey, effectivePage = (objectPage + 1) % totalPages.
-          // That means pressing Shift+0 will go to page 1 and select the 10th object.
-          // To make Shift alone cycle, we need to detect Shift without digit, but that's not possible as Shift is a modifier.
-          // We'll leave it as Shift+digit cycles page and selects object.
-          // The user wanted Shift to cycle to next page without selecting? Actually they said "next page open by single shift key not like shift+0-9"
-          // That suggests pressing Shift alone should advance the page. But that would conflict with Shift as a modifier.
-          // We can change the behavior: if Shift is pressed without a digit, we cycle the page.
-          // But Shift is a modifier key; the keydown event for Shift alone has key="Shift" and code="ShiftLeft" etc.
-          // We can add a separate check for Shift key press.
+          // We want Shift+digit to select from the next page, so we use the current page index + 1
+          // But in the code we already have logic for Shift to cycle pages, but that's handled separately.
+          // Here we just want to select the object on the current page if Shift is pressed.
+          // Actually, the user wants Shift alone to cycle page, not Shift+digit.
+          // So we should ignore Shift in this block.
+          // We'll keep the effectivePage as objectPage.
+          // effectivePage = (objectPage + 1) % totalPages; // remove this
         }
         const pageStart = effectivePage * pageSize;
         const targetIndex = pageStart + idx;
@@ -1711,16 +1705,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
       // Detect Shift key alone to cycle page without selecting
       if (e.key === "Shift" && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        // When Shift is pressed, we cycle to next page without selecting
-        // But this would trigger on every Shift press, we want to cycle only once per press.
-        // We can use a flag to prevent repeated cycling.
-        // We'll implement simple toggling: each Shift press cycles one page.
-        // However, Shift is also used for other shortcuts (e.g., Shift+0-9), so we need to ensure that when Shift is combined with a digit, we don't cycle.
-        // In the digit handler above, we already use e.shiftKey to set effectivePage.
-        // So for Shift alone, we can handle it here.
+        // Prevent default to avoid any other behavior
         e.preventDefault();
-        setObjectPage(prev => (prev + 1) % totalPages);
-        toast({ title: `Page ${((objectPage+1) % totalPages) + 1} of ${totalPages}`, duration: 1000 });
+        if (totalPages > 1) {
+          setObjectPage(prev => (prev + 1) % totalPages);
+          toast({ title: `Page ${((objectPage+1) % totalPages) + 1} of ${totalPages}`, duration: 1000 });
+        }
         return;
       }
 
@@ -1762,14 +1752,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
 
+  // FIX: shortcutMap based on currentPageObjects (only show shortcuts for current page)
   const shortcutMap = useMemo(() => {
     const map = new Map<number, string>();
-    objectsInCurrentFrame.forEach((obj, idx) => {
+    currentPageObjects.forEach((obj, idx) => {
       const key = idx === 9 ? '0' : (idx + 1).toString();
       map.set(obj.id, key);
     });
     return map;
-  }, [objectsInCurrentFrame]);
+  }, [currentPageObjects]);
 
   if (!mounted || !originalFpsLoadedRef.current) {
     return (
