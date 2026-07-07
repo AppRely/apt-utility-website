@@ -342,6 +342,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const lastMousePosRef = useRef({ x: 0, y: 0 });
 
   const { toast } = useToast();
+  // Wrap toast to defer state updates and avoid render-phase updates
+  const safeToast = useCallback((...args: Parameters<typeof toast>) => {
+    setTimeout(() => toast(...args), 0);
+  }, [toast]);
 
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
   const lastPanFrameRef = useRef<number>(-1);
@@ -670,19 +674,51 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     fetchTimeline();
   }, [projectId, selectedObjects, currentFrame, getTotalFrames, halfWindow]);
 
+  // ---- MODIFIED: chartData now includes every frame in the visible window with nulls ----
+  const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
+
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
-    const grouped = new Map<number, any>();
-    timelinePoints.forEach(p => {
-      if (!grouped.has(p.frame)) grouped.set(p.frame, { frame: p.frame });
-      const row = grouped.get(p.frame);
-      if (coordinateMode === "x" || coordinateMode === "xy") row[`obj_${p.objectId}_x`] = p.x;
-      if (coordinateMode === "y" || coordinateMode === "xy") row[`obj_${p.objectId}_y`] = p.y;
-    });
-    return Array.from(grouped.values()).sort((a, b) => a.frame - b.frame);
-  }, [timelinePoints, coordinateMode]);
 
-  const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
+    const frameMin = Math.floor(minFrame);
+    const frameMax = Math.floor(maxFrame);
+    // Build array of all frames from min to max
+    const allFrames: number[] = [];
+    for (let f = frameMin; f <= frameMax; f++) {
+      allFrames.push(f);
+    }
+
+    // Initialize map with nulls for each object & coordinate
+    const dataMap = new Map<number, any>();
+    allFrames.forEach(f => {
+      const row: any = { frame: f };
+      uniqueObjectIds.forEach(id => {
+        if (coordinateMode === "x" || coordinateMode === "xy") {
+          row[`obj_${id}_x`] = null;
+        }
+        if (coordinateMode === "y" || coordinateMode === "xy") {
+          row[`obj_${id}_y`] = null;
+        }
+      });
+      dataMap.set(f, row);
+    });
+
+    // Overwrite with actual data where available
+    timelinePoints.forEach(p => {
+      const row = dataMap.get(p.frame);
+      if (row) {
+        if (coordinateMode === "x" || coordinateMode === "xy") {
+          row[`obj_${p.objectId}_x`] = p.x;
+        }
+        if (coordinateMode === "y" || coordinateMode === "xy") {
+          row[`obj_${p.objectId}_y`] = p.y;
+        }
+      }
+    });
+
+    return Array.from(dataMap.values()).sort((a, b) => a.frame - b.frame);
+  }, [timelinePoints, coordinateMode, minFrame, maxFrame, uniqueObjectIds]);
+  // ------------------------------------------------------------------------------------
 
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
 
@@ -883,14 +919,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const selectObjectForSlot = useCallback((objectId: number, slotIndex: 0 | 1) => {
     if (!projectId) return;
     if (slotIndex === 1 && selectedObjects.length === 0) {
-      toast({ title: "Select a first object before selecting a second", duration: 1500 });
+      safeToast({ title: "Select a first object before selecting a second", duration: 1500 });
       return;
     }
     const alreadySelectedInOtherSlot = selectedObjects.some(
       (obj, idx) => idx !== slotIndex && obj.object_id === objectId
     );
     if (alreadySelectedInOtherSlot) {
-      toast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
+      safeToast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
       return;
     }
     objectMutation.mutate(
@@ -908,15 +944,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             };
             return newSelection.slice(0, 2);
           });
-          toast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
+          safeToast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
           if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
             setTimeout(() => panToSelectedObject(), 100);
           }
         },
-        onError: () => toast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
+        onError: () => safeToast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
       }
     );
-  }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, toast]);
+  }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, safeToast]);
 
   useEffect(() => {
     if (!video || !mounted) return;
@@ -1028,8 +1064,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const exportMutation = useMutation({
     mutationFn: () => exportTrk(projectId!),
     onMutate: () => { setIsExporting(true); setDownloadUrl(null); },
-    onSuccess: (response) => { setDownloadUrl(response.data.download_url); setTrkVersion(response.data.trk_version); setIsExporting(false); toast({ title: "Export Completed", duration: 1500 }); },
-    onError: () => { setIsExporting(false); setDownloadUrl(null); toast({ title: "Export Failed", variant: "destructive", duration: 1500 }); },
+    onSuccess: (response) => { setDownloadUrl(response.data.download_url); setTrkVersion(response.data.trk_version); setIsExporting(false); safeToast({ title: "Export Completed", duration: 1500 }); },
+    onError: () => { setIsExporting(false); setDownloadUrl(null); safeToast({ title: "Export Failed", variant: "destructive", duration: 1500 }); },
   });
 
   useEffect(() => {
@@ -1286,7 +1322,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       if (!svg || !svg.contains(e.target as Node)) return;
       const frame = seekFromChartMouse(e.clientX);
       if (frame !== undefined) {
-        toast({ title: `Jumped to frame ${frame}`, duration: 1500 });
+        safeToast({ title: `Jumped to frame ${frame}`, duration: 1500 });
       }
     };
 
@@ -1303,17 +1339,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       container.removeEventListener('mouseleave', onMouseLeave);
       container.removeEventListener('click', onClick);
     };
-  }, [seekFromChartMouse, isChartDragging, toast, minFrame, maxFrame]);
+  }, [seekFromChartMouse, isChartDragging, safeToast, minFrame, maxFrame]);
 
   const togglePlayPause = useCallback(() => {
     if (!video) return;
     if (video.paused) {
-      video.play().then(() => setIsPlaying(true)).catch(() => toast({ title: "Click the play button", duration: 1500 }));
+      video.play().then(() => setIsPlaying(true)).catch(() => safeToast({ title: "Click the play button", duration: 1500 }));
     } else {
       video.pause();
       setIsPlaying(false);
     }
-  }, [video, toast]);
+  }, [video, safeToast]);
 
   // Responsive stage sizing
   const updateStageSize = useCallback(() => {
@@ -1434,10 +1470,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           currentDisplayFrameRef.current = initialFrame;
           chunkMutation.mutate({ start: 0, end: 150 });
         };
-        vid.onerror = () => toast({ title: "Error loading video", variant: "destructive", duration: 1500 });
+        vid.onerror = () => safeToast({ title: "Error loading video", variant: "destructive", duration: 1500 });
         setVideo(vid);
       } catch (error) {
-        toast({ title: "Failed to load video", variant: "destructive", duration: 1500 });
+        safeToast({ title: "Failed to load video", variant: "destructive", duration: 1500 });
       }
     };
     loadVideo();
@@ -1445,14 +1481,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const undoMutation = useMutation({
     mutationFn: () => undoAction(projectId!),
-    onSuccess: () => { toast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
-    onError: () => toast({ title: "Undo failed", variant: "destructive", duration: 1500 }),
+    onSuccess: () => { safeToast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
+    onError: () => safeToast({ title: "Undo failed", variant: "destructive", duration: 1500 }),
   });
   
   const redoMutation = useMutation({
     mutationFn: () => redoAction(projectId!),
-    onSuccess: () => { toast({ title: "Redo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
-    onError: () => toast({ title: "Redo failed", variant: "destructive", duration: 1500 }),
+    onSuccess: () => { safeToast({ title: "Redo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
+    onError: () => safeToast({ title: "Redo failed", variant: "destructive", duration: 1500 }),
   });
 
   useEffect(() => {
@@ -1550,12 +1586,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             return newSelection;
           });
           handleFrameJump(jumpFrame);
-          toast({ title: `Switched ${position === 0 ? 'primary' : 'secondary'} object to ID ${nextId}`, duration: 1500 });
+          safeToast({ title: `Switched ${position === 0 ? 'primary' : 'secondary'} object to ID ${nextId}`, duration: 1500 });
         },
-        onError: () => toast({ title: `Failed to switch to object ${nextId}`, variant: "destructive", duration: 1500 }),
+        onError: () => safeToast({ title: `Failed to switch to object ${nextId}`, variant: "destructive", duration: 1500 }),
       }
     );
-  }, [getAllObjectIdList, selectedObjects, uniqueIdsData, projectId, objectMutation, setSelectedObjects, handleFrameJump, toast]);
+  }, [getAllObjectIdList, selectedObjects, uniqueIdsData, projectId, objectMutation, setSelectedObjects, handleFrameJump, safeToast]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1667,10 +1703,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         e.preventDefault();
         if (selectedObjects.length === 2) {
           setSelectedObjects(prev => prev.slice(0, 1));
-          toast({ title: "Cleared second object", duration: 1000 });
+          safeToast({ title: "Cleared second object", duration: 1000 });
         } else if (selectedObjects.length === 1) {
           setSelectedObjects([]);
-          toast({ title: "Cleared all selected objects", duration: 1000 });
+          safeToast({ title: "Cleared all selected objects", duration: 1000 });
         }
         return;
       }
@@ -1682,15 +1718,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         const numeric = parseInt(key, 10);
         const idx = numeric === 0 ? 9 : numeric - 1;
         let effectivePage = objectPage;
-        if (e.shiftKey && totalPages > 1) {
-          // We want Shift+digit to select from the next page, so we use the current page index + 1
-          // But in the code we already have logic for Shift to cycle pages, but that's handled separately.
-          // Here we just want to select the object on the current page if Shift is pressed.
-          // Actually, the user wants Shift alone to cycle page, not Shift+digit.
-          // So we should ignore Shift in this block.
-          // We'll keep the effectivePage as objectPage.
-          // effectivePage = (objectPage + 1) % totalPages; // remove this
-        }
         const pageStart = effectivePage * pageSize;
         const targetIndex = pageStart + idx;
         if (targetIndex < objectsInCurrentFrame.length) {
@@ -1698,18 +1725,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           const slot = e.ctrlKey ? 1 : 0;
           selectObjectForSlot(targetObj.id, slot);
         } else if (objectsInCurrentFrame.length > 0) {
-          toast({ title: `No object assigned to key ${key} on this page`, duration: 1000 });
+          safeToast({ title: `No object assigned to key ${key} on this page`, duration: 1000 });
         }
         return;
       }
 
-      // Detect Shift key alone to cycle page without selecting
       if (e.key === "Shift" && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        // Prevent default to avoid any other behavior
         e.preventDefault();
         if (totalPages > 1) {
           setObjectPage(prev => (prev + 1) % totalPages);
-          toast({ title: `Page ${((objectPage+1) % totalPages) + 1} of ${totalPages}`, duration: 1000 });
+          safeToast({ title: `Page ${((objectPage+1) % totalPages) + 1} of ${totalPages}`, duration: 1000 });
         }
         return;
       }
@@ -1723,12 +1748,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "Equal": e.preventDefault(); handleZoomIn(); break;
         case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
-        case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
+        case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); safeToast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyZ":
           e.preventDefault();
           setBboxScale(prev => {
             const newScale = prev === 1 ? 3 : 1;
-            toast({ title: `Bounding box scale: ${newScale}×`, duration: 1000 });
+            safeToast({ title: `Bounding box scale: ${newScale}×`, duration: 1000 });
             return newScale;
           });
           break;
@@ -1736,12 +1761,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           e.preventDefault();
           setShowSkeleton(prev => {
             const newState = !prev;
-            toast({ title: `Skeleton ${newState ? "ON" : "OFF"}`, duration: 1000 });
+            safeToast({ title: `Skeleton ${newState ? "ON" : "OFF"}`, duration: 1000 });
             return newState;
           });
           break;
-        case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else toast({ title: "Start frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
-        case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else toast({ title: "End frame not available", duration: 1500 }); } else toast({ title: "No object selected", duration: 1500 }); break;
+        case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else safeToast({ title: "Start frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
+        case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else safeToast({ title: "End frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
         case "KeyC": e.preventDefault(); openConfusionPopup(); break;
         case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
@@ -1750,7 +1775,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, toast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
 
   // FIX: shortcutMap based on currentPageObjects (only show shortcuts for current page)
   const shortcutMap = useMemo(() => {
@@ -1881,11 +1906,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
                       onClick={() => {
                         if(selectedObjects.some(obj => obj.object_id === a.object_id)) { 
-                          toast({ title: "Object already selected", duration: 1500 }); 
+                          safeToast({ title: "Object already selected", duration: 1500 }); 
                           return; 
                         }
                         if(selectedObjects.length >= 2) { 
-                          toast({ title: "Maximum 2 selections allowed", duration: 1500 }); 
+                          safeToast({ title: "Maximum 2 selections allowed", duration: 1500 }); 
                           return; 
                         }
                         if(!projectId) return;
@@ -1902,7 +1927,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                               end_frame: meta.data.end_frame, 
                               is_inside: meta.data.is_inside 
                             }]); 
-                            toast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 });
+                            safeToast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 });
                             if (autoPanEnabled && currentZoom > 1.1) setTimeout(() => panToSelectedObject(), 100);
                           } 
                         });
@@ -2034,7 +2059,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <button
                     onClick={() => {
                       setAutoPanEnabled(!autoPanEnabled);
-                      toast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 });
+                      safeToast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 });
                     }}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                       autoPanEnabled 
@@ -2049,7 +2074,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <button
                     onClick={() => {
                       setShowSkeleton(!showSkeleton);
-                      toast({ title: `Skeleton ${!showSkeleton ? "ON" : "OFF"}`, duration: 1000 });
+                      safeToast({ title: `Skeleton ${!showSkeleton ? "ON" : "OFF"}`, duration: 1000 });
                     }}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                       showSkeleton 
@@ -2064,7 +2089,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <button
                     onClick={() => {
                       setAutoInterpolation(!autoInterpolation);
-                      toast({ title: `Auto-interpolation ${!autoInterpolation ? "enabled" : "disabled"}`, duration: 1000 });
+                      safeToast({ title: `Auto-interpolation ${!autoInterpolation ? "enabled" : "disabled"}`, duration: 1000 });
                     }}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                       autoInterpolation 
@@ -2388,7 +2413,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                                 dot={false}
                                 activeDot={{ r: 4, fill: color }}
                                 isAnimationActive={false}
-                                connectNulls
+                                // connectNulls removed – defaults to false → breaks on null
                               />
                             );
                           }
@@ -2404,7 +2429,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                                 dot={false}
                                 activeDot={{ r: 4, fill: color }}
                                 isAnimationActive={false}
-                                connectNulls
+                                // connectNulls removed
                               />
                             );
                           }
