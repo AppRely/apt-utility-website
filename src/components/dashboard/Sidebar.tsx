@@ -46,6 +46,13 @@ export default function Sidebar({
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isConfusionRunning, setIsConfusionRunning] = useState(false);
+  const isAnyDialogOpen = linkDialogOpen || swapDialogOpen || breakDialogOpen || deleteDialogOpen;
+    useEffect(() => {
+      sessionStorage.setItem(
+          "dialogOpen",
+          String(isAnyDialogOpen)
+      );
+  }, [isAnyDialogOpen]);
 
   // State for collapsing the object list - default to true (collapsed)
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
@@ -530,8 +537,8 @@ export default function Sidebar({
 
     const formData = new FormData();
     formData.append("object_id", String(obj.object_id));
-    formData.append("video_id", String(videoId));
-    formData.append("break_frame", String(obj.frame_id));
+    formData.append("video_id", String(projectId));
+    formData.append("break_frame", String(frameId));
     formData.append("start_frame", String(obj.start_frame));
     formData.append("end_frame", String(obj.end_frame));
 
@@ -565,6 +572,7 @@ export default function Sidebar({
   // ========================
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isAnyDialogOpen) { return; }
 
       const key = e.key.toLowerCase();
 
@@ -656,6 +664,7 @@ export default function Sidebar({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     selectedObjects,
+    isAnyDialogOpen,
     linkMutation.isPending,
     swapMutation.isPending,
     breakMutation.isPending,
@@ -670,36 +679,36 @@ export default function Sidebar({
   // ========================
   // ENTER KEY CONFIRMATION FOR DIALOGS
   // ========================
-  useEffect(() => {
-    const handleEnterConfirm = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter') return;
+  // useEffect(() => {
+  //   const handleEnterConfirm = (e: KeyboardEvent) => {
+  //     if (e.key !== 'Enter') return;
       
-      // Only act if any dialog is open
-      if (linkDialogOpen) {
-        e.preventDefault();
-        if (!linkMutation.isPending) handleLinkObjects();
-      } 
-      else if (swapDialogOpen) {
-        e.preventDefault();
-        if (!swapMutation.isPending) handleSwapObjects();
-      }
-      else if (breakDialogOpen) {
-        e.preventDefault();
-        if (!breakMutation.isPending) handleBreakObject();
-      }
-      else if (deleteDialogOpen) {
-        e.preventDefault();
-        if (!deleteMutation.isPending) handleDeleteObject();
-      }
-    };
+  //     // Only act if any dialog is open
+  //     if (linkDialogOpen) {
+  //       e.preventDefault();
+  //       if (!linkMutation.isPending) handleLinkObjects();
+  //     } 
+  //     else if (swapDialogOpen) {
+  //       e.preventDefault();
+  //       if (!swapMutation.isPending) handleSwapObjects();
+  //     }
+  //     else if (breakDialogOpen) {
+  //       e.preventDefault();
+  //       if (!breakMutation.isPending) handleBreakObject();
+  //     }
+  //     else if (deleteDialogOpen) {
+  //       e.preventDefault();
+  //       if (!deleteMutation.isPending) handleDeleteObject();
+  //     }
+  //   };
 
-    window.addEventListener('keydown', handleEnterConfirm);
-    return () => window.removeEventListener('keydown', handleEnterConfirm);
-  }, [
-    linkDialogOpen, swapDialogOpen, breakDialogOpen, deleteDialogOpen,
-    linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending,
-    handleLinkObjects, handleSwapObjects, handleBreakObject, handleDeleteObject
-  ]);
+  //   window.addEventListener('keydown', handleEnterConfirm);
+  //   return () => window.removeEventListener('keydown', handleEnterConfirm);
+  // }, [
+  //   linkDialogOpen, swapDialogOpen, breakDialogOpen, deleteDialogOpen,
+  //   linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending,
+  //   handleLinkObjects, handleSwapObjects, handleBreakObject, handleDeleteObject
+  // ]);
 
   // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
@@ -1183,7 +1192,7 @@ export default function Sidebar({
                   <strong>Object:</strong> ID {selectedObjects[0].object_id}
                 </p>
                 <p>
-                  <strong>At Frame:</strong> {selectedObjects[0].frame_id}
+                  <strong>At Frame:</strong> {frameId}
                 </p>
                 <p>
                   <strong>Current Range:</strong> Frame{" "}
