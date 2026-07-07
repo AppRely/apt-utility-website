@@ -375,6 +375,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
 
+  // Hover tooltip state
+  const [hoverFrame, setHoverFrame] = useState<number | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+
   const [halfWindow, setHalfWindow] = useState(250);
   const [totalVisibleInput, setTotalVisibleInput] = useState("500");
 
@@ -1189,7 +1193,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
-  // Chart mouse mapping for dragging
+  // Chart mouse mapping for dragging and hover
   const seekFromChartMouse = useCallback((clientX: number) => {
     if (!timelineContainerRef.current) return;
     const container = timelineContainerRef.current;
@@ -1216,40 +1220,93 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
     const targetTime = frame / stableFpsRef.current;
     handleSeek(targetTime);
+    return frame;
   }, [minFrame, maxFrame, handleSeek, stableFpsRef]);
 
+  // <-- FIX: Chart mouse events – always active, hover tooltip with container-relative coords
   useEffect(() => {
-    if (!timelineContainerRef.current || selectedObjects.length === 0) return;
+    if (!timelineContainerRef.current) return;
     const container = timelineContainerRef.current;
+
     const onMouseDown = (e: MouseEvent) => {
       const svg = container.querySelector('svg');
       if (!svg || !svg.contains(e.target as Node)) return;
       e.preventDefault();
       setIsChartDragging(true);
+      setHoverFrame(null);
+      setHoverPos(null);
     };
+
     const onMouseMove = (e: MouseEvent) => {
-      if (isChartDragging) seekFromChartMouse(e.clientX);
+      const svg = container.querySelector('svg');
+      if (!svg || !svg.contains(e.target as Node)) {
+        setHoverFrame(null);
+        setHoverPos(null);
+        return;
+      }
+      const containerRect = container.getBoundingClientRect();
+      const mouseX = e.clientX - containerRect.left;
+      const mouseY = e.clientY - containerRect.top;
+
+      // Update hover if not dragging
+      if (!isChartDragging) {
+        // Calculate frame from mouseX
+        let plotLeft: number, plotWidthActual: number;
+        const axisLine = svg.querySelector('.recharts-cartesian-axis-line line');
+        if (axisLine) {
+          const aRect = axisLine.getBoundingClientRect();
+          const cRect = container.getBoundingClientRect();
+          plotLeft = aRect.left - cRect.left;
+          plotWidthActual = aRect.width;
+        } else {
+          const margin = 20;
+          plotLeft = margin;
+          plotWidthActual = containerRect.width - 2 * margin;
+        }
+        if (plotWidthActual > 0) {
+          const relativeX = Math.min(Math.max((mouseX - plotLeft) / plotWidthActual, 0), 1);
+          const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
+          setHoverFrame(frame);
+          setHoverPos({ x: mouseX, y: mouseY });
+        }
+      } else {
+        // Dragging: seek
+        seekFromChartMouse(e.clientX);
+      }
     };
-    const onMouseUp = () => setIsChartDragging(false);
+
+    const onMouseUp = () => {
+      setIsChartDragging(false);
+    };
+
+    const onMouseLeave = () => {
+      setHoverFrame(null);
+      setHoverPos(null);
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const svg = container.querySelector('svg');
+      if (!svg || !svg.contains(e.target as Node)) return;
+      const frame = seekFromChartMouse(e.clientX);
+      if (frame !== undefined) {
+        toast({ title: `Jumped to frame ${frame}`, duration: 1500 });
+      }
+    };
+
     container.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    container.addEventListener('mousemove', onMouseMove);
+    container.addEventListener('mouseup', onMouseUp);
+    container.addEventListener('mouseleave', onMouseLeave);
+    container.addEventListener('click', onClick);
+
     return () => {
       container.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      container.removeEventListener('mousemove', onMouseMove);
+      container.removeEventListener('mouseup', onMouseUp);
+      container.removeEventListener('mouseleave', onMouseLeave);
+      container.removeEventListener('click', onClick);
     };
-  }, [selectedObjects.length, seekFromChartMouse, isChartDragging]);
-
-  const handleChartClick = (data: any) => {
-    if (data && data.activeLabel !== undefined) {
-      const frame = Math.round(data.activeLabel);
-      handleSeek(frame / stableFpsRef.current);
-    } else if (data && data.activePayload && data.activePayload[0]) {
-      const frame = data.activePayload[0].payload.frame;
-      handleSeek(frame / stableFpsRef.current);
-    }
-  };
+  }, [seekFromChartMouse, isChartDragging, toast, minFrame, maxFrame]);
 
   const tooltipFormatter = useCallback((value: any, name: string | number | undefined) => {
     if (name === undefined) return [String(value), ""];
@@ -1920,7 +1977,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
                 <div className="text-xs font-mono mb-2">
                   Objects in frame ({objectPage+1}/{totalPages || 1})
-                  {totalPages > 1 && <span className="ml-2 text-yellow-400">(Shift+0‑9 to cycle pages)</span>}
+                  {totalPages > 1 && (
+                    <span className="ml-2 text-yellow-400">
+                      (Shift+0‑9 to cycle pages – {totalPages - (objectPage+1)} page{totalPages - (objectPage+1) > 1 ? 's' : ''} remaining)
+                    </span>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <div className="font-bold text-yellow-300 text-xs">Key</div>
@@ -1940,7 +2001,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 </div>
                 {totalPages > 1 && (
                   <div className="text-[10px] text-gray-400 mt-2 text-center">
-                    Page {objectPage+1} of {totalPages} – {totalPages - (objectPage+1)} page(s) remaining
+                    Press Shift+0‑9 to go to next page ({totalPages - (objectPage+1)} page{totalPages - (objectPage+1) > 1 ? 's' : ''} left)
                   </div>
                 )}
                 <div className="text-[10px] text-yellow-400 mt-2 text-center">
@@ -2215,7 +2276,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
 
-          {/* ===== UNIFIED TIMELINE – FIXED HEIGHT (short) ===== */}
+          {/* ===== UNIFIED TIMELINE – FIXED HEIGHT ===== */}
           <div className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
@@ -2272,7 +2333,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
 
             <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-hidden" ref={timelineContainerRef}>
-              {/* Trajectory chart – flex-1 fills available space inside h-44 */}
+              {/* Trajectory chart – always visible, with hover tooltip */}
               <div className="flex-1 min-h-0 relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
@@ -2280,7 +2341,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                       <LineChart
                         data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
                         margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                        onClick={handleChartClick}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
                         <XAxis
@@ -2351,6 +2411,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     </ResponsiveContainer>
                   </div>
                 </div>
+                {/* Non‑blocking overlay hint */}
                 {selectedObjects.length === 0 || timelinePoints.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
@@ -2360,6 +2421,21 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     </span>
                   </div>
                 ) : null}
+
+                {/* Hover tooltip – now using container-relative coordinates */}
+                {hoverFrame !== null && hoverPos && (
+                  <div
+                    className="absolute pointer-events-none bg-black/80 text-white text-xs px-2 py-1 rounded shadow-lg border border-white/20"
+                    style={{
+                      left: hoverPos.x + 12,
+                      top: hoverPos.y - 12,
+                      transform: 'translate(0, -100%)',
+                      zIndex: 100,
+                    }}
+                  >
+                    Frame: {hoverFrame}
+                  </div>
+                )}
               </div>
 
               {/* Object ranges timeline – fixed small height */}
