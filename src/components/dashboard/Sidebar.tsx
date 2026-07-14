@@ -679,36 +679,36 @@ export default function Sidebar({
   // ========================
   // ENTER KEY CONFIRMATION FOR DIALOGS
   // ========================
-  // useEffect(() => {
-  //   const handleEnterConfirm = (e: KeyboardEvent) => {
-  //     if (e.key !== 'Enter') return;
+  useEffect(() => {
+    const handleEnterConfirm = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
       
-  //     // Only act if any dialog is open
-  //     if (linkDialogOpen) {
-  //       e.preventDefault();
-  //       if (!linkMutation.isPending) handleLinkObjects();
-  //     } 
-  //     else if (swapDialogOpen) {
-  //       e.preventDefault();
-  //       if (!swapMutation.isPending) handleSwapObjects();
-  //     }
-  //     else if (breakDialogOpen) {
-  //       e.preventDefault();
-  //       if (!breakMutation.isPending) handleBreakObject();
-  //     }
-  //     else if (deleteDialogOpen) {
-  //       e.preventDefault();
-  //       if (!deleteMutation.isPending) handleDeleteObject();
-  //     }
-  //   };
+      // Only act if any dialog is open
+      if (linkDialogOpen) {
+        e.preventDefault();
+        if (!linkMutation.isPending) handleLinkObjects();
+      } 
+      else if (swapDialogOpen) {
+        e.preventDefault();
+        if (!swapMutation.isPending) handleSwapObjects();
+      }
+      else if (breakDialogOpen) {
+        e.preventDefault();
+        if (!breakMutation.isPending) handleBreakObject();
+      }
+      else if (deleteDialogOpen) {
+        e.preventDefault();
+        if (!deleteMutation.isPending) handleDeleteObject();
+      }
+    };
 
-  //   window.addEventListener('keydown', handleEnterConfirm);
-  //   return () => window.removeEventListener('keydown', handleEnterConfirm);
-  // }, [
-  //   linkDialogOpen, swapDialogOpen, breakDialogOpen, deleteDialogOpen,
-  //   linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending,
-  //   handleLinkObjects, handleSwapObjects, handleBreakObject, handleDeleteObject
-  // ]);
+    window.addEventListener('keydown', handleEnterConfirm);
+    return () => window.removeEventListener('keydown', handleEnterConfirm);
+  }, [
+    linkDialogOpen, swapDialogOpen, breakDialogOpen, deleteDialogOpen,
+    linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending,
+    handleLinkObjects, handleSwapObjects, handleBreakObject, handleDeleteObject
+  ]);
 
   // FIXED HEIGHT CONTAINER TO PREVENT LAYOUT SHIFT
   const renderObjectsSection = () => {
