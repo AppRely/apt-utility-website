@@ -1916,8 +1916,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <Group 
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
                       onClick={(e) => {
+                        const objectId = a.object_id;
+                        // Check if this object is already selected
+                        const existingIndex = selectedObjects.findIndex(obj => obj.object_id === objectId);
+                        if (existingIndex !== -1) {
+                          // Remove it from selection
+                          setSelectedObjects(prev => prev.filter((_, idx) => idx !== existingIndex));
+                          safeToast({ title: `Object ${objectId} removed from selection`, duration: 1500 });
+                          return;
+                        }
+                        // Not selected, add it to the appropriate slot
                         const slot = e.evt.ctrlKey ? 1 : 0;
-                        selectObjectForSlot(a.object_id, slot);
+                        selectObjectForSlot(objectId, slot);
                       }}
                     >
                       {showSkeleton && skeletonGraph.length > 0 && (
