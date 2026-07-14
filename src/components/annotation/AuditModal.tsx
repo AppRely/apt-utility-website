@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,8 +8,7 @@ import {
   DialogTitle,
   DialogClose,
 } from "@/components/ui/dialog";
-
-import { X } from "lucide-react";
+import { X, Download } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -17,11 +17,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
+import { Button } from "@/components/ui/Button";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
+import { exportActivityLogs } from "@/lib/api/exportActivityLogs";
 import { AuditModalProps, NormalizedObject } from "@/types";
 
+// Helper to normalize objects based on operation type
 function normalizeObjects(
   operation: string,
   objectsData: any
@@ -77,6 +79,8 @@ export default function AuditModal({
   onClose,
   projectId,
 }: AuditModalProps) {
+  const [isExporting, setIsExporting] = useState(false);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["activityLogs", projectId],
     queryFn: () => getActivityLogs(projectId),
@@ -84,6 +88,19 @@ export default function AuditModal({
   });
 
   const logs = data?.data?.logs ?? [];
+
+  const handleExport = async () => {
+    if (!projectId) return;
+    setIsExporting(true);
+    try {
+      await exportActivityLogs(projectId);
+    } catch (err) {
+      console.error("Export error:", err);
+      // Optionally show a toast/notification here
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -94,10 +111,20 @@ export default function AuditModal({
           </button>
         </DialogClose>
 
-        <DialogHeader>
+        <DialogHeader className="flex flex-row items-center justify-between pr-8">
           <DialogTitle className="text-center text-xl font-semibold">
             Activity Logs
           </DialogTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={isExporting || logs.length === 0}
+            className="flex items-center gap-2"
+          >
+            <Download className="h-4 w-4" />
+            {isExporting ? "Exporting..." : "Export CSV"}
+          </Button>
         </DialogHeader>
 
         {isLoading && <p className="text-center py-4">Loading...</p>}
