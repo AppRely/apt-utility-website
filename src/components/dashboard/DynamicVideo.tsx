@@ -26,6 +26,7 @@ import { exportTrk } from "@/lib/api/exportTrk";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
+  ReferenceLine,
 } from "recharts";
 
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
@@ -33,8 +34,8 @@ function useFrameMapping(
   containerWidth: number,
   currentFrame: number,
   halfWindow: number,
-  leftPadding = 20,
-  rightPadding = 20
+  leftPadding = 30,
+  rightPadding = 30
 ) {
   const minFrame = currentFrame - halfWindow;
   const maxFrame = currentFrame + halfWindow;
@@ -99,8 +100,8 @@ const ObjectRangesTimeline = ({
 }) => {
   const chartHeight = compact ? 30 : 60;
   const padding = compact
-    ? { left: 20, right: 20, top: 2, bottom: 4 }
-    : { left: 20, right: 20, top: 5, bottom: 15 };
+    ? { left: 30, right: 30, top: 2, bottom: 4 }
+    : { left: 30, right: 30, top: 5, bottom: 15 };
 
   const filteredObjects = useMemo(() => {
     return objects.filter(obj =>
@@ -191,6 +192,7 @@ const ObjectRangesTimeline = ({
             }
             return labels;
           })()}
+          {/* Red current-frame line */}
           <line
             x1={frameToX(currentFrame)}
             y1={padding.top}
@@ -342,7 +344,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const lastMousePosRef = useRef({ x: 0, y: 0 });
 
   const { toast } = useToast();
-  // Wrap toast to defer state updates and avoid render-phase updates
   const safeToast = useCallback((...args: Parameters<typeof toast>) => {
     setTimeout(() => toast(...args), 0);
   }, [toast]);
@@ -379,7 +380,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
 
-  // Hover tooltip state
   const [hoverFrame, setHoverFrame] = useState<number | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -410,13 +410,24 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => ro.disconnect();
   }, []);
 
+  // Use padding 30 (matching chart's left margin)
   const { frameToX, xToFrame, minFrame, maxFrame, plotWidth } = useFrameMapping(
     timelineWidth,
     currentFrame,
     halfWindow,
-    20,
-    20
+    30,   // left padding
+    30    // right padding
   );
+
+  // ---- ADDED: debug log to verify values ----
+  console.log('🔍 Timeline mapping:', {
+    currentFrame,
+    halfWindow,
+    minFrame,
+    maxFrame,
+    plotWidth,
+    timelineWidth,
+  });
 
   const getObjectColor = useCallback((id: number) => {
     const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
@@ -1245,7 +1256,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       plotWidthActual = rect.width;
     } else {
       const rect = container.getBoundingClientRect();
-      const margin = 20;
+      const margin = 30; // matching new left padding
       plotLeft = margin;
       plotWidthActual = rect.width - 2 * margin;
     }
@@ -1293,7 +1304,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           plotLeft = aRect.left - cRect.left;
           plotWidthActual = aRect.width;
         } else {
-          const margin = 20;
+          const margin = 30;
           plotLeft = margin;
           plotWidthActual = containerRect.width - 2 * margin;
         }
@@ -2368,37 +2379,45 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
                         data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
-                        margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
+                        margin={{ top: 5, right: 30, bottom: 5, left: 30 }} // match padding 30
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        {/* RED LINE */}
+                        <ReferenceLine
+                          x={currentFrame}
+                          stroke="#ff3333"
+                          strokeDasharray="4 4"
+                          strokeWidth={2}
+                          label={{ value: '◀', position: 'insideTopLeft', fill: '#ff3333', fontSize: 10 }}
+                        />
                         <XAxis
-                          dataKey="frame"
                           type="number"
+                          dataKey="frame"
                           domain={[minFrame, maxFrame]}
+                          // ---- FIX: force ticks via tickCount ----
+                          tickCount={Math.floor((maxFrame - minFrame) / 50) + 1}
                           allowDataOverflow={true}
-                          ticks={(() => {
-                            const step = Math.max(1, Math.floor((maxFrame - minFrame) / 10));
-                            const ticks = [];
-                            for (let f = minFrame; f <= maxFrame; f += step) ticks.push(f);
-                            return ticks;
-                          })()}
+                          scale="linear"
+                          padding={{ left: 0, right: 0 }}
+                          interval={0}
                           tick={{ fill: '#ccc', fontSize: 10 }}
                           tickFormatter={(frame) => frame.toString()}
                           label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
-                          scale="linear"
                         />
                         <YAxis
-                          domain={['auto', 'auto']}
-                          tick={{ fill: '#ccc', fontSize: 10 }}
+                          width={30}               // fixed width to reserve space
+                          axisLine={false}         // hide axis line to reduce clutter
+                          tickMargin={0}
+                          tick={{ fill: '#ccc', fontSize: 8 }}
+                          domain={[0, 'auto']}
                           label={{
-                            value: coordinateMode === 'x' ? 'X Coordinate' : coordinateMode === 'y' ? 'Y Coordinate' : 'X / Y',
+                            value: coordinateMode === 'x' ? 'X' : coordinateMode === 'y' ? 'Y' : 'X/Y',
                             angle: -90,
                             position: 'insideLeft',
                             fill: '#aaa',
                             fontSize: 10,
                           }}
                         />
-                        {/* Tooltip removed */}
                         {uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
@@ -2413,7 +2432,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                                 dot={false}
                                 activeDot={{ r: 4, fill: color }}
                                 isAnimationActive={false}
-                                // connectNulls removed – defaults to false → breaks on null
                               />
                             );
                           }
@@ -2429,7 +2447,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                                 dot={false}
                                 activeDot={{ r: 4, fill: color }}
                                 isAnimationActive={false}
-                                // connectNulls removed
                               />
                             );
                           }
@@ -2450,14 +2467,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   </div>
                 ) : null}
 
-                {/* Custom hover tooltip */}
+                {/* Custom hover tooltip – left side */}
                 {hoverFrame !== null && hoverPos && (
                   <div
                     className="absolute pointer-events-none bg-black/80 text-white text-xs px-2 py-1 rounded shadow-lg border border-white/20"
                     style={{
-                      left: hoverPos.x + 12,
-                      top: hoverPos.y - 12,
-                      transform: 'translate(0, -100%)',
+                      left: hoverPos.x - 10,
+                      top: hoverPos.y - 10,
+                      transform: 'translate(-100%, -100%)',
                       zIndex: 100,
                     }}
                   >
