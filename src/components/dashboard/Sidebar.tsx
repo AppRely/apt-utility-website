@@ -46,6 +46,10 @@ export default function Sidebar({
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isConfusionRunning, setIsConfusionRunning] = useState(false);
+  
+  // NEW: break type state (default 'after')
+  const [breakType, setBreakType] = useState<'before' | 'after'>('after');
+
   const isAnyDialogOpen = linkDialogOpen || swapDialogOpen || breakDialogOpen || deleteDialogOpen;
     useEffect(() => {
       sessionStorage.setItem(
@@ -255,9 +259,10 @@ export default function Sidebar({
     },
   });
 
+  // --- UPDATED breakMutation: accepts { formData, breakType } ---
   const breakMutation = useMutation({
-    mutationFn: (formData: FormData) =>
-      breakObjects(Number(projectId), formData),
+    mutationFn: ({ formData, breakType }: { formData: FormData; breakType: 'before' | 'after' }) =>
+      breakObjects(Number(projectId), formData, breakType),
     onSuccess: () => {
       toast({
         title: "Break",
@@ -522,6 +527,7 @@ export default function Sidebar({
     swapMutation.mutate(formData);
   };
 
+  // --- UPDATED handleBreakObject: passes breakType ---
   const handleBreakObject = () => {
     if (selectedObjects.length !== 1) {
       toast({
@@ -542,7 +548,8 @@ export default function Sidebar({
     formData.append("start_frame", String(obj.start_frame));
     formData.append("end_frame", String(obj.end_frame));
 
-    breakMutation.mutate(formData);
+    // Pass formData and the selected breakType
+    breakMutation.mutate({ formData, breakType });
   };
 
   const handleDeleteObject = () => {
@@ -1172,10 +1179,15 @@ export default function Sidebar({
           </>
         }
       />
-      {/* BREAK CONFIRM DIALOG */}
+
+      {/* ==================== BREAK CONFIRM DIALOG WITH BREAK TYPE SELECTION ==================== */}
       <ConfirmDialog
         open={breakDialogOpen}
-        onOpenChange={setBreakDialogOpen}
+        onOpenChange={(open) => {
+          setBreakDialogOpen(open);
+          // Reset break type to default 'after' when dialog closes
+          if (!open) setBreakType('after');
+        }}
         title="Confirm Break Object"
         confirmText="Confirm Break"
         loadingText="Breaking..."
@@ -1187,7 +1199,7 @@ export default function Sidebar({
             <p>Are you sure you want to break this object?</p>
 
             {selectedObjects.length === 1 && (
-              <div className="mt-4 space-y-1">
+              <div className="mt-4 space-y-3">
                 <p>
                   <strong>Object:</strong> ID {selectedObjects[0].object_id}
                 </p>
@@ -1196,9 +1208,41 @@ export default function Sidebar({
                 </p>
                 <p>
                   <strong>Current Range:</strong> Frame{" "}
-                  {selectedObjects[0].start_frame} to{" "}
-                  {selectedObjects[0].end_frame}
+                  {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}
                 </p>
+
+                {/* Break Type Selection */}
+                <div>
+                  <p className="font-medium mb-2">Break Type:</p>
+                  <div className="flex gap-6">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="breakType"
+                        value="before"
+                        checked={breakType === 'before'}
+                        onChange={() => setBreakType('before')}
+                      />
+                      Before
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="breakType"
+                        value="after"
+                        checked={breakType === 'after'}
+                        onChange={() => setBreakType('after')}
+                      />
+                      After <span className="text-xs text-gray-400">(default)</span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {breakType === 'before'
+                      ? 'Current object retains frames before the break frame; a new object is created for frames after.'
+                      : 'Current object retains frames after the break frame; a new object is created for frames before.'}
+                  </p>
+                </div>
+
                 <p className="text-yellow-600 mt-2">
                   Current ID will be deleted and a new ID will be assigned.
                 </p>
@@ -1207,6 +1251,7 @@ export default function Sidebar({
           </>
         }
       />
+
       {/* DELETE CONFIRM DIALOG */}
       <ConfirmDialog
         open={deleteDialogOpen}
@@ -1231,8 +1276,7 @@ export default function Sidebar({
                 </p>
                 <p>
                   <strong>Current Range:</strong> Frame{" "}
-                  {selectedObjects[0].start_frame} to{" "}
-                  {selectedObjects[0].end_frame}
+                  {selectedObjects[0].start_frame} to {selectedObjects[0].end_frame}
                 </p>
                 <p className="text-yellow-600 mt-2">
                   Current ID will be deleted.
