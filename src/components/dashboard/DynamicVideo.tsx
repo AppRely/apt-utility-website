@@ -2249,6 +2249,97 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             <Button size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
               Track
             </Button>
+
+            {/* ========== IMPROVED SPEED POPUP ========== */}
+            <div className="relative">
+              <button className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
+                <Clock className="w-4 h-4" />
+                <span>{playbackRate.toFixed(2).replace(/\.00$/,"")}x</span>
+                <ChevronRight className={`w-3 h-3 transition-transform ${showSpeed?"rotate-90":""}`} />
+              </button>
+              {showSpeed && (
+                <div
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#212121] border border-[#3a3a3a] rounded-xl px-5 py-4 shadow-2xl z-50"
+                  style={{ width: '280px' }}
+                >
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-white text-xs font-medium">Playback speed</span>
+                    <span className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</span>
+                  </div>
+
+                  <div className="relative w-full h-6 flex items-center">
+                    {/* Track background */}
+                    <div className="absolute left-0 right-0 h-1.5 bg-[#3a3a3a] rounded-full" />
+                    {/* Filled track */}
+                    <div
+                      className="absolute left-0 h-1.5 bg-blue-500 rounded-full transition-all"
+                      style={{
+                        width: `${((playbackRate - 0.1) / (16 - 0.1)) * 100}%`,
+                      }}
+                    />
+                    {/* Range input (hidden) */}
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="16"
+                      step="0.1"
+                      value={playbackRate}
+                      onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                      className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer"
+                      style={{ margin: 0, padding: 0 }}
+                    />
+                    {/* Custom thumb – bigger, centered, with glow */}
+                    <div
+                      className="absolute w-5 h-5 bg-blue-500 rounded-full border-2 border-white shadow-lg shadow-blue-500/30 pointer-events-none"
+                      style={{
+                        left: `${((playbackRate - 0.1) / (16 - 0.1)) * 100}%`,
+                        transform: 'translateX(-50%)',
+                        top: '50%',
+                        marginTop: '-10px',
+                      }}
+                    />
+
+                    {/* Tick marks (cuts) */}
+                    <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none">
+                      {[0.25, 0.5, 1, 2, 4, 8].map((speed) => (
+                        <div
+                          key={speed}
+                          className="absolute w-px h-2 bg-gray-500"
+                          style={{
+                            left: `${((speed - 0.1) / (16 - 0.1)) * 100}%`,
+                            transform: 'translateX(-50%)',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Preset buttons */}
+                  <div className="flex justify-between mt-4 gap-2">
+                    {[1, 2, 4, 8].map((speed) => {
+                      const isActive = Math.abs(playbackRate - speed) < 0.05;
+                      return (
+                        <button
+                          key={speed}
+                          onClick={() => setPlaybackRate(speed)}
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                            isActive
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-[#3a3a3a] text-gray-300 hover:bg-[#4a4a4a]'
+                          }`}
+                        >
+                          {speed}x
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-center text-[10px] text-gray-500 mt-1">Normal</div>
+                </div>
+              )}
+            </div>
+            {/* ========== END SPEED POPUP ========== */}
+
+            {/* ===== FRAME INPUT (NOW AFTER SPEED) ===== */}
             <div className="flex items-center gap-1 ml-1">
               <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">Frame</span>
               <Input 
@@ -2269,35 +2360,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               <Button size="icon" variant="ghost" onClick={() => { const f=parseInt(frameInput,10); if(!isNaN(f)) handleFrameJump(f); }} className="h-8 w-8">
                 <SkipForward className="w-3 h-3" />
               </Button>
-            </div>
-            <div className="relative">
-              <button className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
-                <Clock className="w-4 h-4" />
-                <span>{playbackRate.toFixed(2).replace(/\.00$/,"")}x</span>
-                <ChevronRight className={`w-3 h-3 transition-transform ${showSpeed?"rotate-90":""}`} />
-              </button>
-              {showSpeed && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center bg-[#181818] border border-gray-700 rounded-lg px-3 py-2 w-16 z-50 shadow-xl">
-                  <div className="text-white text-[11px] mb-1 font-bold">
-                    {playbackRate.toFixed(2).replace(/\.00$/,"")}x
-                  </div>
-                  <div className="relative h-32 flex items-center">
-                    <input 
-                      type="range" 
-                      min="0.1" 
-                      max="16" 
-                      step="0.1" 
-                      value={playbackRate} 
-                      onChange={(e)=>setPlaybackRate(parseFloat(e.target.value))} 
-                      className="absolute top-0 left-1/2 -translate-x-1/2 h-32 w-6 appearance-none bg-transparent [writing-mode:vertical-lr] [direction:rtl]" 
-                      style={{ 
-                        background: `linear-gradient(to top, #3b82f6 0%, #3b82f6 ${((playbackRate-0.1)/(16-0.1))*100}%, #374151 ${((playbackRate-0.1)/(16-0.1))*100}%, #374151 100%)`, 
-                        borderRadius:"999px" 
-                      }} 
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
