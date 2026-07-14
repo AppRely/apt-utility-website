@@ -10,12 +10,12 @@ import { useToast } from "@/components/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
-  ZoomIn, ZoomOut, Undo, Redo, Target,
+  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw,
 } from "lucide-react";
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
 } from "react-konva";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getObjectData } from "@/lib/api/getObjectData";
 import { getFrameRangeData } from "@/lib/api/getFrameRangeData";
 import { undoAction, redoAction } from "@/lib/api/undoRedo";
@@ -256,7 +256,9 @@ const ObjectRangesTimeline = ({
 
 // ==================== MAIN COMPONENT ====================
 export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
-  // All state and refs (unchanged)
+  const queryClient = useQueryClient(); // for invalidating queries
+
+  // All state and refs
   const [mounted, setMounted] = useState(false);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -479,7 +481,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const getLabelOffset = () => (8 * labelOffsetScale) * (1 / currentZoom);
   const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
 
-  // Unique IDs helpers (unchanged)
+  // Unique IDs helpers
   const isUniqueRangeLoaded = useCallback((start: number, end: number): boolean => {
     return loadedUniqueRangesRef.current.some(range => start >= range.start && end <= range.end);
   }, []);
@@ -576,38 +578,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       });
   }, [projectId, isUniqueRangeLoaded, isUniqueRangeLoading, addUniqueLoadedRange, mergeUniqueCacheIntoState]);
 
-  useEffect(() => {
-    if (!projectId) return;
-    const totalFrames = getTotalFrames();
-    if (totalFrames === 0) return;
-    pruneUniqueRanges(currentFrame, halfWindow * 3);
-    const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
-    if (isCovered) return;
-    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
-    let start = Math.max(0, currentFrame - halfWindow - buffer);
-    let end = Math.min(currentFrame + halfWindow + buffer, totalFrames);
-    fetchUniqueRange(start, end);
-  }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange]);
+  // ===== Refresh state =====
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    loadedUniqueRangesRef.current = [];
-    pendingUniqueRangesRef.current.clear();
-    uniqueDataCacheRef.current.clear();
-    setUniqueIdsData(null);
-  }, [halfWindow]);
-
-  useEffect(() => {
-    const handleOperationComplete = () => {
-      loadedUniqueRangesRef.current = [];
-      pendingUniqueRangesRef.current.clear();
-      uniqueDataCacheRef.current.clear();
-      setUniqueIdsData(null);
-    };
-    window.addEventListener("operationComplete", handleOperationComplete);
-    return () => window.removeEventListener("operationComplete", handleOperationComplete);
-  }, []);
-
-  // Annotation helpers
+  // ===== Annotation helpers =====
   const isRangeAlreadyLoading = (start: number, end: number): boolean => {
     const key = `${start}-${end}`;
     if (loadedRangesKeyRef.current.has(key)) return true;
@@ -639,100 +613,58 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadedRangesKeyRef.current.clear();
   }, []);
 
-  // Timeline data
-  useEffect(() => {
-    if (!projectId || selectedObjects.length === 0) {
-      setTimelinePoints([]);
-      return;
-    }
-    const fetchTimeline = async () => {
-      const totalFrames = getTotalFrames();
-      if (totalFrames <= 0) {
-        setTimelinePoints([]);
-        return;
-      }
-      const buffer = Math.max(250, Math.round(halfWindow * 0.5));
-      let startFrame = Math.max(0, currentFrame - halfWindow - buffer);
-      let endFrame = Math.min(currentFrame + halfWindow + buffer, totalFrames);
-      if (startFrame > endFrame) [startFrame, endFrame] = [endFrame, startFrame];
-      if (startFrame === endFrame) endFrame = Math.min(totalFrames, endFrame + 1);
-      const objectIds = selectedObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
-      if (!objectIds) {
-        setTimelinePoints([]);
-        return;
-      }
-      try {
-        const data = await getTimelineData(projectId, startFrame, endFrame, objectIds);
-        if (data && data.f) {
-          const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
-          Object.entries(data.f).forEach(([frameStr, objects]: any) => {
-            const frame = Number(frameStr);
-            Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
-              if (Array.isArray(coords) && coords.length >= 2) {
-                points.push({ frame, x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
-              }
-            });
-          });
-          setTimelinePoints(points);
-        } else {
-          setTimelinePoints([]);
-        }
-      } catch (err) {
-        console.error("[Timeline] Fetch error:", err);
-        setTimelinePoints([]);
-      }
-    };
-    fetchTimeline();
-  }, [projectId, selectedObjects, currentFrame, getTotalFrames, halfWindow]);
-
-  // ---- MODIFIED: chartData now includes every frame in the visible window with nulls ----
-  const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
-
-  const chartData = useMemo(() => {
-    if (timelinePoints.length === 0) return [];
-
-    const frameMin = Math.floor(minFrame);
-    const frameMax = Math.floor(maxFrame);
-    // Build array of all frames from min to max
-    const allFrames: number[] = [];
-    for (let f = frameMin; f <= frameMax; f++) {
-      allFrames.push(f);
-    }
-
-    // Initialize map with nulls for each object & coordinate
-    const dataMap = new Map<number, any>();
-    allFrames.forEach(f => {
-      const row: any = { frame: f };
-      uniqueObjectIds.forEach(id => {
-        if (coordinateMode === "x" || coordinateMode === "xy") {
-          row[`obj_${id}_x`] = null;
-        }
-        if (coordinateMode === "y" || coordinateMode === "xy") {
-          row[`obj_${id}_y`] = null;
-        }
+  // ===== Annotation chunk fetch =====
+  const chunkMutation = useMutation({
+    mutationFn: async ({ start, end }: { start: number; end: number }) => {
+      if (!projectId) return null;
+      const key = `${start}-${end}`;
+      pendingRangesRef.current.add(key);
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      return getFrameRangeData(projectId, start, end, controller.signal);
+    },
+    onSuccess: (data, { start, end }) => {
+      if (!data) return;
+      const key = `${start}-${end}`;
+      pendingRangesRef.current.delete(key);
+      addLoadedRange(start, end);
+      loadedRangesKeyRef.current.add(key);
+      const loadedAnnotations: Annotation[] = [];
+      const newTrajectoryFrames: TrajectoryFrame[] = [];
+      data.objects?.forEach((obj: { frames: any[]; object_id: number }) => {
+        obj.frames.forEach((f: any) => {
+        loadedAnnotations.push({ object_id: obj.object_id, frame_id: f.frame_id, coordinates: f.coordinates, average: f.average,});
+          if (f.average?.length === 2) newTrajectoryFrames.push({frame_id: f.frame_id, object_id: obj.object_id, coordinate: f.average,}); });
       });
-      dataMap.set(f, row);
-    });
+      setAnnotationMap(prev => {
+        const newMap = new Map(prev);
+        loadedAnnotations.forEach(anno => {
+          const key = `${anno.object_id}-${anno.frame_id}`;
+          if (!newMap.has(key)) newMap.set(key, anno);
+        });
+        return newMap;
+      });
+      addTrajectoryPoints(newTrajectoryFrames);
+      const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
+      const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
+      currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
+      if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
+      setAnnotationsReady(true);
+    },
+    onError: (_, { start, end }) => {
+      const key = `${start}-${end}`;
+      pendingRangesRef.current.delete(key);
+      if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
+    },
+  });
 
-    // Overwrite with actual data where available
-    timelinePoints.forEach(p => {
-      const row = dataMap.get(p.frame);
-      if (row) {
-        if (coordinateMode === "x" || coordinateMode === "xy") {
-          row[`obj_${p.objectId}_x`] = p.x;
-        }
-        if (coordinateMode === "y" || coordinateMode === "xy") {
-          row[`obj_${p.objectId}_y`] = p.y;
-        }
-      }
-    });
-
-    return Array.from(dataMap.values()).sort((a, b) => a.frame - b.frame);
-  }, [timelinePoints, coordinateMode, minFrame, maxFrame, uniqueObjectIds]);
-  // ------------------------------------------------------------------------------------
-
+  const abortRef = useRef<AbortController | null>(null);
+  const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
+  const lastAnnoLoadTs = useRef<number>(0);
   const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
 
+  // ===== Other effects =====
   useEffect(() => {
     return () => {
       if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
@@ -806,237 +738,185 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
-  
-  // Stage interactions
-  const handleWheel = useCallback((e: any) => {
-    e.evt.preventDefault();
-    if (!stageRef.current) return;
-    const stage = stageRef.current;
-    const oldScale = stage.scaleX();
-    const pointer = stage.getPointerPosition();
-    const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
-    let direction = e.evt.deltaY > 0 ? -1 : 1;
-    if (e.evt.ctrlKey) direction = -direction;
-    const newScale = direction > 0 ? oldScale * 1.1 : oldScale / 1.1;
-    const clampedScale = Math.min(Math.max(newScale, 1), 10);
-    setCurrentZoom(clampedScale);
-    const newPos = { x: pointer.x - mousePointTo.x * clampedScale, y: pointer.y - mousePointTo.y * clampedScale };
-    setStageScale({ x: clampedScale, y: clampedScale });
-    setStagePos(newPos);
-    showZoomIndicator();
-  }, [showZoomIndicator]);
 
-  const handleMouseDown = (e: any) => {
-    if (e.evt.button === 0 || e.evt.button === 2) {
-      if (e.target === e.target.getStage()) {
-        setIsPanMode(true);
-        setIsDragging(true);
-        lastMousePosRef.current = { x: e.evt.clientX, y: e.evt.clientY };
-        setCursorStyle("grabbing");
-      }
-    }
-  };
-  
-  const handleMouseMove = (e: any) => {
-    if (!stageRef.current) return;
-    if (isDragging && isPanMode) {
-      setCursorStyle("grabbing");
-      const deltaX = e.evt.clientX - lastMousePosRef.current.x;
-      const deltaY = e.evt.clientY - lastMousePosRef.current.y;
-      setStagePos(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
-      lastMousePosRef.current = { x: e.evt.clientX, y: e.evt.clientY };
-    } else {
-      setCursorStyle(e.target === e.target.getStage() ? "grab" : "default");
-    }
-  };
-  
-  const handleMouseUp = () => { setIsDragging(false); setIsPanMode(false); setCursorStyle("grab"); };
-  const handleMouseLeave = () => { setIsDragging(false); setIsPanMode(false); setCursorStyle("default"); };
-  const handleContextMenu = (e: any) => e.evt.preventDefault();
-  const handleTouchMove = useCallback((e: any) => {}, []);
-  const handleTouchEnd = () => {};
-  const handleZoomIn = () => {
-    const ns = Math.min(stageScale.x * 1.1, 10);
-    setStageScale({x:ns,y:ns});
-    setCurrentZoom(ns);
-    showZoomIndicator();
-  };
-  const handleZoomOut = () => {
-    const ns = Math.max(stageScale.x / 1.1, 1);
-    setStageScale({x:ns,y:ns});
-    setCurrentZoom(ns);
-    showZoomIndicator();
-  };
-  const handleResetZoom = () => {
-    setStageScale({x:1,y:1});
-    setStagePos({x:0,y:0});
-    setCurrentZoom(1);
-    setCursorStyle("grab");
-    showZoomIndicator();
-  };
-
-  // Auto‑pan
-  const panToSelectedObject = useCallback(() => {
-    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
-    if (!stageRef.current || !video) return;
-    const selectedObjectId = selectedObjects[0]?.object_id;
-    if (!selectedObjectId) return;
-    const currentAnnotation = Array.from(annotationMap.values()).find(
-      anno => anno.object_id === selectedObjectId && anno.frame_id === currentFrame
-    );
-    if (!currentAnnotation?.coordinates?.length) return;
-    if (lastPanFrameRef.current === currentFrame) return;
-    lastPanFrameRef.current = currentFrame;
-    const objX = currentAnnotation.coordinates[0][0];
-    const objY = currentAnnotation.coordinates[0][1];
-    const stageObjX = offsetX + objX * scale;
-    const stageObjY = offsetY + objY * scale;
-    const stage = stageRef.current;
-    const currentStageX = stage.x();
-    const currentStageY = stage.y();
-    const currentScale = stage.scaleX();
-
-    const margin = 80;
-    const marginInStage = margin / currentScale;
-    const viewportLeft = -currentStageX / currentScale;
-    const viewportRight = (stageWidth - currentStageX) / currentScale;
-    const viewportTop = -currentStageY / currentScale;
-    const viewportBottom = (stageHeight - currentStageY) / currentScale;
-
-    let needsPan = false;
-    let targetStageX = currentStageX;
-    let targetStageY = currentStageY;
-
-    if (stageObjX < viewportLeft + marginInStage || stageObjX > viewportRight - marginInStage) {
-      needsPan = true;
-      targetStageX = -stageObjX * currentScale + stageWidth / 2;
-    }
-    if (stageObjY < viewportTop + marginInStage || stageObjY > viewportBottom - marginInStage) {
-      needsPan = true;
-      targetStageY = -stageObjY * currentScale + stageHeight / 2;
-    }
-
-    if (needsPan) {
-      const tolerance = 20;
-      if (Math.abs(targetStageX - currentStageX) < tolerance && Math.abs(targetStageY - currentStageY) < tolerance) return;
-      setStagePos({ x: targetStageX, y: targetStageY });
-    }
-  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom]);
-
-  const objectMutation = useMutation({ 
-    mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
+  // ===== Undo / Redo & Activity Logs =====
+  const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
+  const exportMutation = useMutation({
+    mutationFn: () => exportTrk(projectId!),
+    onMutate: () => { setIsExporting(true); setDownloadUrl(null); },
+    onSuccess: (response) => { setDownloadUrl(response.data.download_url); setTrkVersion(response.data.trk_version); setIsExporting(false); safeToast({ title: "Export Completed", duration: 1500 }); },
+    onError: () => { setIsExporting(false); setDownloadUrl(null); safeToast({ title: "Export Failed", variant: "destructive", duration: 1500 }); },
   });
 
-  const selectObjectForSlot = useCallback((objectId: number, slotIndex: 0 | 1) => {
+  // ===== REFRESH FUNCTION =====
+  const handleRefresh = useCallback(() => {
+    // Invalidate React Query caches
+    queryClient.invalidateQueries({ queryKey: ["activity-logs"] });
+
+    // Clear annotations and trajectories
+    setAnnotationMap(new Map());
+    persistentTrajectoryRef.current = [];
+    trajectoriesRef.current = new Map();
+    setTrajectoryMap(new Map());
+    setTrajectoryPointCount(0);
+    clearLoadedRanges();
+    loadedRangesKeyRef.current.clear();
+    pendingRangesRef.current.clear();
+
+    // Clear unique IDs cache
+    loadedUniqueRangesRef.current = [];
+    pendingUniqueRangesRef.current.clear();
+    uniqueDataCacheRef.current.clear();
+    setUniqueIdsData(null);
+
+    // Clear timeline points
+    setTimelinePoints([]);
+
+    // Trigger refetch of activity logs
+    activityLogsQuery.refetch();
+
+    // Increment refresh key to trigger effects that depend on it
+    setRefreshKey(prev => prev + 1);
+
+    // Force re-fetch annotations for current window
+    const totalFrames = getTotalFrames();
+    if (totalFrames > 0 && projectId) {
+      const windowFrames = Math.round(6 * stableFpsRef.current);
+      const windowStart = Math.max(0, currentFrame - windowFrames);
+      const windowEnd = Math.min(currentFrame + windowFrames, totalFrames);
+      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
+        chunkMutation.mutate({ start: windowStart, end: windowEnd });
+      }
+    }
+
+    safeToast({ title: "Data refreshed", duration: 1500 });
+  }, [queryClient, projectId, currentFrame, getTotalFrames, chunkMutation, isRangeAlreadyLoading, safeToast, activityLogsQuery, clearLoadedRanges]);
+
+  // ===== Unique IDs effects with refreshKey dependency =====
+  useEffect(() => {
     if (!projectId) return;
-    if (slotIndex === 1 && selectedObjects.length === 0) {
-      safeToast({ title: "Select a first object before selecting a second", duration: 1500 });
-      return;
-    }
-    const alreadySelectedInOtherSlot = selectedObjects.some(
-      (obj, idx) => idx !== slotIndex && obj.object_id === objectId
-    );
-    if (alreadySelectedInOtherSlot) {
-      safeToast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
-      return;
-    }
-    objectMutation.mutate(
-      { projectId: Number(projectId), objectId, frameId: currentFrame },
-      {
-        onSuccess: (meta) => {
-          setSelectedObjects(prev => {
-            const newSelection = [...prev];
-            newSelection[slotIndex] = {
-              object_id: objectId,
-              frame_id: currentFrame,
-              start_frame: meta.data.start_frame,
-              end_frame: meta.data.end_frame,
-              is_inside: meta.data.is_inside,
-            };
-            return newSelection.slice(0, 2);
-          });
-          safeToast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
-          if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
-            setTimeout(() => panToSelectedObject(), 100);
-          }
-        },
-        onError: () => safeToast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
-      }
-    );
-  }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, safeToast]);
+    const totalFrames = getTotalFrames();
+    if (totalFrames === 0) return;
+    pruneUniqueRanges(currentFrame, halfWindow * 3);
+    const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
+    if (isCovered) return;
+    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    let start = Math.max(0, currentFrame - halfWindow - buffer);
+    let end = Math.min(currentFrame + halfWindow + buffer, totalFrames);
+    fetchUniqueRange(start, end);
+  }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange, refreshKey]);
 
   useEffect(() => {
-    if (!video || !mounted) return;
-    const handleTimeUpdate = () => {
-      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
+    loadedUniqueRangesRef.current = [];
+    pendingUniqueRangesRef.current.clear();
+    uniqueDataCacheRef.current.clear();
+    setUniqueIdsData(null);
+  }, [halfWindow]);
+
+  useEffect(() => {
+    const handleOperationComplete = () => {
+      loadedUniqueRangesRef.current = [];
+      pendingUniqueRangesRef.current.clear();
+      uniqueDataCacheRef.current.clear();
+      setUniqueIdsData(null);
     };
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+    window.addEventListener("operationComplete", handleOperationComplete);
+    return () => window.removeEventListener("operationComplete", handleOperationComplete);
+  }, []);
 
+  // ===== Timeline data with refreshKey dependency =====
   useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) setTimeout(() => panToSelectedObject(), 50);
-  }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
+    if (!projectId || selectedObjects.length === 0) {
+      setTimelinePoints([]);
+      return;
+    }
+    const fetchTimeline = async () => {
+      const totalFrames = getTotalFrames();
+      if (totalFrames <= 0) {
+        setTimelinePoints([]);
+        return;
+      }
+      const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+      let startFrame = Math.max(0, currentFrame - halfWindow - buffer);
+      let endFrame = Math.min(currentFrame + halfWindow + buffer, totalFrames);
+      if (startFrame > endFrame) [startFrame, endFrame] = [endFrame, startFrame];
+      if (startFrame === endFrame) endFrame = Math.min(totalFrames, endFrame + 1);
+      const objectIds = selectedObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
+      if (!objectIds) {
+        setTimelinePoints([]);
+        return;
+      }
+      try {
+        const data = await getTimelineData(projectId, startFrame, endFrame, objectIds);
+        if (data && data.f) {
+          const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
+          Object.entries(data.f).forEach(([frameStr, objects]: any) => {
+            const frame = Number(frameStr);
+            Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
+              if (Array.isArray(coords) && coords.length >= 2) {
+                points.push({ frame, x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
+              }
+            });
+          });
+          setTimelinePoints(points);
+        } else {
+          setTimelinePoints([]);
+        }
+      } catch (err) {
+        console.error("[Timeline] Fetch error:", err);
+        setTimelinePoints([]);
+      }
+    };
+    fetchTimeline();
+  }, [projectId, selectedObjects, currentFrame, getTotalFrames, halfWindow, refreshKey]);
 
-  useEffect(() => {
-    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-  }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+  // ---- MODIFIED: chartData now includes every frame in the visible window with nulls ----
+  const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
 
-  useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-  }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+  const chartData = useMemo(() => {
+    if (timelinePoints.length === 0) return [];
 
-  // Annotation chunk fetch
-  const chunkMutation = useMutation({
-    mutationFn: async ({ start, end }: { start: number; end: number }) => {
-      if (!projectId) return null;
-      const key = `${start}-${end}`;
-      pendingRangesRef.current.add(key);
-      if (abortRef.current) abortRef.current.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      return getFrameRangeData(projectId, start, end, controller.signal);
-    },
-    onSuccess: (data, { start, end }) => {
-      if (!data) return;
-      const key = `${start}-${end}`;
-      pendingRangesRef.current.delete(key);
-      addLoadedRange(start, end);
-      loadedRangesKeyRef.current.add(key);
-      const loadedAnnotations: Annotation[] = [];
-      const newTrajectoryFrames: TrajectoryFrame[] = [];
-      data.objects?.forEach((obj: { frames: any[]; object_id: number }) => {
-        obj.frames.forEach((f: any) => {
-        loadedAnnotations.push({ object_id: obj.object_id, frame_id: f.frame_id, coordinates: f.coordinates, average: f.average,});
-          if (f.average?.length === 2) newTrajectoryFrames.push({frame_id: f.frame_id, object_id: obj.object_id, coordinate: f.average,}); });
+    const frameMin = Math.floor(minFrame);
+    const frameMax = Math.floor(maxFrame);
+    // Build array of all frames from min to max
+    const allFrames: number[] = [];
+    for (let f = frameMin; f <= frameMax; f++) {
+      allFrames.push(f);
+    }
+
+    // Initialize map with nulls for each object & coordinate
+    const dataMap = new Map<number, any>();
+    allFrames.forEach(f => {
+      const row: any = { frame: f };
+      uniqueObjectIds.forEach(id => {
+        if (coordinateMode === "x" || coordinateMode === "xy") {
+          row[`obj_${id}_x`] = null;
+        }
+        if (coordinateMode === "y" || coordinateMode === "xy") {
+          row[`obj_${id}_y`] = null;
+        }
       });
-      setAnnotationMap(prev => {
-        const newMap = new Map(prev);
-        loadedAnnotations.forEach(anno => {
-          const key = `${anno.object_id}-${anno.frame_id}`;
-          if (!newMap.has(key)) newMap.set(key, anno);
-        });
-        return newMap;
-      });
-      addTrajectoryPoints(newTrajectoryFrames);
-      const startFrame = typeof data.start_frame === "number" ? data.start_frame : start;
-      const endFrame = typeof data.end_frame === "number" ? data.end_frame : end;
-      currentAnnoWindowRef.current = { start: startFrame, end: endFrame };
-      if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
-      setAnnotationsReady(true);
-    },
-    onError: (_, { start, end }) => {
-      const key = `${start}-${end}`;
-      pendingRangesRef.current.delete(key);
-      if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
-    },
-  });
+      dataMap.set(f, row);
+    });
 
-  const abortRef = useRef<AbortController | null>(null);
-  const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
-  const lastAnnoLoadTs = useRef<number>(0);
+    // Overwrite with actual data where available
+    timelinePoints.forEach(p => {
+      const row = dataMap.get(p.frame);
+      if (row) {
+        if (coordinateMode === "x" || coordinateMode === "xy") {
+          row[`obj_${p.objectId}_x`] = p.x;
+        }
+        if (coordinateMode === "y" || coordinateMode === "xy") {
+          row[`obj_${p.objectId}_y`] = p.y;
+        }
+      }
+    });
 
-  // Cleanup old annotations
+    return Array.from(dataMap.values()).sort((a, b) => a.frame - b.frame);
+  }, [timelinePoints, coordinateMode, minFrame, maxFrame, uniqueObjectIds]);
+  // ------------------------------------------------------------------------------------
+
+  // ===== Cleanup old annotations =====
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
     const maxFrames = 120 * stableFpsRef.current;
@@ -1070,15 +950,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [currentFrame, mounted, trajectoryDuration]);
 
-  // Undo / Redo
-  const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
-  const exportMutation = useMutation({
-    mutationFn: () => exportTrk(projectId!),
-    onMutate: () => { setIsExporting(true); setDownloadUrl(null); },
-    onSuccess: (response) => { setDownloadUrl(response.data.download_url); setTrkVersion(response.data.trk_version); setIsExporting(false); safeToast({ title: "Export Completed", duration: 1500 }); },
-    onError: () => { setIsExporting(false); setDownloadUrl(null); safeToast({ title: "Export Failed", variant: "destructive", duration: 1500 }); },
-  });
-
+  // ===== Undo/Redo and operations =====
   useEffect(() => {
     if (!mounted) return;
     const handleLinkingComplete = (event: any) => {
@@ -1110,7 +982,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const canUndo = undoCount > 0;
   const canRedo = redoCount > 0;
 
-  // Frame stepping
+  // ===== Frame stepping =====
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
     if (!video) return;
     if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
@@ -1362,7 +1234,186 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   }, [video, safeToast]);
 
-  // Responsive stage sizing
+  // ===== Stage interactions =====
+  const handleWheel = useCallback((e: any) => {
+    e.evt.preventDefault();
+    if (!stageRef.current) return;
+    const stage = stageRef.current;
+    const oldScale = stage.scaleX();
+    const pointer = stage.getPointerPosition();
+    const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
+    let direction = e.evt.deltaY > 0 ? -1 : 1;
+    if (e.evt.ctrlKey) direction = -direction;
+    const newScale = direction > 0 ? oldScale * 1.1 : oldScale / 1.1;
+    const clampedScale = Math.min(Math.max(newScale, 1), 10);
+    setCurrentZoom(clampedScale);
+    const newPos = { x: pointer.x - mousePointTo.x * clampedScale, y: pointer.y - mousePointTo.y * clampedScale };
+    setStageScale({ x: clampedScale, y: clampedScale });
+    setStagePos(newPos);
+    showZoomIndicator();
+  }, [showZoomIndicator]);
+
+  const handleMouseDown = (e: any) => {
+    if (e.evt.button === 0 || e.evt.button === 2) {
+      if (e.target === e.target.getStage()) {
+        setIsPanMode(true);
+        setIsDragging(true);
+        lastMousePosRef.current = { x: e.evt.clientX, y: e.evt.clientY };
+        setCursorStyle("grabbing");
+      }
+    }
+  };
+  
+  const handleMouseMove = (e: any) => {
+    if (!stageRef.current) return;
+    if (isDragging && isPanMode) {
+      setCursorStyle("grabbing");
+      const deltaX = e.evt.clientX - lastMousePosRef.current.x;
+      const deltaY = e.evt.clientY - lastMousePosRef.current.y;
+      setStagePos(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+      lastMousePosRef.current = { x: e.evt.clientX, y: e.evt.clientY };
+    } else {
+      setCursorStyle(e.target === e.target.getStage() ? "grab" : "default");
+    }
+  };
+  
+  const handleMouseUp = () => { setIsDragging(false); setIsPanMode(false); setCursorStyle("grab"); };
+  const handleMouseLeave = () => { setIsDragging(false); setIsPanMode(false); setCursorStyle("default"); };
+  const handleContextMenu = (e: any) => e.evt.preventDefault();
+  const handleTouchMove = useCallback((e: any) => {}, []);
+  const handleTouchEnd = () => {};
+  const handleZoomIn = () => {
+    const ns = Math.min(stageScale.x * 1.1, 10);
+    setStageScale({x:ns,y:ns});
+    setCurrentZoom(ns);
+    showZoomIndicator();
+  };
+  const handleZoomOut = () => {
+    const ns = Math.max(stageScale.x / 1.1, 1);
+    setStageScale({x:ns,y:ns});
+    setCurrentZoom(ns);
+    showZoomIndicator();
+  };
+  const handleResetZoom = () => {
+    setStageScale({x:1,y:1});
+    setStagePos({x:0,y:0});
+    setCurrentZoom(1);
+    setCursorStyle("grab");
+    showZoomIndicator();
+  };
+
+  // Auto‑pan
+  const panToSelectedObject = useCallback(() => {
+    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
+    if (!stageRef.current || !video) return;
+    const selectedObjectId = selectedObjects[0]?.object_id;
+    if (!selectedObjectId) return;
+    const currentAnnotation = Array.from(annotationMap.values()).find(
+      anno => anno.object_id === selectedObjectId && anno.frame_id === currentFrame
+    );
+    if (!currentAnnotation?.coordinates?.length) return;
+    if (lastPanFrameRef.current === currentFrame) return;
+    lastPanFrameRef.current = currentFrame;
+    const objX = currentAnnotation.coordinates[0][0];
+    const objY = currentAnnotation.coordinates[0][1];
+    const stageObjX = offsetX + objX * scale;
+    const stageObjY = offsetY + objY * scale;
+    const stage = stageRef.current;
+    const currentStageX = stage.x();
+    const currentStageY = stage.y();
+    const currentScale = stage.scaleX();
+
+    const margin = 80;
+    const marginInStage = margin / currentScale;
+    const viewportLeft = -currentStageX / currentScale;
+    const viewportRight = (stageWidth - currentStageX) / currentScale;
+    const viewportTop = -currentStageY / currentScale;
+    const viewportBottom = (stageHeight - currentStageY) / currentScale;
+
+    let needsPan = false;
+    let targetStageX = currentStageX;
+    let targetStageY = currentStageY;
+
+    if (stageObjX < viewportLeft + marginInStage || stageObjX > viewportRight - marginInStage) {
+      needsPan = true;
+      targetStageX = -stageObjX * currentScale + stageWidth / 2;
+    }
+    if (stageObjY < viewportTop + marginInStage || stageObjY > viewportBottom - marginInStage) {
+      needsPan = true;
+      targetStageY = -stageObjY * currentScale + stageHeight / 2;
+    }
+
+    if (needsPan) {
+      const tolerance = 20;
+      if (Math.abs(targetStageX - currentStageX) < tolerance && Math.abs(targetStageY - currentStageY) < tolerance) return;
+      setStagePos({ x: targetStageX, y: targetStageY });
+    }
+  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom]);
+
+  const objectMutation = useMutation({ 
+    mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
+  });
+
+  const selectObjectForSlot = useCallback((objectId: number, slotIndex: 0 | 1) => {
+    if (!projectId) return;
+    if (slotIndex === 1 && selectedObjects.length === 0) {
+      safeToast({ title: "Select a first object before selecting a second", duration: 1500 });
+      return;
+    }
+    const alreadySelectedInOtherSlot = selectedObjects.some(
+      (obj, idx) => idx !== slotIndex && obj.object_id === objectId
+    );
+    if (alreadySelectedInOtherSlot) {
+      safeToast({ title: `Object ${objectId} is already selected in the other slot`, duration: 1500 });
+      return;
+    }
+    objectMutation.mutate(
+      { projectId: Number(projectId), objectId, frameId: currentFrame },
+      {
+        onSuccess: (meta) => {
+          setSelectedObjects(prev => {
+            const newSelection = [...prev];
+            newSelection[slotIndex] = {
+              object_id: objectId,
+              frame_id: currentFrame,
+              start_frame: meta.data.start_frame,
+              end_frame: meta.data.end_frame,
+              is_inside: meta.data.is_inside,
+            };
+            return newSelection.slice(0, 2);
+          });
+          safeToast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
+          if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
+            setTimeout(() => panToSelectedObject(), 100);
+          }
+        },
+        onError: () => safeToast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
+      }
+    );
+  }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, safeToast]);
+
+  useEffect(() => {
+    if (!video || !mounted) return;
+    const handleTimeUpdate = () => {
+      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
+    };
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+
+  useEffect(() => {
+    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) setTimeout(() => panToSelectedObject(), 50);
+  }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
+
+  useEffect(() => {
+    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
+  }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+
+  useEffect(() => {
+    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
+  }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+
+  // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
     if (!videoContainerRef.current) return;
     const container = videoContainerRef.current;
@@ -1514,6 +1565,22 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("keydown", handler);
   }, [canUndo, canRedo, mounted]);
 
+  // ===== NEW: Keyboard shortcut for refresh (Ctrl+R) =====
+  useEffect(() => {
+    if (!mounted) return;
+    const handler = (e: KeyboardEvent) => {
+      const isDialogOpen = sessionStorage.getItem("dialogOpen") === "true";
+      if (isDialogOpen) return;
+      // Check for Ctrl+R (or Cmd+R on Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+        e.preventDefault();
+        handleRefresh();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [mounted, handleRefresh]);
+
   const formatTime = (time: number) => `${Math.floor(time/60)}:${Math.floor(time%60).toString().padStart(2,"0")}`;
   
   useEffect(() => { if(video && mounted) video.playbackRate = playbackRate; }, [video, playbackRate, mounted]);
@@ -1625,6 +1692,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [showShortcutModal, setShowShortcutModal] = useState(false);
   const [showObjectSelection, setShowObjectSelection] = useState(false);
   const shortcuts = [
+    // ===== NEW: General category with Refresh =====
+    { category: "General", items: [
+      { action: "Refresh Data", key: "Ctrl+R" },
+    ] },
     { category: "Playback", items: [
       { action: "Play / Pause", key: "Space / P" },
       { action: "Next Frame", key: "→" },
@@ -1788,7 +1859,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     return () => window.removeEventListener("keydown", handler);
   }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
 
-  // FIX: shortcutMap based on currentPageObjects (only show shortcuts for current page)
+  // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
     const map = new Map<number, string>();
     currentPageObjects.forEach((obj, idx) => {
@@ -2167,6 +2238,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
                   <div className="border-t border-slate-200 my-1" />
 
+                  {/* Refresh button */}
+                  <button
+                    onClick={handleRefresh}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Refresh Data (Ctrl+R)</span>
+                  </button>
+
                   <button
                     onClick={openUniqueIdsPopup}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
@@ -2250,7 +2330,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               Track
             </Button>
 
-            {/* ========== IMPROVED SPEED POPUP ========== */}
+            {/* Speed popup */}
             <div className="relative">
               <button className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
                 <Clock className="w-4 h-4" />
@@ -2268,16 +2348,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   </div>
 
                   <div className="relative w-full h-6 flex items-center">
-                    {/* Track background */}
                     <div className="absolute left-0 right-0 h-1.5 bg-[#3a3a3a] rounded-full" />
-                    {/* Filled track */}
                     <div
                       className="absolute left-0 h-1.5 bg-blue-500 rounded-full transition-all"
                       style={{
                         width: `${((playbackRate - 0.1) / (16 - 0.1)) * 100}%`,
                       }}
                     />
-                    {/* Range input (hidden) */}
                     <input
                       type="range"
                       min="0.1"
@@ -2288,7 +2365,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                       className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer"
                       style={{ margin: 0, padding: 0 }}
                     />
-                    {/* Custom thumb – bigger, centered, with glow */}
                     <div
                       className="absolute w-5 h-5 bg-blue-500 rounded-full border-2 border-white shadow-lg shadow-blue-500/30 pointer-events-none"
                       style={{
@@ -2298,8 +2374,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         marginTop: '-10px',
                       }}
                     />
-
-                    {/* Tick marks (cuts) */}
                     <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none">
                       {[0.25, 0.5, 1, 2, 4, 8].map((speed) => (
                         <div
@@ -2314,7 +2388,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     </div>
                   </div>
 
-                  {/* Preset buttons */}
                   <div className="flex justify-between mt-4 gap-2">
                     {[1, 2, 4, 8].map((speed) => {
                       const isActive = Math.abs(playbackRate - speed) < 0.05;
@@ -2337,9 +2410,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 </div>
               )}
             </div>
-            {/* ========== END SPEED POPUP ========== */}
 
-            {/* ===== FRAME INPUT (NOW AFTER SPEED) ===== */}
+            {/* Frame input */}
             <div className="flex items-center gap-1 ml-1">
               <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">Frame</span>
               <Input 
@@ -2363,7 +2435,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
           </div>
 
-          {/* ===== UNIFIED TIMELINE – FIXED HEIGHT ===== */}
+          {/* Unified timeline */}
           <div className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
@@ -2420,17 +2492,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             </div>
 
             <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-hidden" ref={timelineContainerRef}>
-              {/* Trajectory chart – always visible, with hover tooltip, no Recharts Tooltip */}
+              {/* Trajectory chart */}
               <div className="flex-1 min-h-0 relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
                         data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
-                        margin={{ top: 5, right: 30, bottom: 5, left: 30 }} // match padding 30
+                        margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                        {/* RED LINE */}
                         <ReferenceLine
                           x={currentFrame}
                           stroke="#ff3333"
@@ -2442,7 +2513,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           type="number"
                           dataKey="frame"
                           domain={[minFrame, maxFrame]}
-                          // ---- FIX: force ticks via tickCount ----
                           tickCount={Math.floor((maxFrame - minFrame) / 50) + 1}
                           allowDataOverflow={true}
                           scale="linear"
@@ -2453,8 +2523,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                           label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
                         />
                         <YAxis
-                          width={30}               // fixed width to reserve space
-                          axisLine={false}         // hide axis line to reduce clutter
+                          width={30}
+                          axisLine={false}
                           tickMargin={0}
                           tick={{ fill: '#ccc', fontSize: 8 }}
                           domain={[0, 'auto']}
@@ -2504,7 +2574,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {/* Non‑blocking overlay hint */}
                 {selectedObjects.length === 0 || timelinePoints.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
@@ -2515,7 +2584,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   </div>
                 ) : null}
 
-                {/* Custom hover tooltip – left side */}
                 {hoverFrame !== null && hoverPos && (
                   <div
                     className="absolute pointer-events-none bg-black/80 text-white text-xs px-2 py-1 rounded shadow-lg border border-white/20"
@@ -2531,7 +2599,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                 )}
               </div>
 
-              {/* Object ranges timeline – fixed small height */}
+              {/* Object ranges timeline */}
               <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
                 {isLoadingUnique ? (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">

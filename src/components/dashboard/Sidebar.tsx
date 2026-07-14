@@ -660,7 +660,8 @@ export default function Sidebar({
       }
 
       // ---- RECALCULATE CONFUSION (R) ----
-      else if (key === "r") {
+      // FIX: only trigger if NOT holding Ctrl or Meta (so Ctrl+R is not blocked)
+      else if (key === "r" && !e.ctrlKey && !e.metaKey) {
         if (!recalculateMutation.isPending && !isConfusionRunning) {
           recalculateMutation.mutate();
         }
