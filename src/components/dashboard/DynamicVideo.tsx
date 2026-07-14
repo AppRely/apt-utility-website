@@ -1915,33 +1915,9 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   return (
                     <Group 
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
-                      onClick={() => {
-                        if(selectedObjects.some(obj => obj.object_id === a.object_id)) { 
-                          safeToast({ title: "Object already selected", duration: 1500 }); 
-                          return; 
-                        }
-                        if(selectedObjects.length >= 2) { 
-                          safeToast({ title: "Maximum 2 selections allowed", duration: 1500 }); 
-                          return; 
-                        }
-                        if(!projectId) return;
-                        objectMutation.mutate({ 
-                          projectId: Number(projectId), 
-                          objectId: a.object_id, 
-                          frameId: a.frame_id 
-                        }, { 
-                          onSuccess: (meta) => { 
-                            setSelectedObjects(prev => [...prev, { 
-                              object_id: a.object_id, 
-                              frame_id: a.frame_id, 
-                              start_frame: meta.data.start_frame, 
-                              end_frame: meta.data.end_frame, 
-                              is_inside: meta.data.is_inside 
-                            }]); 
-                            safeToast({ title: "Object selected", description: `ID: ${a.object_id}`, duration: 1500 });
-                            if (autoPanEnabled && currentZoom > 1.1) setTimeout(() => panToSelectedObject(), 100);
-                          } 
-                        });
+                      onClick={(e) => {
+                        const slot = e.evt.ctrlKey ? 1 : 0;
+                        selectObjectForSlot(a.object_id, slot);
                       }}
                     >
                       {showSkeleton && skeletonGraph.length > 0 && (
