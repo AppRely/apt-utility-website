@@ -748,6 +748,31 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     onError: () => { setIsExporting(false); setDownloadUrl(null); safeToast({ title: "Export Failed", variant: "destructive", duration: 1500 }); },
   });
 
+  // ===== NEW: State and mutations for undo/redo loading dialog =====
+  const [isUndoRedoLoading, setIsUndoRedoLoading] = useState(false);
+
+  const undoMutation = useMutation({
+    mutationFn: () => undoAction(projectId!),
+    onMutate: () => setIsUndoRedoLoading(true),
+    onSuccess: () => {
+      safeToast({ title: "Undo successful", duration: 1500 });
+      if (video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } }));
+    },
+    onError: () => safeToast({ title: "Undo failed", variant: "destructive", duration: 1500 }),
+    onSettled: () => setIsUndoRedoLoading(false),
+  });
+
+  const redoMutation = useMutation({
+    mutationFn: () => redoAction(projectId!),
+    onMutate: () => setIsUndoRedoLoading(true),
+    onSuccess: () => {
+      safeToast({ title: "Redo successful", duration: 1500 });
+      if (video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } }));
+    },
+    onError: () => safeToast({ title: "Redo failed", variant: "destructive", duration: 1500 }),
+    onSettled: () => setIsUndoRedoLoading(false),
+  });
+
   // ===== REFRESH FUNCTION =====
   const handleRefresh = useCallback(() => {
     // Invalidate React Query caches
@@ -1541,18 +1566,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     loadVideo();
   }, [mounted, originalFpsLoadedRef.current]);
 
-  const undoMutation = useMutation({
-    mutationFn: () => undoAction(projectId!),
-    onSuccess: () => { safeToast({ title: "Undo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
-    onError: () => safeToast({ title: "Undo failed", variant: "destructive", duration: 1500 }),
-  });
-  
-  const redoMutation = useMutation({
-    mutationFn: () => redoAction(projectId!),
-    onSuccess: () => { safeToast({ title: "Redo successful", duration: 1500 }); if(video) window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } })); },
-    onError: () => safeToast({ title: "Redo failed", variant: "destructive", duration: 1500 }),
-  });
-
+  // ===== NEW: undo/redo mutations moved up, but we keep the keyboard shortcuts here =====
   useEffect(() => {
     if (!mounted) return;
     const handler = (e: KeyboardEvent) => {
@@ -1563,7 +1577,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canUndo, canRedo, mounted]);
+  }, [canUndo, canRedo, mounted, undoMutation, redoMutation]);
 
   // ===== NEW: Keyboard shortcut for refresh (Ctrl+R) =====
   useEffect(() => {
@@ -1886,6 +1900,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   return (
     <>
+      {/* ===== EXPORT LOADING OVERLAY ===== */}
       {isExporting && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
           <div className="bg-white rounded-lg px-6 py-4 flex items-center gap-3 shadow-lg">
@@ -1894,6 +1909,17 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           </div>
         </div>
       )}
+
+      {/* ===== NEW: UNDO/REDO LOADING OVERLAY ===== */}
+      {isUndoRedoLoading && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white rounded-lg px-6 py-4 flex items-center gap-3 shadow-lg">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <span className="text-sm font-medium">Processing undo/redo…</span>
+          </div>
+        </div>
+      )}
+
       {/* Main container – full viewport, no scroll */}
       <div ref={rootContainerRef} className="h-screen overflow-hidden flex flex-col gap-1 p-2 bg-slate-100">
         <Card className="flex-1 flex flex-col border rounded-[7px] overflow-hidden p-2 min-h-0">
@@ -1913,12 +1939,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               {autoInterpolation && " 🔄 AUTO-INTERP"}
             </div>
             
+            {/* ===== UPDATED: Annotation loading indicator (top‑right corner) ===== */}
             {isLoadingAnnotations && !isFrameStepSequenceRef.current && (
-              <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 rounded-lg">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mb-4 mx-auto"></div>
-                  <p className="text-white text-lg font-semibold">Loading annotations...</p>
-                </div>
+              <div className="absolute top-2 right-2 bg-black/80 text-white px-3 py-1.5 rounded-md flex items-center gap-2 z-50 text-xs">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading annotations…</span>
               </div>
             )}
             
@@ -2291,10 +2316,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
           
           {/* Controls row – fixed height, no shrink */}
           <div className="flex items-center gap-2 flex-wrap flex-shrink-0 py-1">
-            <Button size="icon" variant="ghost" onClick={() => undoMutation.mutate()} disabled={!canUndo || !projectId}>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={() => undoMutation.mutate()} 
+              disabled={!canUndo || !projectId || isUndoRedoLoading}
+            >
               <Undo className="w-4 h-4" />
             </Button>
-            <Button size="icon" variant="ghost" onClick={() => redoMutation.mutate()} disabled={!canRedo || !projectId}>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={() => redoMutation.mutate()} 
+              disabled={!canRedo || !projectId || isUndoRedoLoading}
+            >
               <Redo className="w-4 h-4" />
             </Button>
             <Button size="icon" variant="ghost" onClick={() => handleFrameStep(-1)}>
