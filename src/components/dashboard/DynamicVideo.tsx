@@ -219,7 +219,7 @@ const ObjectRangesTimeline = ({
                   <rect
                     x={startX - 5}
                     y={baseY + startOffsetY - 5}
-                    width="3"
+                    width="2"
                     height="10"
                     rx="2"
                     ry="2"
@@ -234,7 +234,7 @@ const ObjectRangesTimeline = ({
                   <rect
                     x={endX - 5}
                     y={baseY + endOffsetY - 5}
-                    width="6"
+                    width="2"
                     height="10"
                     rx="2"
                     ry="2"
