@@ -24,54 +24,105 @@ import { exportActivityLogs } from "@/lib/api/exportActivityLogs";
 import { AuditModalProps, NormalizedObject } from "@/types";
 
 // Helper to normalize objects based on operation type
+// Returns obj1, obj2, and optionally newObjectId (for break operations)
 function normalizeObjects(
   operation: string,
   objectsData: any
-): { obj1: NormalizedObject; obj2: NormalizedObject | null } {
+): { obj1: NormalizedObject; obj2: NormalizedObject | null; newObjectId: number | null } {
+  let obj1: NormalizedObject = {};
+  let obj2: NormalizedObject | null = null;
+  let newObjectId: number | null = null;
+
   switch (operation) {
     case "link":
     case "swap":
-      return {
-        obj1: {
-          id: objectsData.object_1_id,
-          start_frame: objectsData.object_1_start,
-          end_frame: objectsData.object_1_end,
-        },
-        obj2: {
-          id: objectsData.object_2_id,
-          start_frame: objectsData.object_2_start,
-          end_frame: objectsData.object_2_end,
-        },
+      obj1 = {
+        id: objectsData.object_1_id,
+        start_frame: objectsData.object_1_start,
+        end_frame: objectsData.object_1_end,
       };
+      obj2 = {
+        id: objectsData.object_2_id,
+        start_frame: objectsData.object_2_start,
+        end_frame: objectsData.object_2_end,
+      };
+      break;
 
     case "delete":
-    case "break_object":
-      return {
-        obj1: {
-          id: objectsData.object_id,
-          start_frame: objectsData.object_start,
-          end_frame: objectsData.object_end,
-        },
-        obj2: null,
+      obj1 = {
+        id: objectsData.object_id,
+        start_frame: objectsData.object_start,
+        end_frame: objectsData.object_end,
       };
+      obj2 = null;
+      break;
 
     case "interpolate":
-      return {
-        obj1: {
-          id: objectsData.source_object_id,
-          start_frame: undefined,
-          end_frame: objectsData.source_end_frame,
-        },
-        obj2: {
-          id: objectsData.target_object_id,
-          start_frame: objectsData.target_start_frame,
-          end_frame: undefined,
-        },
+      obj1 = {
+        id: objectsData.source_object_id,
+        start_frame: undefined,
+        end_frame: objectsData.source_end_frame,
       };
+      obj2 = {
+        id: objectsData.target_object_id,
+        start_frame: objectsData.target_start_frame,
+        end_frame: undefined,
+      };
+      break;
+
+    case "break_object":
+      obj1 = {
+        id: objectsData.object_id,
+        start_frame: objectsData.object_start,
+        end_frame: objectsData.object_end,
+      };
+      obj2 = {
+        id: objectsData.new_object_id,
+        start_frame: objectsData.new_object_id_start,
+        end_frame: objectsData.new_object_id_end,
+      };
+      newObjectId = objectsData.new_object_id;
+      break;
+
+    case "break_before":
+    case "break_after":
+      // Both have old_object and new_object fields
+      obj1 = {
+        id: objectsData.old_object_id,
+        start_frame: objectsData.old_start_frame,
+        end_frame: objectsData.old_end_frame,
+      };
+      obj2 = {
+        id: objectsData.new_object_id,
+        start_frame: objectsData.new_start_frame,
+        end_frame: objectsData.new_end_frame,
+      };
+      newObjectId = objectsData.new_object_id;
+      break;
 
     default:
-      return { obj1: {}, obj2: null };
+      obj1 = {};
+      obj2 = null;
+      break;
   }
+
+  return { obj1, obj2, newObjectId };
+}
+
+// Helper to format date in IST (YYYY-MM-DD HH:mm:ss)
+function formatToIST(dateString: string): string {
+  const date = new Date(dateString);
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(date.getTime() + istOffset);
+  
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(istTime.getUTCDate()).padStart(2, "0");
+  const hours = String(istTime.getUTCHours()).padStart(2, "0");
+  const minutes = String(istTime.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(istTime.getUTCSeconds()).padStart(2, "0");
+  
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 export default function AuditModal({
@@ -96,7 +147,6 @@ export default function AuditModal({
       await exportActivityLogs(projectId);
     } catch (err) {
       console.error("Export error:", err);
-      // Optionally show a toast/notification here
     } finally {
       setIsExporting(false);
     }
@@ -166,10 +216,13 @@ export default function AuditModal({
                     Obj2 End
                   </TableHead>
                   <TableHead className="text-center text-white">
+                    New Obj ID
+                  </TableHead>
+                  <TableHead className="text-center text-white">
                     Operation
                   </TableHead>
                   <TableHead className="text-center text-white">
-                    Updated At
+                    Updated At (IST)
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -178,11 +231,11 @@ export default function AuditModal({
                 {[...logs]
                   .sort(
                     (a: any, b: any) =>
-                      new Date(a.activity_updated_at).getTime() -
-                      new Date(b.activity_updated_at).getTime()
+                      new Date(b.activity_updated_at).getTime() -
+                      new Date(a.activity_updated_at).getTime()
                   )
                   .map((log: any, index: number) => {
-                    const { obj1, obj2 } = normalizeObjects(
+                    const { obj1, obj2, newObjectId } = normalizeObjects(
                       log.operation,
                       log.objects_data
                     );
@@ -213,12 +266,16 @@ export default function AuditModal({
                           {obj2?.end_frame ?? "-"}
                         </TableCell>
 
+                        <TableCell className="text-center">
+                          {newObjectId ?? "-"}
+                        </TableCell>
+
                         <TableCell className="text-center capitalize">
                           {log.operation.replace("_", " ")}
                         </TableCell>
 
                         <TableCell className="text-center">
-                          {log.activity_updated_at.split("T")[0]}
+                          {formatToIST(log.activity_updated_at)}
                         </TableCell>
                       </TableRow>
                     );
