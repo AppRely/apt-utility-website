@@ -192,7 +192,8 @@ export default function AuditModal({
         {logs.length > 0 && (
           <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
             <Table>
-              <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
+              {/* Sticky header fix applied here */}
+              <TableHeader className="sticky top-0 z-10 bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
                 <TableRow className="hover:bg-[#3B3B3B]">
                   <TableHead className="text-center text-white">
                     Sr. No.
