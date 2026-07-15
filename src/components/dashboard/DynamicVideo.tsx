@@ -80,6 +80,8 @@ const ObjectRangesTimeline = ({
   minFrame,
   maxFrame,
   plotWidth,
+  leftPadding,
+  rightPadding,
 }: {
   objects: { id: number; start_frame: number; end_frame: number }[];
   currentFrame: number;
@@ -97,11 +99,13 @@ const ObjectRangesTimeline = ({
   minFrame: number;
   maxFrame: number;
   plotWidth: number;
+  leftPadding: number;
+  rightPadding: number;
 }) => {
   const chartHeight = compact ? 30 : 60;
   const padding = compact
-    ? { left: 30, right: 30, top: 2, bottom: 4 }
-    : { left: 30, right: 30, top: 5, bottom: 15 };
+    ? { left: leftPadding, right: rightPadding, top: 2, bottom: 4 }
+    : { left: leftPadding, right: rightPadding, top: 5, bottom: 15 };
 
   const filteredObjects = useMemo(() => {
     return objects.filter(obj =>
@@ -192,7 +196,7 @@ const ObjectRangesTimeline = ({
             }
             return labels;
           })()}
-          {/* Red current-frame line */}
+          {/* Red current-frame line - solid */}
           <line
             x1={frameToX(currentFrame)}
             y1={padding.top}
@@ -200,7 +204,6 @@ const ObjectRangesTimeline = ({
             y2={padding.top + chartHeight}
             stroke="#ff3333"
             strokeWidth="1.5"
-            strokeDasharray="4 2"
           />
           {filteredObjects.map(obj => {
             const color = getObjectColor(obj.id);
@@ -399,9 +402,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
   const [textSizeScale, setTextSizeScale] = useState(1);
 
-  // ========== Shared frame mapping ==========
+  // ========== Shared frame mapping with measured padding ==========
   const [timelineWidth, setTimelineWidth] = useState(800);
+  const [measuredPadding, setMeasuredPadding] = useState({ left: 60, right: 30 });
 
+  // Measure timeline container width
   useEffect(() => {
     if (!timelineContainerRef.current) return;
     const ro = new ResizeObserver((entries) => {
@@ -411,25 +416,6 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     ro.observe(timelineContainerRef.current);
     return () => ro.disconnect();
   }, []);
-
-  // Use padding 30 (matching chart's left margin)
-  const { frameToX, xToFrame, minFrame, maxFrame, plotWidth } = useFrameMapping(
-    timelineWidth,
-    currentFrame,
-    halfWindow,
-    30,   // left padding
-    30    // right padding
-  );
-
-  // ---- ADDED: debug log to verify values ----
-  console.log('🔍 Timeline mapping:', {
-    currentFrame,
-    halfWindow,
-    minFrame,
-    maxFrame,
-    plotWidth,
-    timelineWidth,
-  });
 
   const getObjectColor = useCallback((id: number) => {
     const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
@@ -898,6 +884,15 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   // ---- MODIFIED: chartData now includes every frame in the visible window with nulls ----
   const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
 
+  // Use measured padding (falls back to hardcoded 60/30 if measurement hasn't run yet)
+  const { frameToX, xToFrame, minFrame, maxFrame, plotWidth } = useFrameMapping(
+    timelineWidth,
+    currentFrame,
+    halfWindow,
+    measuredPadding.left,
+    measuredPadding.right
+  );
+
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
 
@@ -939,7 +934,59 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
     return Array.from(dataMap.values()).sort((a, b) => a.frame - b.frame);
   }, [timelinePoints, coordinateMode, minFrame, maxFrame, uniqueObjectIds]);
-  // ------------------------------------------------------------------------------------
+
+  // ===== MEASURE actual axis offset and update measuredPadding =====
+  useLayoutEffect(() => {
+    if (!timelineContainerRef.current) return;
+    const container = timelineContainerRef.current;
+
+    const measure = () => {
+      const axisLine = container.querySelector('.recharts-cartesian-axis-line line');
+      if (!axisLine) {
+        // Fallback: try to find the x-axis domain line (older Recharts)
+        const domainLine = container.querySelector('.recharts-xAxis .recharts-cartesian-axis-line');
+        if (domainLine) {
+          const rect = domainLine.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const left = rect.left - containerRect.left;
+          const right = containerRect.right - rect.right;
+          setMeasuredPadding(prev =>
+            (Math.abs(prev.left - left) > 0.5 || Math.abs(prev.right - right) > 0.5)
+              ? { left, right }
+              : prev
+          );
+        }
+        return;
+      }
+      const axisRect = (axisLine as SVGLineElement).getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const left = axisRect.left - containerRect.left;
+      const right = containerRect.right - axisRect.right;
+
+      // Uncomment for debugging:
+      // console.log('Measured padding:', { left, right, containerWidth: containerRect.width });
+
+      setMeasuredPadding(prev =>
+        (Math.abs(prev.left - left) > 0.5 || Math.abs(prev.right - right) > 0.5)
+          ? { left, right }
+          : prev
+      );
+    };
+
+    // Measure immediately, then on any resize or DOM change that could affect layout.
+    measure();
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(container);
+
+    const mo = new MutationObserver(measure);
+    mo.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [timelineWidth, currentFrame, halfWindow]); // re-measure when the frame range changes
 
   // ===== Cleanup old annotations =====
   useEffect(() => {
@@ -1137,44 +1184,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
-  // Chart mouse mapping for dragging and hover
+  // ===== FIXED: seekFromChartMouse uses shared xToFrame =====
   const seekFromChartMouse = useCallback((clientX: number) => {
     if (!timelineContainerRef.current) return;
     const container = timelineContainerRef.current;
-    const svg = container.querySelector('svg');
-    if (!svg) return;
+    const containerRect = container.getBoundingClientRect();
+    const mouseX = clientX - containerRect.left;
 
-    let plotLeft: number, plotWidthActual: number;
-    const axisLine = svg.querySelector('.recharts-cartesian-axis-line line');
-    if (axisLine) {
-      const rect = axisLine.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      plotLeft = rect.left - containerRect.left;
-      plotWidthActual = rect.width;
-    } else {
-      const rect = container.getBoundingClientRect();
-      const margin = 30; // matching new left padding
-      plotLeft = margin;
-      plotWidthActual = rect.width - 2 * margin;
-    }
-
-    if (plotWidthActual <= 0) return;
-    const mouseX = clientX - container.getBoundingClientRect().left;
-    const relativeX = Math.min(Math.max((mouseX - plotLeft) / plotWidthActual, 0), 1);
-    const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
+    const frame = Math.round(xToFrame(mouseX));
     const targetTime = frame / stableFpsRef.current;
     handleSeek(targetTime);
     return frame;
-  }, [minFrame, maxFrame, handleSeek, stableFpsRef]);
+  }, [xToFrame, handleSeek, stableFpsRef]);
 
-  // Chart mouse events – always active, hover tooltip with container-relative coords
+  // ===== FIXED: mouse-move effect using container-relative coords and correct hit-testing =====
   useEffect(() => {
     if (!timelineContainerRef.current) return;
     const container = timelineContainerRef.current;
 
     const onMouseDown = (e: MouseEvent) => {
-      const svg = container.querySelector('svg');
-      if (!svg || !svg.contains(e.target as Node)) return;
+      const svg = (e.target as Element)?.closest?.('svg');
+      if (!svg || !container.contains(svg)) return;
       e.preventDefault();
       setIsChartDragging(true);
       setHoverFrame(null);
@@ -1182,43 +1212,27 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
 
     const onMouseMove = (e: MouseEvent) => {
-      const svg = container.querySelector('svg');
-      if (!svg || !svg.contains(e.target as Node)) {
+      const svg = (e.target as Element)?.closest?.('svg');
+      if (!svg || !container.contains(svg)) {
         setHoverFrame(null);
         setHoverPos(null);
         return;
       }
+
       const containerRect = container.getBoundingClientRect();
       const mouseX = e.clientX - containerRect.left;
       const mouseY = e.clientY - containerRect.top;
 
       if (!isChartDragging) {
-        let plotLeft: number, plotWidthActual: number;
-        const axisLine = svg.querySelector('.recharts-cartesian-axis-line line');
-        if (axisLine) {
-          const aRect = axisLine.getBoundingClientRect();
-          const cRect = container.getBoundingClientRect();
-          plotLeft = aRect.left - cRect.left;
-          plotWidthActual = aRect.width;
-        } else {
-          const margin = 30;
-          plotLeft = margin;
-          plotWidthActual = containerRect.width - 2 * margin;
-        }
-        if (plotWidthActual > 0) {
-          const relativeX = Math.min(Math.max((mouseX - plotLeft) / plotWidthActual, 0), 1);
-          const frame = Math.round(minFrame + relativeX * (maxFrame - minFrame));
-          setHoverFrame(frame);
-          setHoverPos({ x: mouseX, y: mouseY });
-        }
+        const frame = Math.round(xToFrame(mouseX));
+        setHoverFrame(frame);
+        setHoverPos({ x: mouseX, y: mouseY });
       } else {
         seekFromChartMouse(e.clientX);
       }
     };
 
-    const onMouseUp = () => {
-      setIsChartDragging(false);
-    };
+    const onMouseUp = () => setIsChartDragging(false);
 
     const onMouseLeave = () => {
       setHoverFrame(null);
@@ -1226,8 +1240,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
 
     const onClick = (e: MouseEvent) => {
-      const svg = container.querySelector('svg');
-      if (!svg || !svg.contains(e.target as Node)) return;
+      const svg = (e.target as Element)?.closest?.('svg');
+      if (!svg || !container.contains(svg)) return;
       const frame = seekFromChartMouse(e.clientX);
       if (frame !== undefined) {
         safeToast({ title: `Jumped to frame ${frame}`, duration: 1500 });
@@ -1247,7 +1261,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       container.removeEventListener('mouseleave', onMouseLeave);
       container.removeEventListener('click', onClick);
     };
-  }, [seekFromChartMouse, isChartDragging, safeToast, minFrame, maxFrame]);
+  }, [seekFromChartMouse, isChartDragging, safeToast, xToFrame]);
 
   const togglePlayPause = useCallback(() => {
     if (!video) return;
@@ -2530,17 +2544,18 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
               {/* Trajectory chart */}
               <div className="flex-1 min-h-0 relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
-                  <div style={{ minWidth: '800px', width: '100%', height: '100%' }}>
+                  {/* FIX: removed minWidth so both charts share exact pixel width */}
+                  <div style={{ width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
                         data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        {/* FIX: solid center line */}
                         <ReferenceLine
                           x={currentFrame}
                           stroke="#ff3333"
-                          strokeDasharray="4 4"
                           strokeWidth={2}
                           label={{ value: '◀', position: 'insideTopLeft', fill: '#ff3333', fontSize: 10 }}
                         />
@@ -2666,6 +2681,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     minFrame={minFrame}
                     maxFrame={maxFrame}
                     plotWidth={plotWidth}
+                    leftPadding={measuredPadding.left}
+                    rightPadding={measuredPadding.right}
                   />
                 ) : (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
