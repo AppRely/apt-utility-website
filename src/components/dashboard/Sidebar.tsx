@@ -106,6 +106,10 @@ export default function Sidebar({
   const trkFileName = useSessionStorage("trk_file_name");
   const totalFrames = useSessionStorage("totalFrames");
 
+  // --- Read storage paths from sessionStorage for hover tooltips ---
+  const videoStoragePath = useSessionStorage("video_storage_path");
+  const trkStoragePath = useSessionStorage("trk_storage_path");
+
   // --- Read autoInterpolation from sessionStorage ---
   const autoInterpolation = useSessionStorage("autoInterpolation");
 
@@ -897,7 +901,9 @@ export default function Sidebar({
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
           <span
             className="text-[#404040] text-[13px] truncate"
-            title={mounted ? videoName ?? "" : ""}>
+            title={mounted ? videoStoragePath ?? videoName ?? "" : ""}   // ✅ show storage path on hover
+            onClick={() => {}} // optional
+          >
             {mounted ? formatFileName(videoName ?? "") : "-"}
           </span>
         </div>
@@ -906,7 +912,9 @@ export default function Sidebar({
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
           <span
             className="text-[#404040] text-[13px] truncate"
-            title={mounted ? trkFileName ?? "" : ""}>
+            title={mounted ? trkStoragePath ?? trkFileName ?? "" : ""}   // ✅ show storage path on hover
+            onClick={() => {}}
+          >
             {mounted ? formatFileName(trkFileName ?? "") : "-"}
           </span>
         </div>
@@ -1181,7 +1189,7 @@ export default function Sidebar({
         }
       />
 
-      {/* ==================== BREAK CONFIRM DIALOG WITH BREAK TYPE SELECTION ==================== */}
+      {/* BREAK CONFIRM DIALOG WITH BREAK TYPE SELECTION */}
       <ConfirmDialog
         open={breakDialogOpen}
         onOpenChange={(open) => {
