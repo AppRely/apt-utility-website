@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,8 +8,7 @@ import {
   DialogTitle,
   DialogClose,
 } from "@/components/ui/dialog";
-
-import { X } from "lucide-react";
+import { X, Download } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -17,59 +17,112 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
+import { Button } from "@/components/ui/Button";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
+import { exportActivityLogs } from "@/lib/api/exportActivityLogs";
 import { AuditModalProps, NormalizedObject } from "@/types";
 
+// Helper to normalize objects based on operation type
+// Returns obj1, obj2, and optionally newObjectId (for break operations)
 function normalizeObjects(
   operation: string,
   objectsData: any
-): { obj1: NormalizedObject; obj2: NormalizedObject | null } {
+): { obj1: NormalizedObject; obj2: NormalizedObject | null; newObjectId: number | null } {
+  let obj1: NormalizedObject = {};
+  let obj2: NormalizedObject | null = null;
+  let newObjectId: number | null = null;
+
   switch (operation) {
     case "link":
     case "swap":
-      return {
-        obj1: {
-          id: objectsData.object_1_id,
-          start_frame: objectsData.object_1_start,
-          end_frame: objectsData.object_1_end,
-        },
-        obj2: {
-          id: objectsData.object_2_id,
-          start_frame: objectsData.object_2_start,
-          end_frame: objectsData.object_2_end,
-        },
+      obj1 = {
+        id: objectsData.object_1_id,
+        start_frame: objectsData.object_1_start,
+        end_frame: objectsData.object_1_end,
       };
+      obj2 = {
+        id: objectsData.object_2_id,
+        start_frame: objectsData.object_2_start,
+        end_frame: objectsData.object_2_end,
+      };
+      break;
 
     case "delete":
-    case "break_object":
-      return {
-        obj1: {
-          id: objectsData.object_id,
-          start_frame: objectsData.object_start,
-          end_frame: objectsData.object_end,
-        },
-        obj2: null,
+      obj1 = {
+        id: objectsData.object_id,
+        start_frame: objectsData.object_start,
+        end_frame: objectsData.object_end,
       };
+      obj2 = null;
+      break;
 
     case "interpolate":
-      return {
-        obj1: {
-          id: objectsData.source_object_id,
-          start_frame: undefined,
-          end_frame: objectsData.source_end_frame,
-        },
-        obj2: {
-          id: objectsData.target_object_id,
-          start_frame: objectsData.target_start_frame,
-          end_frame: undefined,
-        },
+      obj1 = {
+        id: objectsData.source_object_id,
+        start_frame: undefined,
+        end_frame: objectsData.source_end_frame,
       };
+      obj2 = {
+        id: objectsData.target_object_id,
+        start_frame: objectsData.target_start_frame,
+        end_frame: undefined,
+      };
+      break;
+
+    case "break_object":
+      obj1 = {
+        id: objectsData.object_id,
+        start_frame: objectsData.object_start,
+        end_frame: objectsData.object_end,
+      };
+      obj2 = {
+        id: objectsData.new_object_id,
+        start_frame: objectsData.new_object_id_start,
+        end_frame: objectsData.new_object_id_end,
+      };
+      newObjectId = objectsData.new_object_id;
+      break;
+
+    case "break_before":
+    case "break_after":
+      // Both have old_object and new_object fields
+      obj1 = {
+        id: objectsData.old_object_id,
+        start_frame: objectsData.old_start_frame,
+        end_frame: objectsData.old_end_frame,
+      };
+      obj2 = {
+        id: objectsData.new_object_id,
+        start_frame: objectsData.new_start_frame,
+        end_frame: objectsData.new_end_frame,
+      };
+      newObjectId = objectsData.new_object_id;
+      break;
 
     default:
-      return { obj1: {}, obj2: null };
+      obj1 = {};
+      obj2 = null;
+      break;
   }
+
+  return { obj1, obj2, newObjectId };
+}
+
+// Helper to format date in IST (YYYY-MM-DD HH:mm:ss)
+function formatToIST(dateString: string): string {
+  const date = new Date(dateString);
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(date.getTime() + istOffset);
+  
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(istTime.getUTCDate()).padStart(2, "0");
+  const hours = String(istTime.getUTCHours()).padStart(2, "0");
+  const minutes = String(istTime.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(istTime.getUTCSeconds()).padStart(2, "0");
+  
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 export default function AuditModal({
@@ -77,6 +130,8 @@ export default function AuditModal({
   onClose,
   projectId,
 }: AuditModalProps) {
+  const [isExporting, setIsExporting] = useState(false);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["activityLogs", projectId],
     queryFn: () => getActivityLogs(projectId),
@@ -84,6 +139,18 @@ export default function AuditModal({
   });
 
   const logs = data?.data?.logs ?? [];
+
+  const handleExport = async () => {
+    if (!projectId) return;
+    setIsExporting(true);
+    try {
+      await exportActivityLogs(projectId);
+    } catch (err) {
+      console.error("Export error:", err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -94,10 +161,20 @@ export default function AuditModal({
           </button>
         </DialogClose>
 
-        <DialogHeader>
+        <DialogHeader className="flex flex-row items-center justify-between pr-8">
           <DialogTitle className="text-center text-xl font-semibold">
             Activity Logs
           </DialogTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={isExporting || logs.length === 0}
+            className="flex items-center gap-2"
+          >
+            <Download className="h-4 w-4" />
+            {isExporting ? "Exporting..." : "Export CSV"}
+          </Button>
         </DialogHeader>
 
         {isLoading && <p className="text-center py-4">Loading...</p>}
@@ -115,7 +192,8 @@ export default function AuditModal({
         {logs.length > 0 && (
           <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
             <Table>
-              <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
+              {/* Sticky header fix applied here */}
+              <TableHeader className="sticky top-0 z-10 bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
                 <TableRow className="hover:bg-[#3B3B3B]">
                   <TableHead className="text-center text-white">
                     Sr. No.
@@ -139,10 +217,13 @@ export default function AuditModal({
                     Obj2 End
                   </TableHead>
                   <TableHead className="text-center text-white">
+                    New Obj ID
+                  </TableHead>
+                  <TableHead className="text-center text-white">
                     Operation
                   </TableHead>
                   <TableHead className="text-center text-white">
-                    Updated At
+                    Updated At (IST)
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -151,11 +232,11 @@ export default function AuditModal({
                 {[...logs]
                   .sort(
                     (a: any, b: any) =>
-                      new Date(a.activity_updated_at).getTime() -
-                      new Date(b.activity_updated_at).getTime()
+                      new Date(b.activity_updated_at).getTime() -
+                      new Date(a.activity_updated_at).getTime()
                   )
                   .map((log: any, index: number) => {
-                    const { obj1, obj2 } = normalizeObjects(
+                    const { obj1, obj2, newObjectId } = normalizeObjects(
                       log.operation,
                       log.objects_data
                     );
@@ -186,12 +267,16 @@ export default function AuditModal({
                           {obj2?.end_frame ?? "-"}
                         </TableCell>
 
+                        <TableCell className="text-center">
+                          {newObjectId ?? "-"}
+                        </TableCell>
+
                         <TableCell className="text-center capitalize">
                           {log.operation.replace("_", " ")}
                         </TableCell>
 
                         <TableCell className="text-center">
-                          {log.activity_updated_at.split("T")[0]}
+                          {formatToIST(log.activity_updated_at)}
                         </TableCell>
                       </TableRow>
                     );

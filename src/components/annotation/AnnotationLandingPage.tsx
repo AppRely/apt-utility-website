@@ -160,6 +160,11 @@ export default function AnnotationLandingPage() {
     sessionStorage.setItem("duration", project.duration);
     sessionStorage.setItem("total_frames", project.total_frames);
     sessionStorage.setItem("skeleton_graph", JSON.stringify(project.skeleton_graph));
+
+    // ✅ Store storage paths for hover and dashboard use
+    sessionStorage.setItem("video_storage_path", project.video_storage_path);
+    sessionStorage.setItem("trk_storage_path", project.trk_storage_path);
+
     router.push("/dashboard");
   };
 
@@ -191,21 +196,25 @@ export default function AnnotationLandingPage() {
               <TableCell>
                 <span
                   className="text-blue-600 hover:text-blue-800 cursor-pointer font-medium"
-                  onClick={() => navigateToDashboard(p)} //  uses helper
+                  onClick={() => navigateToDashboard(p)} // uses helper
                 >
                   {p.project_name}
                 </span>
               </TableCell>
 
+              {/* ✅ Video File – show storage path on hover */}
               <TableCell
                 className="max-w-[220px] truncate"
-                title={p.video_name}>
+                title={p.video_storage_path || p.video_name}
+              >
                 {formatFileName(p.video_name)}
               </TableCell>
 
+              {/* ✅ TRK File – show storage path on hover */}
               <TableCell
                 className="max-w-[260px] truncate"
-                title={p.trk_file_name}>
+                title={p.trk_storage_path || p.trk_file_name}
+              >
                 {formatFileName(p.trk_file_name)}
               </TableCell>
 
@@ -220,7 +229,7 @@ export default function AnnotationLandingPage() {
                   size="sm"
                   disabled={isDeletingRow || isPendingProject}
                   className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                  onClick={() => navigateToDashboard(p)} //  uses helper
+                  onClick={() => navigateToDashboard(p)} // uses helper
                 >
                   Edit
                 </Button>
@@ -233,19 +242,21 @@ export default function AnnotationLandingPage() {
                   onClick={() => {
                     setAuditOpen(true);
                     setAuditProjectId(p.project_id);
-                  }}>
+                  }}
+                >
                   Audit
                 </Button>
 
                 {/* Delete */}
                 <Button
                   size="sm"
-                  disabled={deleteMutation.isPending|| isPendingProject}
+                  disabled={deleteMutation.isPending || isPendingProject}
                   className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
                   onClick={() => {
                     setDeleteOpen(true);
                     setDeleteProjectId(p.project_id);
-                  }}>
+                  }}
+                >
                   {isDeletingRow ? "Deleting..." : "Delete"}
                 </Button>
               </TableCell>
@@ -301,7 +312,8 @@ export default function AnnotationLandingPage() {
         <Button
           size={null}
           onClick={() => setModalOpen(true)}
-          className="bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]">
+          className="bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]"
+        >
           <Image
             src="/images/create.svg"
             alt="Create Icon"
@@ -369,7 +381,8 @@ export default function AnnotationLandingPage() {
             <Button
               variant="outline"
               onClick={() => setDeleteOpen(false)}
-              disabled={deleteMutation.isPending}>
+              disabled={deleteMutation.isPending}
+            >
               Cancel
             </Button>
             <Button
@@ -377,9 +390,9 @@ export default function AnnotationLandingPage() {
               disabled={deleteMutation.isPending}
               onClick={() => {
                 if (!deleteProjectId) return;
-
                 deleteMutation.mutate(deleteProjectId);
-              }}>
+              }}
+            >
               {deleteMutation.isPending ? "Deleting..." : "Delete Project"}
             </Button>
           </div>
