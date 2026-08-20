@@ -1291,11 +1291,11 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
     let direction = e.evt.deltaY > 0 ? -1 : 1;
     if (e.evt.ctrlKey) direction = -direction;
-    if (direction < 0) {
+    if (direction < 0 && oldScale <= 1.3) {
       handleResetZoom();
       return;
     }
-    const newScale = oldScale * 1.1;
+    const newScale = direction > 0 ? oldScale * 1.1 : oldScale / 1.1;
     const clampedScale = Math.min(Math.max(newScale, 1), 10);
     setCurrentZoom(clampedScale);
     const newPos = { x: pointer.x - mousePointTo.x * clampedScale, y: pointer.y - mousePointTo.y * clampedScale };
@@ -1339,6 +1339,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     setCurrentZoom(ns);
     showZoomIndicator();
   };
+  const handleZoomOut = useCallback(() => {
+    if (stageScale.x <= 1.3) {
+      handleResetZoom();
+      return;
+    }
+    const ns = Math.max(stageScale.x / 1.1, 1);
+    setStageScale({x:ns,y:ns});
+    setCurrentZoom(ns);
+    showZoomIndicator();
+  }, [stageScale.x, handleResetZoom, showZoomIndicator]);
   // Auto‑pan
   const panToSelectedObject = useCallback(() => {
     if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
@@ -1854,7 +1864,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "ArrowUp": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.min(16, +(r+0.1).toFixed(2))); else handleFrameStep(10); break;
         case "ArrowDown": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.max(0.1, +(r-0.1).toFixed(2))); else handleFrameStep(-10); break;
         case "Equal": e.preventDefault(); handleZoomIn(); break;
-        case "Minus": e.preventDefault(); handleResetZoom(); break;
+        case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
         case "KeyA": e.preventDefault(); setAutoPanEnabled(p => !p); safeToast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 }); break;
         case "KeyZ":
@@ -1883,7 +1893,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleResetZoom, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
@@ -2364,7 +2374,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
             <span className="text-[11px] text-[#5A5A5A] px-2 whitespace-nowrap tabular-nums">
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
-            <Button size="icon" variant="ghost" onClick={handleResetZoom}>
+            <Button size="icon" variant="ghost" onClick={handleZoomOut}>
               <ZoomOut className="w-3 h-3" />
             </Button>
             <Button size="sm" variant="ghost" onClick={handleResetZoom} className="px-2 text-xs font-semibold">
