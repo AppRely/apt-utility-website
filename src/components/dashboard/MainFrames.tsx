@@ -85,7 +85,7 @@ export function MainFrames() {
   return (
     <main
       ref={mainRef}
-      className="flex flex-1 overflow-hidden pt-3 pl-3 gap-0 h-full min-w-0"
+      className="flex flex-1 overflow-hidden pt-3 pl-3 gap-0 h-full min-w-0 min-h-0"
     >
       {/* Sidebar */}
         <div
@@ -100,7 +100,7 @@ export function MainFrames() {
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={handleSidebarToggle}
           />
-        </div>  
+        </div>
 
       {/* Resize Handle */}
       <div

@@ -1935,7 +1935,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       )}
 
       {/* Main container – full viewport, no scroll */}
-      <div ref={rootContainerRef} className="h-screen overflow-hidden flex flex-col gap-1 p-2 bg-slate-100">
+      <div ref={rootContainerRef} className="h-full min-h-0 overflow-hidden flex flex-col gap-1 p-2 bg-slate-100">
         <Card className="flex-1 flex flex-col border rounded-[7px] overflow-hidden p-2 min-h-0">
           {/* Video container – takes all remaining vertical space */}
           <div

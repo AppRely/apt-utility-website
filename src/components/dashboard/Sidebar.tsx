@@ -540,7 +540,7 @@ export default function Sidebar({
       );
     }
     return (
-      <div className="h-[450px] overflow-y-auto space-y-3 pr-2">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-2">
         {data.data.objects.map((obj: any, index: number) => {
           const isExpanded = expandedIds.has(obj.object_id);
           return (
@@ -617,7 +617,7 @@ export default function Sidebar({
   // -------------------- MAIN RENDER --------------------
   return (
     <Card
-      className="w-full h-full bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-hidden"
+      className="flex w-full h-full min-h-0 flex-col bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-hidden"
       style={{ containerType: "inline-size" }}
     >
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
@@ -701,7 +701,7 @@ export default function Sidebar({
 
       <Separator />
 
-      <CardContent className="p-3 flex-1 flex flex-col">
+      <CardContent className="p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button onClick={() => setObjectsCollapsed(!objectsCollapsed)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition" aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}>
             Object List
