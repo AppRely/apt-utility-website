@@ -5,7 +5,7 @@ import DynamicVideo from "@/components/dashboard/DynamicVideo";
 import Sidebar from "@/components/dashboard/Sidebar";
 import { SelectedObject } from "@/types/selection";
 
-const MIN_SIDEBAR_WIDTH = 10;
+const MIN_SIDEBAR_WIDTH = 11;
 const MAX_SIDEBAR_WIDTH = 40;
 const DEFAULT_SIDEBAR_WIDTH = 25;
 
