@@ -418,7 +418,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
 
-  const [trajectoryDuration, setTrajectoryDuration] = useState(60);
+  const [trajectoryFrames, setTrajectoryFrames] = useState(100);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
   const [textSizeScale, setTextSizeScale] = useState(1);
 
@@ -716,9 +716,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   }, [mounted]);
   
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
-    const MAX_TRAJ_FRAMES = trajectoryDuration * stableFpsRef.current;
     const currentFrameNum = currentDisplayFrameRef.current;
-    const cutoff = Math.max(0, currentFrameNum - MAX_TRAJ_FRAMES);
+    const cutoff = Math.max(0, currentFrameNum - trajectoryFrames);
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
     newTrajectoryFrames.forEach(traj => {
       if (traj.frame_id >= cutoff) {
@@ -728,19 +727,20 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       }
     });
     setTrajectoryPointCount(persistentTrajectoryRef.current.length);
-  }, [trajectoryDuration]);
+  }, [trajectoryFrames]);
 
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
     const frameTrajectory = trajectoryMap.get(objectId);
     if (!frameTrajectory || frameTrajectory.size < 2) return [];
-    const durationFrames = trajectoryDuration * stableFpsRef.current;
-    const cutoffFrame = Math.max(0, upToFrame - durationFrames);
-    const sortedFrames = Array.from(frameTrajectory.keys()).sort((a,b)=>a-b).filter(fid => fid >= cutoffFrame && fid <= upToFrame);
+    const windowStart = Math.max(0, upToFrame - trajectoryFrames);
+    const sortedFrames = Array.from(frameTrajectory.keys()).sort((a,b)=>a-b).filter(
+      fid => fid >= windowStart && fid <= upToFrame
+    );
     if (sortedFrames.length < 2) return [];
     const points: number[] = [];
     sortedFrames.forEach(fid => { const [x,y] = frameTrajectory.get(fid)!; points.push(x,y); });
     return points;
-  }, [trajectoryMap, trajectoryDuration]);
+  }, [trajectoryMap, trajectoryFrames]);
 
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
@@ -1025,11 +1025,10 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     if (removedCount > 0) setAnnotationMap(newMap);
   }, [currentFrame, annotationMap, mounted]);
 
-  // Prune trajectory using trajectoryDuration
+  // Keep only the configured trailing trajectory window cached.
   useEffect(() => {
     if (!mounted) return;
-    const maxTrajFrames = trajectoryDuration * stableFpsRef.current;
-    const cutoffFrame = Math.max(0, currentFrame - maxTrajFrames);
+    const cutoffFrame = Math.max(0, currentFrame - trajectoryFrames);
     let prunedAny = false;
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame);
     for (const [objId, frameMap] of trajectoriesRef.current.entries()) {
@@ -1040,7 +1039,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       setTrajectoryMap(new Map(trajectoriesRef.current));
       setTrajectoryPointCount(persistentTrajectoryRef.current.length);
     }
-  }, [currentFrame, mounted, trajectoryDuration]);
+  }, [currentFrame, mounted, trajectoryFrames]);
 
   // ===== Undo/Redo and operations =====
   useEffect(() => {
@@ -2019,7 +2018,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   />
                 )}
                 {showTrajectory && allObjectIds.map(oid => {
-                  const points = getTrajectoryPointsUpToCurrent(oid, currentFrame+50);
+                  const points = getTrajectoryPointsUpToCurrent(oid, currentFrame);
                   if(points.length < 2) return null;
                   return (
                     <Line 
@@ -2239,14 +2238,14 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                   <div className="border-t border-slate-200 my-1" />
 
                   <div className="flex items-center gap-2 px-3 py-1">
-                    <span className="text-xs text-slate-600">Trajectory (sec):</span>
+                    <span className="text-xs text-slate-600">Trajectory (frames):</span>
                     <input
                       type="number"
                       min="1"
-                      max="300"
+                      max="5000"
                       step="1"
-                      value={trajectoryDuration}
-                      onChange={(e) => setTrajectoryDuration(Number(e.target.value))}
+                      value={trajectoryFrames}
+                      onChange={(e) => setTrajectoryFrames(Number(e.target.value))}
                       className="w-16 h-7 bg-white border border-slate-300 rounded text-xs px-2"
                     />
                   </div>
