@@ -131,3 +131,21 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Hide the browser-provided range thumb; the speed control draws its own. */
+.playback-speed-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.playback-speed-range::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}

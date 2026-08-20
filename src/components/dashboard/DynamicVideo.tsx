@@ -29,6 +29,26 @@ import {
   ReferenceLine,
 } from "recharts";
 
+const MIN_PLAYBACK_RATE = 0.1;
+const MAX_PLAYBACK_RATE = 16;
+
+// Keep normal speed centered while retaining logarithmic control on each side.
+const playbackRateToSliderPosition = (rate: number) => {
+  const clampedRate = Math.min(Math.max(rate, MIN_PLAYBACK_RATE), MAX_PLAYBACK_RATE);
+  if (clampedRate <= 1) {
+    return 50 * (Math.log(clampedRate / MIN_PLAYBACK_RATE) / Math.log(1 / MIN_PLAYBACK_RATE));
+  }
+  return 50 + 50 * (Math.log(clampedRate) / Math.log(MAX_PLAYBACK_RATE));
+};
+
+const sliderPositionToPlaybackRate = (position: number) => {
+  const clampedPosition = Math.min(Math.max(position, 0), 100);
+  const rate = clampedPosition <= 50
+    ? MIN_PLAYBACK_RATE * Math.pow(1 / MIN_PLAYBACK_RATE, clampedPosition / 50)
+    : Math.pow(MAX_PLAYBACK_RATE, (clampedPosition - 50) / 50);
+  return Math.round(rate * 100) / 100;
+};
+
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
   containerWidth: number,
@@ -1291,7 +1311,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
     let direction = e.evt.deltaY > 0 ? -1 : 1;
     if (e.evt.ctrlKey) direction = -direction;
-    if (direction < 0 && oldScale <= 1.3) {
+    if (direction < 0 && oldScale <= 1.3) {      //At or below 130% zoom, Zoom Out resets directly to the normal 1× view. Above 130% zoom, Zoom Out decreases normally.
       handleResetZoom();
       return;
     }
@@ -1862,7 +1882,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "ArrowLeft": e.preventDefault(); handleFrameStep(-1); break;
         case "ArrowRight": e.preventDefault(); handleFrameStep(1); break;
         case "ArrowUp": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.min(16, +(r+0.1).toFixed(2))); else handleFrameStep(10); break;
-        case "ArrowDown": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.max(0.1, +(r-0.1).toFixed(2))); else handleFrameStep(-10); break;
+        case "ArrowDown": e.preventDefault(); if (e.shiftKey) setPlaybackRate(r => Math.max(MIN_PLAYBACK_RATE, +(r-0.1).toFixed(2))); else handleFrameStep(-10); break;
         case "Equal": e.preventDefault(); handleZoomIn(); break;
         case "Minus": e.preventDefault(); handleZoomOut(); break;
         case "KeyT": e.preventDefault(); setShowTrajectory(p => !p); break;
@@ -2404,55 +2424,68 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     <span className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</span>
                   </div>
 
-                  <div className="relative w-full h-6 flex items-center">
-                    <div className="absolute left-0 right-0 h-1.5 bg-[#3a3a3a] rounded-full" />
+                  <div className="relative w-full h-10 flex items-start pt-2">
+                    <div className="absolute left-0 right-0 top-2 h-1.5 bg-[#3a3a3a] rounded-full" />
                     <div
-                      className="absolute left-0 h-1.5 bg-blue-500 rounded-full transition-all"
+                      className="absolute left-0 top-2 h-1.5 bg-blue-500 rounded-full transition-all"
                       style={{
-                        width: `${((playbackRate - 0.1) / (16 - 0.1)) * 100}%`,
+                        width: `${playbackRateToSliderPosition(playbackRate)}%`,
                       }}
                     />
                     <input
                       type="range"
-                      min="0.1"
-                      max="16"
+                      min="0"
+                      max="100"
                       step="0.1"
-                      value={playbackRate}
-                      onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-                      className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer"
+                      value={playbackRateToSliderPosition(playbackRate)}
+                      onChange={(e) => setPlaybackRate(sliderPositionToPlaybackRate(parseFloat(e.target.value)))}
+                      className="playback-speed-range absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer"
                       style={{ margin: 0, padding: 0 }}
                     />
                     <div
-                      className="absolute w-5 h-5 bg-blue-500 rounded-full border-2 border-white shadow-lg shadow-blue-500/30 pointer-events-none"
+                      className="absolute w-5 h-5 bg-blue-500 rounded-full border-2 border-white pointer-events-none"
                       style={{
-                        left: `${((playbackRate - 0.1) / (16 - 0.1)) * 100}%`,
+                        left: `${playbackRateToSliderPosition(playbackRate)}%`,
                         transform: 'translateX(-50%)',
-                        top: '50%',
+                        top: '0.5rem',
                         marginTop: '-10px',
                       }}
                     />
-                    <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none">
-                      {[0.25, 0.5, 1, 2, 4, 8].map((speed) => (
+                    <div className="absolute left-0 right-0 top-2 pointer-events-none">
+                      {[0.1, 0.25, 0.5, 1, 2, 4, 8, 16].map((speed, index, speeds) => (
                         <div
                           key={speed}
-                          className="absolute w-px h-2 bg-gray-500"
+                          className="absolute top-0"
                           style={{
-                            left: `${((speed - 0.1) / (16 - 0.1)) * 100}%`,
-                            transform: 'translateX(-50%)',
+                            left: `${playbackRateToSliderPosition(speed)}%`,
                           }}
-                        />
+                        >
+                          <span className="block h-2 w-px bg-gray-500" />
+                          <span
+                            className="absolute top-2 whitespace-nowrap text-[9px] text-gray-400"
+                            style={{
+                              transform: index === 0
+                                ? 'translateX(0)'
+                                : index === speeds.length - 1
+                                  ? 'translateX(-100%)'
+                                  : 'translateX(-50%)',
+                            }}
+                          >
+                            {speed}x
+                          </span>
+                        </div>
                       ))}
                     </div>
                   </div>
 
-                  <div className="flex justify-between mt-4 gap-2">
-                    {[1, 2, 4, 8].map((speed) => {
+                  <div className="grid grid-cols-4 mt-4 gap-2">
+                    {[0.1, 0.25, 0.5, 1, 2, 4, 8, 16].map((speed) => {
                       const isActive = Math.abs(playbackRate - speed) < 0.05;
                       return (
                         <button
                           key={speed}
                           onClick={() => setPlaybackRate(speed)}
-                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          className={`min-w-0 py-1.5 text-xs font-medium rounded-md transition-colors ${
                             isActive
                               ? 'bg-blue-600 text-white'
                               : 'bg-[#3a3a3a] text-gray-300 hover:bg-[#4a4a4a]'
