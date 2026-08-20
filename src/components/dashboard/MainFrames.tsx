@@ -65,6 +65,10 @@ export function MainFrames() {
     document.body.style.userSelect = "";
   };
 
+  const handleResizeReset = () => {
+    setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+  };
+
   useEffect(() => {
     return () => {
       document.body.style.cursor = "";
@@ -94,11 +98,13 @@ export function MainFrames() {
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize sidebar"
+        aria-label="Resize sidebar. Double-click to reset."
+        title="Double-click to reset"
         onPointerDown={handleResizeStart}
         onPointerMove={handleResizeMove}
         onPointerUp={handleResizeEnd}
         onPointerCancel={handleResizeEnd}
+        onDoubleClick={handleResizeReset}
         className="
           group
           relative
