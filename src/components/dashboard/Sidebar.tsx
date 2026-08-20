@@ -616,7 +616,7 @@ export default function Sidebar({
 
   // -------------------- MAIN RENDER --------------------
   return (
-    <Card className="bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm ">
+    <Card className="w-full h-full bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-hidden">
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
         <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
         <div>
