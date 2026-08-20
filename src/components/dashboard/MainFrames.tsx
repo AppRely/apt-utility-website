@@ -5,14 +5,16 @@ import DynamicVideo from "@/components/dashboard/DynamicVideo";
 import Sidebar from "@/components/dashboard/Sidebar";
 import { SelectedObject } from "@/types/selection";
 
-const MIN_SIDEBAR_WIDTH = 20;
-const MAX_SIDEBAR_WIDTH = 60;
+const MIN_SIDEBAR_WIDTH = 10;
+const MAX_SIDEBAR_WIDTH = 40;
 const DEFAULT_SIDEBAR_WIDTH = 25;
 
 export function MainFrames() {
   const [selectedObjects, setSelectedObjects] = useState<SelectedObject[]>([]);
 
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const isResizingRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -69,6 +71,10 @@ export function MainFrames() {
     setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
   };
 
+  const handleSidebarToggle = () => {
+    setIsSidebarCollapsed((prev) => !prev);
+  };
+
   useEffect(() => {
     return () => {
       document.body.style.cursor = "";
@@ -82,17 +88,19 @@ export function MainFrames() {
       className="flex flex-1 overflow-hidden pt-3 pl-3 gap-0 h-full min-w-0"
     >
       {/* Sidebar */}
-      <div
-        className="h-full shrink-0 min-w-0"
-        style={{
-          width: `${sidebarWidth}%`,
-        }}
-      >
-        <Sidebar
-          selectedObjects={selectedObjects}
-          setSelectedObjects={setSelectedObjects}
-        />
-      </div>
+        <div
+          className="h-full shrink-0 min-w-0 overflow-hidden transition-[width] duration-200"
+          style={{
+            width: isSidebarCollapsed ? "0%" : `${sidebarWidth}%`,
+          }}
+        >
+          <Sidebar
+            selectedObjects={selectedObjects}
+            setSelectedObjects={setSelectedObjects}
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={handleSidebarToggle}
+          />
+        </div>  
 
       {/* Resize Handle */}
       <div
