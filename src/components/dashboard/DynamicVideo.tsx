@@ -155,7 +155,7 @@ const ObjectRangesTimeline = ({
   }
 
   return (
-    <div className={compact ? "bg-slate-900 rounded-md h-full w-full" : "bg-slate-900 border border-slate-700 rounded-xl p-2 w-full"}>
+    <div className={compact ? "relative bg-slate-900 rounded-md h-full w-full" : "bg-slate-900 border border-slate-700 rounded-xl p-2 w-full"}>
       {showControls && (
         <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
           <span className="text-xs text-gray-300">Start/End Timeline:</span>
@@ -217,14 +217,16 @@ const ObjectRangesTimeline = ({
             return labels;
           })()}
           {/* Red current-frame line - solid */}
-          <line
-            x1={frameToX(currentFrame)}
-            y1={padding.top}
-            x2={frameToX(currentFrame)}
-            y2={padding.top + chartHeight}
-            stroke="#ff3333"
-            strokeWidth="1.5"
-          />
+          {!compact && (
+            <line
+              x1={frameToX(currentFrame)}
+              y1={padding.top}
+              x2={frameToX(currentFrame)}
+              y2={padding.top + chartHeight}
+              stroke="#ff3333"
+              strokeWidth="1.5"
+            />
+          )}
           {filteredObjects.map(obj => {
             const color = getObjectColor(obj.id);
             const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
@@ -272,6 +274,16 @@ const ObjectRangesTimeline = ({
             );
           })}
         </svg>
+        {compact && (
+          <div
+            className="pointer-events-none absolute bottom-0 top-0 z-10 w-[2px] bg-[#ff3333]"
+            style={{
+              left: `calc(${leftPadding}px + (100% - ${leftPadding + rightPadding}px) / 2)`,
+              transform: 'translateX(-1px)',
+            }}
+            aria-hidden="true"
+          />
+        )}
       </div>
     </div>
   );
@@ -905,7 +917,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
   const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
 
   // Use measured padding (falls back to hardcoded 60/30 if measurement hasn't run yet)
-  const { frameToX, xToFrame, minFrame, maxFrame, plotWidth } = useFrameMapping(
+  const { frameToX, minFrame, maxFrame, plotWidth } = useFrameMapping(
     timelineWidth,
     currentFrame,
     halfWindow,
@@ -961,23 +973,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     const container = timelineContainerRef.current;
 
     const measure = () => {
-      const axisLine = container.querySelector('.recharts-cartesian-axis-line line');
-      if (!axisLine) {
-        // Fallback: try to find the x-axis domain line (older Recharts)
-        const domainLine = container.querySelector('.recharts-xAxis .recharts-cartesian-axis-line');
-        if (domainLine) {
-          const rect = domainLine.getBoundingClientRect();
-          const containerRect = container.getBoundingClientRect();
-          const left = rect.left - containerRect.left;
-          const right = containerRect.right - rect.right;
-          setMeasuredPadding(prev =>
-            (Math.abs(prev.left - left) > 0.5 || Math.abs(prev.right - right) > 0.5)
-              ? { left, right }
-              : prev
-          );
-        }
-        return;
-      }
+      const axisLine = container.querySelector('.recharts-xAxis .recharts-cartesian-axis-line');
+      if (!axisLine) return;
       const axisRect = (axisLine as SVGLineElement).getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
       const left = axisRect.left - containerRect.left;
@@ -1203,18 +1200,31 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     }
   };
 
-  // ===== FIXED: seekFromChartMouse uses shared xToFrame =====
-  const seekFromChartMouse = useCallback((clientX: number) => {
+  // Convert using the rendered width so responsive SVG scaling cannot offset frames.
+  const clientXToTimelineFrame = useCallback((clientX: number) => {
     if (!timelineContainerRef.current) return;
     const container = timelineContainerRef.current;
     const containerRect = container.getBoundingClientRect();
     const mouseX = clientX - containerRect.left;
+    const renderedPlotWidth = Math.max(
+      1,
+      containerRect.width - measuredPadding.left - measuredPadding.right
+    );
+    const clampedX = Math.min(
+      Math.max(mouseX, measuredPadding.left),
+      measuredPadding.left + renderedPlotWidth
+    );
+    const fraction = (clampedX - measuredPadding.left) / renderedPlotWidth;
+    return Math.round(minFrame + fraction * (maxFrame - minFrame));
+  }, [maxFrame, measuredPadding.left, measuredPadding.right, minFrame]);
 
-    const frame = Math.round(xToFrame(mouseX));
+  const seekFromChartMouse = useCallback((clientX: number) => {
+    const frame = clientXToTimelineFrame(clientX);
+    if (frame === undefined) return;
     const targetTime = frame / stableFpsRef.current;
     handleSeek(targetTime);
     return frame;
-  }, [xToFrame, handleSeek, stableFpsRef]);
+  }, [clientXToTimelineFrame, handleSeek]);
 
   // ===== FIXED: mouse-move effect using container-relative coords and correct hit-testing =====
   useEffect(() => {
@@ -1243,8 +1253,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       const mouseY = e.clientY - containerRect.top;
 
       if (!isChartDragging) {
-        const frame = Math.round(xToFrame(mouseX));
-        setHoverFrame(frame);
+        const frame = clientXToTimelineFrame(e.clientX);
+        setHoverFrame(frame ?? null);
         setHoverPos({ x: mouseX, y: mouseY });
       } else {
         seekFromChartMouse(e.clientX);
@@ -1280,7 +1290,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       container.removeEventListener('mouseleave', onMouseLeave);
       container.removeEventListener('click', onClick);
     };
-  }, [seekFromChartMouse, isChartDragging, safeToast, xToFrame]);
+  }, [clientXToTimelineFrame, seekFromChartMouse, isChartDragging, safeToast]);
 
   const togglePlayPause = useCallback(() => {
     if (!video) return;
@@ -2679,8 +2689,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                     className="absolute pointer-events-none bg-black/80 text-white text-xs px-2 py-1 rounded shadow-lg border border-white/20"
                     style={{
                       left: hoverPos.x - 10,
-                      top: hoverPos.y - 10,
-                      transform: 'translate(-100%, -100%)',
+                      top: hoverPos.y < 32 ? hoverPos.y + 12 : hoverPos.y - 10,
+                      transform: hoverPos.y < 32 ? 'translateX(-100%)' : 'translate(-100%, -100%)',
                       zIndex: 100,
                     }}
                   >
