@@ -629,7 +629,12 @@ export default function Sidebar({
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </div>
-          <p className="text-[#9F9F9F] text-[12px]">PROJECT</p>
+          <p
+            className="text-[#9F9F9F] text-[12px]"
+            title={mounted ? projectName ?? "" : ""}
+          >
+            {mounted ? projectName ?? "" : ""}
+          </p>
         </div>
       </CardHeader>
 
