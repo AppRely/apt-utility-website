@@ -862,6 +862,8 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
       pendingUniqueRangesRef.current.clear();
       uniqueDataCacheRef.current.clear();
       setUniqueIdsData(null);
+      setTimelinePoints([]);
+      setRefreshKey(prev => prev + 1);
     };
     window.addEventListener("operationComplete", handleOperationComplete);
     return () => window.removeEventListener("operationComplete", handleOperationComplete);
