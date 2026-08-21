@@ -7,7 +7,7 @@ import { SelectedObject } from "@/types/selection";
 
 const MIN_SIDEBAR_WIDTH = 11;
 const MAX_SIDEBAR_WIDTH = 40;
-const DEFAULT_SIDEBAR_WIDTH = 25;
+const DEFAULT_SIDEBAR_WIDTH = 20;
 
 export function MainFrames() {
   const [selectedObjects, setSelectedObjects] = useState<SelectedObject[]>([]);
