@@ -17,7 +17,9 @@ export function MainFrames() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const isResizingRef = useRef(false);
+  const pendingSidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
   const mainRef = useRef<HTMLElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   const handleResizeStart = (
     event: React.PointerEvent<HTMLDivElement>
@@ -25,6 +27,7 @@ export function MainFrames() {
     event.preventDefault();
 
     isResizingRef.current = true;
+    pendingSidebarWidthRef.current = sidebarWidth;
 
     event.currentTarget.setPointerCapture(event.pointerId);
 
@@ -35,7 +38,7 @@ export function MainFrames() {
   const handleResizeMove = (
     event: React.PointerEvent<HTMLDivElement>
   ) => {
-    if (!isResizingRef.current || !mainRef.current) return;
+    if (!isResizingRef.current || !mainRef.current || !sidebarRef.current || isSidebarCollapsed) return;
 
     const rect = mainRef.current.getBoundingClientRect();
 
@@ -47,7 +50,8 @@ export function MainFrames() {
       MAX_SIDEBAR_WIDTH
     );
 
-    setSidebarWidth(clampedWidth);
+    pendingSidebarWidthRef.current = clampedWidth;
+    sidebarRef.current.style.width = `${clampedWidth}%`;
   };
 
   const handleResizeEnd = (
@@ -56,6 +60,7 @@ export function MainFrames() {
     if (!isResizingRef.current) return;
 
     isResizingRef.current = false;
+    setSidebarWidth(pendingSidebarWidthRef.current);
 
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -68,6 +73,7 @@ export function MainFrames() {
   };
 
   const handleResizeReset = () => {
+    pendingSidebarWidthRef.current = DEFAULT_SIDEBAR_WIDTH;
     setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
   };
 
@@ -89,7 +95,8 @@ export function MainFrames() {
     >
       {/* Sidebar */}
         <div
-          className="h-full shrink-0 min-w-0 overflow-hidden transition-[width] duration-200"
+          ref={sidebarRef}
+          className="h-full shrink-0 min-w-0 overflow-hidden"
           style={{
             width: isSidebarCollapsed ? "0%" : `${sidebarWidth}%`,
           }}
