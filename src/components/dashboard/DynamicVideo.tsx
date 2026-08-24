@@ -26,8 +26,13 @@ import { exportTrk } from "@/lib/api/exportTrk";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
-  ReferenceLine,
+  ReferenceArea, ReferenceLine,
 } from "recharts";
+
+type DynamicVideoProps = SelectedObjectProps & {
+  clipStartFrame: number | null;
+  clipEndFrame: number | null;
+};
 
 const MIN_PLAYBACK_RATE = 0.1;
 const MAX_PLAYBACK_RATE = 16;
@@ -290,7 +295,12 @@ const ObjectRangesTimeline = ({
 };
 
 // ==================== MAIN COMPONENT ====================
-export default function DynamicVideo({ selectedObjects, setSelectedObjects }: SelectedObjectProps) {
+export default function DynamicVideo({
+  selectedObjects,
+  setSelectedObjects,
+  clipStartFrame,
+  clipEndFrame,
+}: DynamicVideoProps) {
   const queryClient = useQueryClient(); // for invalidating queries
 
   // All state and refs
@@ -926,6 +936,13 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     measuredPadding.left,
     measuredPadding.right
   );
+
+  const clipDisplayEnd = clipEndFrame ?? currentFrame;
+  const clipRangeMin = clipStartFrame === null ? null : Math.min(clipStartFrame, clipDisplayEnd);
+  const clipRangeMax = clipStartFrame === null ? null : Math.max(clipStartFrame, clipDisplayEnd);
+  const visibleClipStart = clipRangeMin === null ? null : Math.max(clipRangeMin, minFrame);
+  const visibleClipEnd = clipRangeMax === null ? null : Math.min(clipRangeMax, maxFrame);
+  const hasVisibleClipRange = visibleClipStart !== null && visibleClipEnd !== null && visibleClipStart <= visibleClipEnd;
 
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
@@ -1801,6 +1818,7 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
     {
       category: "Operations",
       items: [
+        { action: "Capture Clip Start / End", key: "Ctrl+C" },
         { action: "Link Objects", key: "L" },
         { action: "Swap Objects", key: "W" },
         { action: "Break Object", key: "B" },
@@ -2609,6 +2627,16 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        {hasVisibleClipRange && (
+                          <ReferenceArea
+                            x1={visibleClipStart!}
+                            x2={visibleClipEnd!}
+                            fill="#8b5cf6"
+                            fillOpacity={0.18}
+                            stroke="#a78bfa"
+                            strokeOpacity={0.7}
+                          />
+                        )}
                         {/* FIX: solid center line */}
                         <ReferenceLine
                           x={currentFrame}

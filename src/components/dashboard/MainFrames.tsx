@@ -11,6 +11,8 @@ const DEFAULT_SIDEBAR_WIDTH = 20;
 
 export function MainFrames() {
   const [selectedObjects, setSelectedObjects] = useState<SelectedObject[]>([]);
+  const [clipStartFrame, setClipStartFrame] = useState<number | null>(null);
+  const [clipEndFrame, setClipEndFrame] = useState<number | null>(null);
 
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
 
@@ -104,6 +106,10 @@ export function MainFrames() {
           <Sidebar
             selectedObjects={selectedObjects}
             setSelectedObjects={setSelectedObjects}
+            clipStartFrame={clipStartFrame}
+            clipEndFrame={clipEndFrame}
+            setClipStartFrame={setClipStartFrame}
+            setClipEndFrame={setClipEndFrame}
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={handleSidebarToggle}
           />
@@ -152,6 +158,8 @@ export function MainFrames() {
         <DynamicVideo
           selectedObjects={selectedObjects}
           setSelectedObjects={setSelectedObjects}
+          clipStartFrame={clipStartFrame}
+          clipEndFrame={clipEndFrame}
         />
       </div>
     </main>
