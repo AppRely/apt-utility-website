@@ -57,6 +57,29 @@ function normalizeObjects(
       obj2 = null;
       break;
 
+    case "clip":
+      obj1 = {
+        id: objectsData.old_object_id,
+        start_frame: objectsData.clip_start_frame,
+        end_frame: objectsData.clip_end_frame,
+      };
+      obj2 = null;
+      newObjectId = objectsData.new_object_id;
+      break;
+
+    case "overlap":
+      obj1 = {
+        id: objectsData.winner_object,
+        start_frame: objectsData.overlap_start,
+        end_frame: objectsData.overlap_end,
+      };
+      obj2 = {
+        id: objectsData.loser_object,
+        start_frame: objectsData.overlap_start,
+        end_frame: objectsData.overlap_end,
+      };
+      break;
+
     case "interpolate":
       obj1 = {
         id: objectsData.source_object_id,
