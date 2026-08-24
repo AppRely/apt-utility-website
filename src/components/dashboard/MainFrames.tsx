@@ -160,6 +160,8 @@ export function MainFrames() {
           setSelectedObjects={setSelectedObjects}
           clipStartFrame={clipStartFrame}
           clipEndFrame={clipEndFrame}
+          setClipStartFrame={setClipStartFrame}
+          setClipEndFrame={setClipEndFrame}
         />
       </div>
     </main>

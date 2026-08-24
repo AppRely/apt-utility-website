@@ -32,6 +32,8 @@ import {
 type DynamicVideoProps = SelectedObjectProps & {
   clipStartFrame: number | null;
   clipEndFrame: number | null;
+  setClipStartFrame: React.Dispatch<React.SetStateAction<number | null>>;
+  setClipEndFrame: React.Dispatch<React.SetStateAction<number | null>>;
 };
 
 const MIN_PLAYBACK_RATE = 0.1;
@@ -300,6 +302,8 @@ export default function DynamicVideo({
   setSelectedObjects,
   clipStartFrame,
   clipEndFrame,
+  setClipStartFrame,
+  setClipEndFrame,
 }: DynamicVideoProps) {
   const queryClient = useQueryClient(); // for invalidating queries
 
@@ -1806,7 +1810,7 @@ export default function DynamicVideo({
       { action: "Select as second object", key: "Ctrl+0-9" },
       { action: "Cycle first selected object", key: "Tab" },
       { action: "Cycle second selected object", key: "CapsLock" },
-      { action: "Clear selection of object", key: "Backspace" },
+      { action: "Clear clip range / object selection", key: "Backspace" },
       { action: "Next page (if >10 objects)", key: "Shift" },
     ] },
     { category: "Panels", items: [
@@ -1868,6 +1872,12 @@ export default function DynamicVideo({
       if (e.key === "Backspace") {
         if (isInputFocused) return;
         e.preventDefault();
+        if (clipStartFrame !== null) {
+          setClipStartFrame(null);
+          setClipEndFrame(null);
+          safeToast({ title: "Clip range cleared", duration: 1000 });
+          return;
+        }
         if (selectedObjects.length === 2) {
           setSelectedObjects(prev => prev.slice(0, 1));
           safeToast({ title: "Cleared second object", duration: 1000 });
@@ -1947,7 +1957,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
