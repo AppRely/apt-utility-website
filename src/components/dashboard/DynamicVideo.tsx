@@ -1917,7 +1917,12 @@ export default function DynamicVideo({ selectedObjects, setSelectedObjects }: Se
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else safeToast({ title: "Start frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else safeToast({ title: "End frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
-        case "KeyC": e.preventDefault(); openConfusionPopup(); break;
+        case "KeyC":
+          if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            e.preventDefault();
+            openConfusionPopup();
+          }
+          break;
         case "Slash": e.preventDefault(); setShowShortcutModal(prev => !prev); break;
         case "KeyO": e.preventDefault(); setShowObjectSelection(prev => !prev); break;
       }
