@@ -4,7 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
 import { linkObjects } from "@/lib/api/linkObjects";
@@ -14,11 +14,21 @@ import { useToast } from "@/components/hooks/use-toast";
 import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Crop, X } from "lucide-react";
 import { formatFileName } from "@/lib/utils/formatFileName";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
+import { clipObject } from "@/lib/api/clipObject";
+
+type SidebarProps = SelectedObjectProps & {
+  clipStartFrame: number | null;
+  clipEndFrame: number | null;
+  setClipStartFrame: Dispatch<SetStateAction<number | null>>;
+  setClipEndFrame: Dispatch<SetStateAction<number | null>>;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+};
 
 // Helper to get consistent color per object ID
 const getObjectColor = (id: number) => {
@@ -34,7 +44,11 @@ const getObjectColor = (id: number) => {
 export default function Sidebar({
   selectedObjects,
   setSelectedObjects,
-}: SelectedObjectProps) {
+  clipStartFrame,
+  clipEndFrame,
+  setClipStartFrame,
+  setClipEndFrame,
+}: SidebarProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [previousFrameId, setPreviousFrameId] = useState<number | null>(null);
@@ -45,6 +59,7 @@ export default function Sidebar({
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [clipDialogOpen, setClipDialogOpen] = useState(false);
   const [isConfusionRunning, setIsConfusionRunning] = useState(false);
   const [breakType, setBreakType] = useState<'before' | 'after'>('after');
 
@@ -52,7 +67,7 @@ export default function Sidebar({
   const [linkOperation, setLinkOperation] = useState<'link' | 'overlap'>('link');
   const [linkPreferredId, setLinkPreferredId] = useState<number | null>(null);
 
-  const isAnyDialogOpen = linkDialogOpen || swapDialogOpen || breakDialogOpen || deleteDialogOpen;
+  const isAnyDialogOpen = linkDialogOpen || swapDialogOpen || breakDialogOpen || deleteDialogOpen || clipDialogOpen;
   useEffect(() => {
     sessionStorage.setItem("dialogOpen", String(isAnyDialogOpen));
   }, [isAnyDialogOpen]);
@@ -96,6 +111,27 @@ export default function Sidebar({
   const videoStoragePath = useSessionStorage("video_storage_path");
   const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
+
+  // The first object in the current selection is always the clip target.
+  // Removing it naturally promotes the next selected object.
+  const selectedClipObject = selectedObjects[0] ?? null;
+  const capturedClipStart = clipStartFrame !== null && clipEndFrame !== null
+    ? Math.min(clipStartFrame, clipEndFrame)
+    : null;
+  const capturedClipEnd = clipStartFrame !== null && clipEndFrame !== null
+    ? Math.max(clipStartFrame, clipEndFrame)
+    : null;
+  const effectiveClipStart = capturedClipStart;
+  const effectiveClipEnd = capturedClipEnd;
+  const selectedClipObjectEnd = selectedClipObject?.end_frame ?? selectedClipObject?.start_frame;
+  const hasValidClipRange = Boolean(
+    selectedClipObject &&
+    effectiveClipStart !== null &&
+    effectiveClipEnd !== null &&
+    selectedClipObjectEnd !== undefined &&
+    effectiveClipStart >= selectedClipObject.start_frame &&
+    effectiveClipEnd <= selectedClipObjectEnd
+  );
 
   // Query for frame data
   const { data, isLoading, error, refetch } = useQuery({
@@ -211,6 +247,35 @@ export default function Sidebar({
       setDeleteDialogOpen(false);
       setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
+    },
+  });
+
+  const clipMutation = useMutation({
+    mutationFn: ({ objectId, startFrame, endFrame }: { objectId: number; startFrame: number; endFrame: number }) =>
+      clipObject(Number(projectId), {
+        object_id: objectId,
+        start_frame: startFrame,
+        end_frame: endFrame,
+      }),
+    onSuccess: (response) => {
+      const selected = selectedObjects[0];
+      toast({ title: "Clip", description: response?.message || "Object clipped successfully", duration: 3000, className: "text-green-600" });
+      setClipDialogOpen(false);
+      setClipStartFrame(null);
+      setClipEndFrame(null);
+      if (selected && response?.new_object_id != null) {
+        setSelectedObjects(previous => previous.map((object, index) => index === 0 ? {
+          ...object,
+          object_id: response.new_object_id,
+          start_frame: response.clipped_object_track?.start_frame ?? clipStartFrame ?? object.start_frame,
+          end_frame: response.clipped_object_track?.end_frame ?? clipEndFrame ?? object.end_frame,
+        } : object));
+      }
+      window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
+    },
+    onError: (error: Error) => {
+      toast({ title: "Clip Failed", description: error.message, variant: "destructive", duration: 3000 });
+      setClipDialogOpen(false);
     },
   });
 
@@ -437,6 +502,100 @@ export default function Sidebar({
     deleteMutation.mutate(formData);
   };
 
+  const handleClipObject = () => {
+    const selected = selectedClipObject;
+    if (!selected || clipStartFrame === null || clipEndFrame === null || effectiveClipStart === null || effectiveClipEnd === null) {
+      toast({
+        title: "Clip range incomplete",
+        description: "Select an object and capture both clip frames with Ctrl+C.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+    if (!hasValidClipRange) {
+      const objectEnd = selected.end_frame ?? selected.start_frame;
+      toast({
+        title: "Invalid clip range",
+        description: `The complete range must be within frames ${selected.start_frame} to ${objectEnd}.`,
+        variant: "destructive",
+        duration: 3000,
+      });
+      setClipDialogOpen(false);
+      return;
+    }
+    clipMutation.mutate({ objectId: selected.object_id, startFrame: effectiveClipStart, endFrame: effectiveClipEnd });
+  };
+
+  const handleOpenClipDialog = () => {
+    if (!selectedClipObject || clipStartFrame === null) return;
+
+    const currentClipEnd = clipEndFrame ?? Number(frameId);
+    const rangeStart = Math.min(clipStartFrame, currentClipEnd);
+    const rangeEnd = Math.max(clipStartFrame, currentClipEnd);
+    const objectStart = selectedClipObject.start_frame;
+    const objectEnd = selectedClipObject.end_frame ?? objectStart;
+
+    if (rangeStart < objectStart || rangeEnd > objectEnd) {
+      toast({
+        title: "Invalid clip range",
+        description: `Object ${selectedClipObject.object_id} exists only from frame ${objectStart} to ${objectEnd}.`,
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (clipEndFrame === null) {
+      toast({
+        title: "Clip range incomplete",
+        description: "Press Ctrl+C again to capture the end frame.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      return;
+    }
+
+    setClipDialogOpen(true);
+  };
+
+  const clearClipRange = useCallback(() => {
+    setClipStartFrame(null);
+    setClipEndFrame(null);
+    setClipDialogOpen(false);
+  }, [setClipEndFrame, setClipStartFrame]);
+
+  // Ctrl+C captures the start frame first and the end frame second.
+  useEffect(() => {
+    const handleClipShortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== "c") return;
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (activeElement && (
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable
+      )) return;
+      if (isAnyDialogOpen) return;
+      event.preventDefault();
+      if (selectedObjects.length < 1) {
+        toast({ title: "Select an object", description: "At least one object is required for clipping.", variant: "destructive", duration: 3000 });
+        return;
+      }
+      const currentFrame = Number(frameId);
+      if (!Number.isFinite(currentFrame)) return;
+      if (clipStartFrame === null || clipEndFrame !== null) {
+        setClipStartFrame(currentFrame);
+        setClipEndFrame(null);
+        toast({ title: "Clip start captured", description: `Start frame: ${currentFrame}`, duration: 2000 });
+      } else {
+        setClipEndFrame(currentFrame);
+        toast({ title: "Clip end captured", description: `End frame: ${currentFrame}`, duration: 2000 });
+      }
+    };
+    window.addEventListener("keydown", handleClipShortcut);
+    return () => window.removeEventListener("keydown", handleClipShortcut);
+  }, [clipEndFrame, clipStartFrame, frameId, isAnyDialogOpen, selectedObjects.length, setClipEndFrame, setClipStartFrame, toast]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -540,7 +699,7 @@ export default function Sidebar({
       );
     }
     return (
-      <div className="h-[450px] overflow-y-auto space-y-3 pr-2">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-2">
         {data.data.objects.map((obj: any, index: number) => {
           const isExpanded = expandedIds.has(obj.object_id);
           return (
@@ -616,7 +775,10 @@ export default function Sidebar({
 
   // -------------------- MAIN RENDER --------------------
   return (
-    <Card className="bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm ">
+    <Card
+      className="flex w-full h-full min-h-0 flex-col bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-hidden"
+      style={{ containerType: "inline-size" }}
+    >
       <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
         <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
         <div>
@@ -626,7 +788,12 @@ export default function Sidebar({
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </div>
-          <p className="text-[#9F9F9F] text-[12px]">PROJECT</p>
+          <p
+            className="text-[#9F9F9F] text-[12px]"
+            title={mounted ? projectName ?? "" : ""}
+          >
+            {mounted ? projectName ?? "" : ""}
+          </p>
         </div>
       </CardHeader>
 
@@ -648,10 +815,10 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm h-full">
+        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
-            <Button variant="destructive" size="sm" onClick={() => { setSelectedObjects([]); toast({ title: "ℹ️ Cleared", description: "Selected objects cleared.", variant: "default", duration: 3000 }); }} disabled={selectedObjects.length === 0}>
+            <Button variant="destructive" size="sm" onClick={() => { setSelectedObjects([]); clearClipRange(); toast({ title: "ℹ️ Cleared", description: "Selection and clip range cleared.", variant: "default", duration: 3000 }); }} disabled={selectedObjects.length === 0 && clipStartFrame === null}>
               Clear
             </Button>
           </div>
@@ -673,38 +840,61 @@ export default function Sidebar({
             );
           })}
         </div>
+
+        {clipStartFrame !== null && (
+          <div className="mt-3 w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-xs text-violet-800 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-medium">Clip range</div>
+                <button
+                  type="button"
+                  onClick={clearClipRange}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-violet-700 hover:bg-violet-100"
+                  aria-label="Clear clip range"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+              <div>Object ID: {selectedClipObject?.object_id ?? "No object selected"}</div>
+              <div>
+                Start: {clipStartFrame} · End: {clipEndFrame ?? Number(frameId)}
+                {clipEndFrame === null && <span className="ml-1 text-violet-500">(capturing)</span>}
+              </div>
+          </div>
+        )}
       </CardContent>
 
-      <CardContent className="flex flex-col gap-3 p-3 pt-0">
-        <div className="flex justify-center gap-2 w-full">
-          <Button className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
-            <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />{swapMutation.isPending ? "Swapping..." : "Swap"}
-          </Button>
-          <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
-            <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
-          </Button>
-        </div>
-        <div className="flex justify-center gap-2 w-full">
-          <Button className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || linkMutation.isPending} onClick={handleLinkObjects}>
-            <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
-          </Button>
-          <Button className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
-            <Image src="/images/delete.png" alt="Delete" width={35} height={35} />{deleteMutation.isPending ? "Deleting..." : "Delete"}
-          </Button>
-        </div>
-        <div className="flex justify-center gap-2 w-full">
-          <Button className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
-            <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25} />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
-          </Button>
-          <Button className="bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex-1 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
-            <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25} />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
-          </Button>
-        </div>
+      <CardContent className="sidebar-action-grid p-3 pt-0">
+        <Button className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
+          <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />{swapMutation.isPending ? "Swapping..." : "Swap"}
+        </Button>
+        <Button className="min-w-0 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
+          <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
+        </Button>
+        <Button className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || linkMutation.isPending} onClick={handleLinkObjects}>
+          <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
+        </Button>
+        <Button className="min-w-0 w-full bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+          <Image src="/images/delete.png" alt="Delete" width={35} height={35} />{deleteMutation.isPending ? "Deleting..." : "Delete"}
+        </Button>
+        <Button className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
+          <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25} />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
+        </Button>
+        <Button className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
+          <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25} />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
+        </Button>
+        <Button
+          className="min-w-0 w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
+          disabled={!selectedClipObject || clipStartFrame === null || clipMutation.isPending}
+          onClick={handleOpenClipDialog}
+        >
+          <Crop className="h-5 w-5" />
+          {clipMutation.isPending ? "Clipping..." : "Clip"}
+        </Button>
       </CardContent>
 
       <Separator />
 
-      <CardContent className="p-3 flex-1 flex flex-col">
+      <CardContent className="p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button onClick={() => setObjectsCollapsed(!objectsCollapsed)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition" aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}>
             Object List
@@ -899,6 +1089,30 @@ export default function Sidebar({
                 <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
                 <p><strong>Current Range:</strong> {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame}</p>
                 <p className="text-yellow-600 mt-2">Current ID will be deleted.</p>
+              </div>
+            )}
+          </>
+        }
+      />
+
+      {/* CLIP DIALOG */}
+      <ConfirmDialog
+        open={clipDialogOpen}
+        onOpenChange={setClipDialogOpen}
+        title="Confirm Clip Object"
+        confirmText="Confirm Clip"
+        loadingText="Clipping..."
+        confirmClassName="bg-violet-600 hover:bg-violet-700"
+        loading={clipMutation.isPending}
+        onConfirm={handleClipObject}
+        description={
+          <>
+            <p>Create a new object ID for the selected frame range?</p>
+            {selectedClipObject && hasValidClipRange && (
+              <div className="mt-4 space-y-1">
+                <p><strong>Object ID:</strong> {selectedClipObject.object_id}</p>
+                <p><strong>Start frame:</strong> {effectiveClipStart}</p>
+                <p><strong>End frame:</strong> {effectiveClipEnd}</p>
               </div>
             )}
           </>
