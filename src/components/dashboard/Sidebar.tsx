@@ -815,7 +815,7 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm h-full">
+        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
             <Button variant="destructive" size="sm" onClick={() => { setSelectedObjects([]); clearClipRange(); toast({ title: "ℹ️ Cleared", description: "Selection and clip range cleared.", variant: "default", duration: 3000 }); }} disabled={selectedObjects.length === 0 && clipStartFrame === null}>
@@ -839,8 +839,10 @@ export default function Sidebar({
               </div>
             );
           })}
-          {clipStartFrame !== null && (
-            <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
+        </div>
+
+        {clipStartFrame !== null && (
+          <div className="mt-3 w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-xs text-violet-800 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <div className="font-medium">Clip range</div>
                 <button
@@ -857,9 +859,8 @@ export default function Sidebar({
                 Start: {clipStartFrame} · End: {clipEndFrame ?? Number(frameId)}
                 {clipEndFrame === null && <span className="ml-1 text-violet-500">(capturing)</span>}
               </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </CardContent>
 
       <CardContent className="sidebar-action-grid p-3 pt-0">
