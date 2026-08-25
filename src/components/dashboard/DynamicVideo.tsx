@@ -56,6 +56,8 @@ const sliderPositionToPlaybackRate = (position: number) => {
   return Math.round(rate * 100) / 100;
 };
 
+const formatFps = (value: number) => Number(value.toFixed(2)).toString();
+
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
   containerWidth: number,
@@ -2593,10 +2595,14 @@ export default function DynamicVideo({
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#212121] border border-[#3a3a3a] rounded-xl px-5 py-4 shadow-2xl z-50"
                   style={{ width: '280px' }}
                 >
-                  <div className="flex justify-between items-center mb-3">
+                  <div className="flex justify-between items-start mb-1">
                     <span className="text-white text-xs font-medium">Playback speed</span>
-                    <span className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</span>
+                    <div className="text-right">
+                      <div className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</div>
+                      <div className="text-blue-300 text-[10px]">{formatFps(fps * playbackRate)} FPS</div>
+                    </div>
                   </div>
+                  <div className="mb-3 text-[10px] text-gray-400">Source: {formatFps(fps)} FPS</div>
 
                   <div className="relative w-full h-10 flex items-start pt-2">
                     <div className="absolute left-0 right-0 top-2 h-1.5 bg-[#3a3a3a] rounded-full" />
