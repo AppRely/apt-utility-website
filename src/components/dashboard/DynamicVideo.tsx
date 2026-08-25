@@ -10,7 +10,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
-  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw,
+  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw, Palette,
 } from "lucide-react";
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
@@ -58,6 +58,22 @@ const sliderPositionToPlaybackRate = (position: number) => {
 };
 
 const formatFps = (value: number) => Number(value.toFixed(2)).toString();
+
+// Darker annotation colors remain visible on white/light video backgrounds.
+const LIGHT_VIDEO_COLORS = [
+  "#B91C1C", "#166534", "#1D4ED8", "#7E22CE", "#BE185D", "#0F766E",
+  "#9A3412", "#4338CA", "#3F6212", "#A21CAF", "#0369A1", "#92400E",
+  "#6B21A8", "#047857", "#C2410C", "#1E40AF", "#9F1239", "#115E59",
+  "#713F12", "#4C1D95", "#065F46", "#991B1B", "#0E7490", "#6D28D9",
+];
+
+// Brighter annotation colors remain visible on dark/gray video backgrounds.
+const DARK_VIDEO_COLORS = [
+  "#FF5252", "#69F0AE", "#40C4FF", "#FFD740", "#E040FB", "#18FFFF",
+  "#FFAB40", "#B388FF", "#CCFF90", "#FF80AB", "#80D8FF", "#FFFF8D",
+  "#EA80FC", "#64FFDA", "#FF9E80", "#8C9EFF", "#FF8A80", "#A7FFEB",
+  "#FFE57F", "#B39DDB", "#00E676", "#FF6E6E", "#84FFFF", "#B2FF59",
+];
 
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
@@ -463,6 +479,15 @@ export default function DynamicVideo({
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+  const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    return sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light";
+  });
+  const objectColorSlotsRef = useRef<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    sessionStorage.setItem("videoColorTheme", videoColorTheme);
+  }, [videoColorTheme]);
 
   const [trajectoryFrames, setTrajectoryFrames] = useState(100);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
@@ -484,9 +509,14 @@ export default function DynamicVideo({
   }, []);
 
   const getObjectColor = useCallback((id: number) => {
-    const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
-    return colors[id % colors.length];
-  }, []);
+    const colors = videoColorTheme === "light" ? LIGHT_VIDEO_COLORS : DARK_VIDEO_COLORS;
+    let colorSlot = objectColorSlotsRef.current.get(id);
+    if (colorSlot === undefined) {
+      colorSlot = objectColorSlotsRef.current.size % colors.length;
+      objectColorSlotsRef.current.set(id, colorSlot);
+    }
+    return colors[colorSlot];
+  }, [videoColorTheme]);
 
   const getTotalFrames = useCallback(() => {
     if (duration <= 0 || stableFpsRef.current <= 0) return 0;
@@ -2482,6 +2512,22 @@ export default function DynamicVideo({
                   >
                     <Target className="w-4 h-4" />
                     <span>Auto-pan {autoPanEnabled ? "ON" : "OFF"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const nextTheme = videoColorTheme === "light" ? "dark" : "light";
+                      setVideoColorTheme(nextTheme);
+                      safeToast({
+                        title: `${nextTheme === "light" ? "Light" : "Dark"} video color palette`,
+                        duration: 1000,
+                      });
+                    }}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100"
+                    title="Switch annotation colors for the video background"
+                  >
+                    <Palette className="h-4 w-4" />
+                    <span>{videoColorTheme === "light" ? "Light video colors" : "Dark video colors"}</span>
                   </button>
 
                   <button
