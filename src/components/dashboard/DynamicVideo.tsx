@@ -485,23 +485,6 @@ export default function DynamicVideo({
   const [objectPage, setObjectPage] = useState(0);
   const pageSize = 10;
 
-  const objectsInCurrentFrame = useMemo(() => {
-    const objects: { id: number; color: string }[] = [];
-    for (const anno of annotationMap.values()) {
-      if (anno.frame_id === currentFrame) {
-        objects.push({ id: anno.object_id, color: getObjectColor(anno.object_id) });
-      }
-    }
-    return objects.sort((a, b) => a.id - b.id);
-  }, [annotationMap, currentFrame, getObjectColor]);
-
-  const totalPages = Math.ceil(objectsInCurrentFrame.length / pageSize);
-  const currentPageObjects = objectsInCurrentFrame.slice(objectPage * pageSize, (objectPage + 1) * pageSize);
-
-  useEffect(() => {
-    setObjectPage(0);
-  }, [currentFrame]);
-
   const scale = useMemo(() => {
     if (videoWidth && videoHeight) return Math.min(stageWidth / videoWidth, stageHeight / videoHeight);
     return 1;
@@ -514,6 +497,37 @@ export default function DynamicVideo({
 
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
+
+  // Numeric shortcuts apply only to objects whose transformed bounding box is
+  // currently visible after zooming and panning the stage.
+  const objectsInCurrentFrame = useMemo(() => {
+    const objects: { id: number; color: string }[] = [];
+    for (const anno of annotationMap.values()) {
+      if (anno.frame_id !== currentFrame || anno.coordinates.length === 0) continue;
+
+      const transformedXs = anno.coordinates.map(([x]) => stagePos.x + mapX(x) * stageScale.x);
+      const transformedYs = anno.coordinates.map(([, y]) => stagePos.y + mapY(y) * stageScale.y);
+      const minX = Math.min(...transformedXs);
+      const maxX = Math.max(...transformedXs);
+      const minY = Math.min(...transformedYs);
+      const maxY = Math.max(...transformedYs);
+      const isVisible = maxX >= 0 && minX <= stageWidth && maxY >= 0 && minY <= stageHeight;
+
+      if (isVisible) objects.push({ id: anno.object_id, color: getObjectColor(anno.object_id) });
+    }
+    return objects.sort((a, b) => a.id - b.id);
+  }, [annotationMap, currentFrame, getObjectColor, mapX, mapY, stageHeight, stagePos.x, stagePos.y, stageScale.x, stageScale.y, stageWidth]);
+
+  const visibleObjectIdsKey = useMemo(
+    () => objectsInCurrentFrame.map(object => object.id).join(","),
+    [objectsInCurrentFrame]
+  );
+  const totalPages = Math.ceil(objectsInCurrentFrame.length / pageSize);
+  const currentPageObjects = objectsInCurrentFrame.slice(objectPage * pageSize, (objectPage + 1) * pageSize);
+
+  useEffect(() => {
+    setObjectPage(0);
+  }, [currentFrame, visibleObjectIdsKey]);
 
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
@@ -2299,7 +2313,7 @@ export default function DynamicVideo({
             {showObjectSelection && objectsInCurrentFrame.length > 0 && (
               <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
                 <div className="text-xs font-mono mb-2">
-                  Objects in frame ({objectPage+1}/{totalPages || 1})
+                  Visible objects ({objectPage+1}/{totalPages || 1})
                   {totalPages > 1 && (
                     <span className="ml-2 text-yellow-400">
                       (Press <kbd>Shift</kbd> to cycle pages – {totalPages - (objectPage+1)} page{totalPages - (objectPage+1) > 1 ? 's' : ''} remaining)
