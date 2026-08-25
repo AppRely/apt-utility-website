@@ -427,7 +427,16 @@ export default function DynamicVideo({
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
-  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
+  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy">("x");
+  const isSkeletonCoordinateMode = coordinateMode.startsWith("skeleton-");
+  const [skeletonTimelinePoints, setSkeletonTimelinePoints] = useState<Array<{
+    frame: number;
+    objectId: number;
+    coordinates: [number, number][];
+  }>>([]);
+  const [isSkeletonTimelineLoading, setIsSkeletonTimelineLoading] = useState(false);
+  const skeletonTimelineAbortRef = useRef<AbortController | null>(null);
+  const skeletonTimelineRangeRef = useRef<{ start: number; end: number; objectIds: string } | null>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
 
@@ -948,6 +957,88 @@ export default function DynamicVideo({
   const visibleClipEnd = clipRangeMax === null ? null : Math.min(clipRangeMax, maxFrame);
   const hasVisibleClipRange = visibleClipStart !== null && visibleClipEnd !== null && visibleClipStart <= visibleClipEnd;
 
+  const selectedTimelineObjectIds = useMemo(
+    () => selectedObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
+    [selectedObjects]
+  );
+
+  // Skeleton coordinates are loaded separately and only while Skeleton mode is active.
+  // This keeps the existing mean-coordinate timeline and playback loading untouched.
+  useEffect(() => {
+    if (!isSkeletonCoordinateMode || !projectId || !selectedTimelineObjectIds) {
+      skeletonTimelineAbortRef.current?.abort();
+      if (isSkeletonTimelineLoading) setIsSkeletonTimelineLoading(false);
+      return;
+    }
+
+    const totalFrames = getTotalFrames();
+    if (totalFrames <= 0) return;
+    const requestKey = `${selectedTimelineObjectIds}|${refreshKey}`;
+    const visibleStart = Math.max(0, Math.floor(minFrame));
+    const visibleEnd = Math.min(totalFrames, Math.ceil(maxFrame));
+    const loaded = skeletonTimelineRangeRef.current;
+    if (
+      loaded &&
+      loaded.objectIds === requestKey &&
+      visibleStart >= loaded.start &&
+      visibleEnd <= loaded.end
+    ) return;
+
+    const buffer = Math.max(100, Math.floor(halfWindow / 2));
+    const requestStart = Math.max(0, visibleStart - buffer);
+    const requestEnd = Math.min(totalFrames, visibleEnd + buffer);
+    const controller = new AbortController();
+    skeletonTimelineAbortRef.current?.abort();
+    skeletonTimelineAbortRef.current = controller;
+    skeletonTimelineRangeRef.current = {
+      start: requestStart,
+      end: requestEnd,
+      objectIds: requestKey,
+    };
+    setIsSkeletonTimelineLoading(true);
+
+    const selectedIdSet = new Set(selectedTimelineObjectIds.split(",").map(Number));
+    getFrameRangeData(projectId, requestStart, requestEnd, controller.signal)
+      .then(response => {
+        if (!response || controller.signal.aborted) return;
+        const payload = response.data ?? response;
+        const objects = payload.objects ?? [];
+        const points: Array<{ frame: number; objectId: number; coordinates: [number, number][] }> = [];
+
+        objects.forEach((object: any) => {
+          const objectId = Number(object.object_id);
+          if (!selectedIdSet.has(objectId)) return;
+          const frames = object.frames ?? (payload.frame_number !== undefined
+            ? [{ frame_number: payload.frame_number, coordinates: object.coordinates }]
+            : []);
+          frames.forEach((frameData: any) => {
+            const frame = Number(frameData.frame_id ?? frameData.frame_number);
+            const coordinates = Array.isArray(frameData.coordinates)
+              ? frameData.coordinates.filter((point: unknown): point is [number, number] =>
+                  Array.isArray(point) && point.length >= 2 &&
+                  Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
+                  .map(([x, y]: [number, number]) => [Number(x), Number(y)] as [number, number])
+              : [];
+            if (Number.isFinite(frame) && coordinates.length > 0) {
+              points.push({ frame, objectId, coordinates });
+            }
+          });
+        });
+        setSkeletonTimelinePoints(points);
+      })
+      .catch(error => {
+        if (error?.name !== "AbortError") {
+          console.error("[Skeleton Timeline] Fetch error:", error);
+          setSkeletonTimelinePoints([]);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsSkeletonTimelineLoading(false);
+      });
+  }, [getTotalFrames, halfWindow, isSkeletonCoordinateMode, isSkeletonTimelineLoading, maxFrame, minFrame, projectId, refreshKey, selectedTimelineObjectIds]);
+
+  useEffect(() => () => skeletonTimelineAbortRef.current?.abort(), []);
+
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
 
@@ -989,6 +1080,31 @@ export default function DynamicVideo({
 
     return Array.from(dataMap.values()).sort((a, b) => a.frame - b.frame);
   }, [timelinePoints, coordinateMode, minFrame, maxFrame, uniqueObjectIds]);
+
+  const skeletonSeries = useMemo(() => {
+    const keys = new Map<string, { objectId: number; pointIndex: number }>();
+    skeletonTimelinePoints.forEach(point => {
+      point.coordinates.forEach((_, pointIndex) => {
+        const key = `${point.objectId}-${pointIndex}`;
+        if (!keys.has(key)) keys.set(key, { objectId: point.objectId, pointIndex });
+      });
+    });
+    return Array.from(keys.values());
+  }, [skeletonTimelinePoints]);
+
+  const skeletonChartData = useMemo(() => {
+    const rows = new Map<number, Record<string, number>>();
+    skeletonTimelinePoints.forEach(point => {
+      if (point.frame < minFrame || point.frame > maxFrame) return;
+      const row = rows.get(point.frame) ?? { frame: point.frame };
+      point.coordinates.forEach(([x, y], pointIndex) => {
+        row[`obj_${point.objectId}_point_${pointIndex}_x`] = x;
+        row[`obj_${point.objectId}_point_${pointIndex}_y`] = y;
+      });
+      rows.set(point.frame, row);
+    });
+    return Array.from(rows.values()).sort((a, b) => a.frame - b.frame);
+  }, [maxFrame, minFrame, skeletonTimelinePoints]);
 
   // ===== MEASURE actual axis offset and update measuredPadding =====
   useLayoutEffect(() => {
@@ -2579,13 +2695,16 @@ export default function DynamicVideo({
               <div className="flex items-center gap-2">
                 <select
                   value={coordinateMode}
-                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy")}
+                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy")}
                   className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600"
                   disabled={selectedObjects.length === 0}
                 >
                   <option value="x">X Axis</option>
                   <option value="y">Y Axis</option>
                   <option value="xy">X + Y</option>
+                  <option value="skeleton-x">Skeleton X</option>
+                  <option value="skeleton-y">Skeleton Y</option>
+                  <option value="skeleton-xy">Skeleton X + Y</option>
                 </select>
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-gray-400">Visible frames:</span>
@@ -2633,7 +2752,9 @@ export default function DynamicVideo({
                   <div style={{ width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
-                        data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
+                        data={isSkeletonCoordinateMode
+                          ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
+                          : (chartData.length > 0 ? chartData : [{ frame: currentFrame }])}
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
@@ -2674,14 +2795,14 @@ export default function DynamicVideo({
                           tick={{ fill: '#ccc', fontSize: 8 }}
                           domain={[0, 'auto']}
                           label={{
-                            value: coordinateMode === 'x' ? 'X' : coordinateMode === 'y' ? 'Y' : 'X/Y',
+                            value: coordinateMode === 'x' ? 'X' : coordinateMode === 'y' ? 'Y' : coordinateMode === 'skeleton-x' ? 'Points X' : coordinateMode === 'skeleton-y' ? 'Points Y' : 'X/Y',
                             angle: -90,
                             position: 'insideLeft',
                             fill: '#aaa',
                             fontSize: 10,
                           }}
                         />
-                        {uniqueObjectIds.map((objectId) => {
+                        {!isSkeletonCoordinateMode && uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
                           if (coordinateMode === 'x' || coordinateMode === 'xy') {
@@ -2715,11 +2836,47 @@ export default function DynamicVideo({
                           }
                           return lines;
                         })}
+                        {isSkeletonCoordinateMode && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
+                          const color = `hsl(${(objectId * 47 + pointIndex * 23) % 360} 75% 60%)`;
+                          const lines = [];
+                          if (coordinateMode === "skeleton-x" || coordinateMode === "skeleton-xy") {
+                            lines.push(<RechartsLine
+                              key={`${objectId}-${pointIndex}-skeleton-x`}
+                              type="linear"
+                              dataKey={`obj_${objectId}_point_${pointIndex}_x`}
+                              name={`Object ${objectId} Point ${pointIndex + 1} X`}
+                              stroke={color}
+                              strokeWidth={1}
+                              dot={false}
+                              isAnimationActive={false}
+                            />);
+                          }
+                          if (coordinateMode === "skeleton-y" || coordinateMode === "skeleton-xy") {
+                            lines.push(<RechartsLine
+                              key={`${objectId}-${pointIndex}-skeleton-y`}
+                              type="linear"
+                              dataKey={`obj_${objectId}_point_${pointIndex}_y`}
+                              name={`Object ${objectId} Point ${pointIndex + 1} Y`}
+                              stroke={color}
+                              strokeWidth={1}
+                              strokeDasharray="3 2"
+                              dot={false}
+                              isAnimationActive={false}
+                            />);
+                          }
+                          return lines;
+                        })}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {selectedObjects.length === 0 || timelinePoints.length === 0 ? (
+                {isSkeletonTimelineLoading && isSkeletonCoordinateMode ? (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="inline-flex items-center text-xs text-gray-300 bg-slate-900/80 px-3 py-1 rounded">
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading skeleton points…
+                    </span>
+                  </div>
+                ) : selectedObjects.length === 0 || (isSkeletonCoordinateMode ? skeletonChartData.length === 0 : timelinePoints.length === 0) ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
                       {selectedObjects.length === 0
