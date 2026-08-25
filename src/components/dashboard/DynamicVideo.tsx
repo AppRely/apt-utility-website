@@ -23,6 +23,7 @@ import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { getTimelineData } from "@/lib/api/getTimelineData";
 import { getUniqueIdsData, UniqueIdsResponse, UniqueIdObject } from "@/lib/api/getUniqueIdsData";
 import { exportTrk } from "@/lib/api/exportTrk";
+import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
@@ -341,6 +342,14 @@ export default function DynamicVideo({
   const lastSeekFrameRef = useRef<number>(-1);
   const lastSeekTimeRef = useRef<number>(-1);
   const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const breakNavigationHistoryRef = useRef<number[]>([]);
+  const breakNavigationObjectRef = useRef<number | null>(null);
+  const activeBreakRef = useRef<{
+    selectedObjectId: number;
+    breakStart: number;
+    breakEnd: number;
+  } | null>(null);
+  const isBreakNavigationPendingRef = useRef(false);
 
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
@@ -1928,6 +1937,8 @@ export default function DynamicVideo({
       { action: "Jump -10 frames", key: "↓" },
       { action: "Go to Start", key: "S" },
       { action: "Go to End", key: "E" },
+      { action: "Previous break boundary", key: "," },
+      { action: "Next break boundary", key: "." },
     ] },
     { category: "View", items: [
       { action: "Zoom In", key: "=" },
@@ -2076,6 +2087,97 @@ export default function DynamicVideo({
           break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else safeToast({ title: "Start frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else safeToast({ title: "End frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
+        case "Period": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          const selected = selectedObjects[0];
+          if (!selected || !projectId) {
+            safeToast({ title: "Select an object to find its next break", duration: 1500 });
+            break;
+          }
+          if (isBreakNavigationPendingRef.current) break;
+          if (breakNavigationObjectRef.current !== selected.object_id) {
+            breakNavigationHistoryRef.current = [];
+            breakNavigationObjectRef.current = selected.object_id;
+            activeBreakRef.current = null;
+          }
+          const activeBreak = activeBreakRef.current;
+          if (
+            activeBreak?.selectedObjectId === selected.object_id &&
+            currentFrame >= activeBreak.breakStart &&
+            currentFrame < activeBreak.breakEnd
+          ) {
+            breakNavigationHistoryRef.current.push(currentFrame);
+            handleFrameJump(activeBreak.breakEnd);
+            safeToast({
+              title: `Break end: ${activeBreak.breakEnd}`,
+              description: `Range ${activeBreak.breakStart}–${activeBreak.breakEnd}`,
+              duration: 1500,
+            });
+            break;
+          }
+          isBreakNavigationPendingRef.current = true;
+          const breakSearchFrame = activeBreak?.selectedObjectId === selected.object_id &&
+            currentFrame >= activeBreak.breakEnd
+            ? currentFrame + 1
+            : currentFrame;
+          getNextBreak(projectId, selected.object_id, breakSearchFrame)
+            .then(nextBreak => {
+              activeBreakRef.current = {
+                selectedObjectId: selected.object_id,
+                breakStart: nextBreak.break_start,
+                breakEnd: nextBreak.break_end,
+              };
+              if (nextBreak.break_start !== currentFrame) {
+                breakNavigationHistoryRef.current.push(currentFrame);
+              }
+              handleFrameJump(nextBreak.break_start);
+              safeToast({
+                title: `Break start: ${nextBreak.break_start}`,
+                description: `Object ${nextBreak.object_id} · End ${nextBreak.break_end}`,
+                duration: 1800,
+              });
+            })
+            .catch((error: Error) => {
+              const objectEnd = selected.end_frame;
+              const hasNoMoreBreaks = error instanceof NextBreakError && error.status < 500;
+              if (hasNoMoreBreaks && objectEnd !== undefined && currentFrame !== objectEnd) {
+                breakNavigationHistoryRef.current.push(currentFrame);
+                activeBreakRef.current = null;
+                handleFrameJump(objectEnd);
+                safeToast({
+                  title: `Object end: ${objectEnd}`,
+                  description: `No more breaks for object ${selected.object_id}`,
+                  duration: 1800,
+                });
+                return;
+              }
+              safeToast({
+                title: hasNoMoreBreaks ? "Break navigation complete" : "Break navigation failed",
+                description: error.message,
+                variant: hasNoMoreBreaks ? "default" : "destructive",
+                duration: 1800,
+              });
+            })
+            .finally(() => { isBreakNavigationPendingRef.current = false; });
+          break;
+        }
+        case "Comma": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          const selected = selectedObjects[0];
+          if (!selected || breakNavigationObjectRef.current !== selected.object_id) {
+            safeToast({ title: "No previous break in this session", duration: 1500 });
+            break;
+          }
+          const previousFrame = breakNavigationHistoryRef.current.pop();
+          if (previousFrame === undefined) {
+            safeToast({ title: "No previous break in this session", duration: 1500 });
+            break;
+          }
+          handleFrameJump(previousFrame);
+          break;
+        }
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
         case "KeyC":
           if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -2089,7 +2191,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
