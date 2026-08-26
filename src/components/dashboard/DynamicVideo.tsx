@@ -24,6 +24,10 @@ import { getTimelineData } from "@/lib/api/getTimelineData";
 import { getUniqueIdsData, UniqueIdsResponse, UniqueIdObject } from "@/lib/api/getUniqueIdsData";
 import { exportTrk } from "@/lib/api/exportTrk";
 import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
+import {
+  getTrajectoryLinkingSuggestions,
+  TrajectoryLinkingSuggestion,
+} from "@/lib/api/getTrajectoryLinkingSuggestions";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
@@ -366,6 +370,14 @@ export default function DynamicVideo({
     breakEnd: number;
   } | null>(null);
   const isBreakNavigationPendingRef = useRef(false);
+  const suggestionRequestIdRef = useRef(0);
+  const [linkingSuggestions, setLinkingSuggestions] = useState<{
+    selectedObjectId: number;
+    breakStart: number;
+    breakEnd: number;
+    items: TrajectoryLinkingSuggestion[];
+  } | null>(null);
+  const [areLinkingSuggestionsLoading, setAreLinkingSuggestionsLoading] = useState(false);
 
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
@@ -2020,6 +2032,59 @@ export default function DynamicVideo({
     window.open(url, "_blank", features);
   }, [projectId]);
 
+  const loadLinkingSuggestions = useCallback((
+    selectedObjectId: number,
+    breakStart: number,
+    breakEnd: number,
+    objectStart?: number,
+  ) => {
+    if (!projectId) return;
+    // A break at frame 0/the object's first frame has no preceding segment to link.
+    if (breakStart <= 0 || (objectStart !== undefined && breakStart <= objectStart)) {
+      suggestionRequestIdRef.current += 1;
+      setLinkingSuggestions(null);
+      setAreLinkingSuggestionsLoading(false);
+      return;
+    }
+    const requestId = ++suggestionRequestIdRef.current;
+    setAreLinkingSuggestionsLoading(true);
+    setLinkingSuggestions({ selectedObjectId, breakStart, breakEnd, items: [] });
+    getTrajectoryLinkingSuggestions(projectId, {
+      object_id: selectedObjectId,
+      break_start: breakStart,
+      break_end: breakEnd,
+      limit: 5,
+    })
+      .then(items => {
+        if (suggestionRequestIdRef.current !== requestId) return;
+        setLinkingSuggestions({ selectedObjectId, breakStart, breakEnd, items });
+      })
+      .catch((error: Error) => {
+        if (suggestionRequestIdRef.current !== requestId) return;
+        setLinkingSuggestions(null);
+        safeToast({
+          title: "Could not load linking suggestions",
+          description: error.message,
+          variant: "destructive",
+          duration: 1800,
+        });
+      })
+      .finally(() => {
+        if (suggestionRequestIdRef.current === requestId) {
+          setAreLinkingSuggestionsLoading(false);
+        }
+      });
+  }, [projectId, safeToast]);
+
+  useEffect(() => {
+    const selectedObjectId = selectedObjects[0]?.object_id;
+    if (linkingSuggestions && linkingSuggestions.selectedObjectId !== selectedObjectId) {
+      suggestionRequestIdRef.current += 1;
+      setLinkingSuggestions(null);
+      setAreLinkingSuggestionsLoading(false);
+    }
+  }, [selectedObjects, linkingSuggestions]);
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === "UNIQUE_SELECT") {
@@ -2158,6 +2223,12 @@ export default function DynamicVideo({
                 breakStart: nextBreak.break_start,
                 breakEnd: nextBreak.break_end,
               };
+              loadLinkingSuggestions(
+                selected.object_id,
+                nextBreak.break_start,
+                nextBreak.break_end,
+                selected.start_frame,
+              );
               if (nextBreak.break_start !== currentFrame) {
                 breakNavigationHistoryRef.current.push(currentFrame);
               }
@@ -2221,7 +2292,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
@@ -2278,15 +2349,46 @@ export default function DynamicVideo({
             ref={videoContainerRef}
             className="relative flex items-center justify-center w-full bg-black rounded-lg flex-1 min-h-0 overflow-hidden"
           >
-            <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
-              FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
-              {isSeekingRef.current && " 🔄 SEEKING"}
-              {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
-              {isLoadingAnnotations && " 📥 LOADING"}
-              {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
-              {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
-              {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
-              {autoInterpolation && " 🔄 AUTO-INTERP"}
+            <div className="absolute top-2 left-2 z-50 text-xs">
+              <div className="rounded bg-black/80 px-2 py-1 font-mono text-green-400">
+                FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
+                {isSeekingRef.current && " 🔄 SEEKING"}
+                {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
+                {isLoadingAnnotations && " 📥 LOADING"}
+                {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
+                {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
+                {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
+                {autoInterpolation && " 🔄 AUTO-INTERP"}
+              </div>
+              {linkingSuggestions &&
+                currentFrame >= linkingSuggestions.breakStart &&
+                currentFrame < linkingSuggestions.breakEnd && (
+                  <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                    <div className="mb-1.5 text-xs font-semibold text-white">
+                      Top Matches
+                    </div>
+                    {areLinkingSuggestionsLoading ? (
+                      <div className="text-slate-400">Loading...</div>
+                    ) : linkingSuggestions.items.length > 0 ? (
+                      <div className="space-y-0.5">
+                        {linkingSuggestions.items.slice(0, 5).map((suggestion, index) => (
+                          <div
+                            key={suggestion.object_id}
+                            className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
+                              index === 0 ? "bg-white/15 text-white" : "text-white/85"
+                            }`}
+                          >
+                            <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                            <span>{suggestion.object_id}</span>
+                            <span>{(suggestion.score * 100).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-slate-400">None found</div>
+                    )}
+                  </div>
+                )}
             </div>
             
             {/* ===== UPDATED: Annotation loading indicator (top‑right corner) ===== */}
@@ -2296,7 +2398,7 @@ export default function DynamicVideo({
                 <span>Loading annotations…</span>
               </div>
             )}
-            
+
             <Stage 
               ref={stageRef} 
               width={stageWidth} 
