@@ -496,8 +496,8 @@ export default function DynamicVideo({
         object.linkDistance <= NEXT_LINK_MAX_DISTANCE_PX
       )
       .sort((a, b) =>
-        (a.linkDistance ?? Infinity) - (b.linkDistance ?? Infinity) ||
         a.start_frame - b.start_frame ||
+        (a.linkDistance ?? Infinity) - (b.linkDistance ?? Infinity) ||
         a.id - b.id
       )
       .slice(0, 5);
