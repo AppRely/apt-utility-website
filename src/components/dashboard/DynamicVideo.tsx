@@ -28,7 +28,11 @@ import {
   getTrajectoryLinkingSuggestions,
   TrajectoryLinkingSuggestion,
 } from "@/lib/api/getTrajectoryLinkingSuggestions";
-import { NEXT_LINK_START_THRESHOLD_FRAMES } from "@/lib/trajectoryLinking";
+import {
+  getCoordinateDistance,
+  NEXT_LINK_MAX_DISTANCE_PX,
+  NEXT_LINK_START_THRESHOLD_FRAMES,
+} from "@/lib/trajectoryLinking";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
@@ -477,13 +481,25 @@ export default function DynamicVideo({
     if (selectedEnd === undefined) return [];
     const windowStart = selectedEnd + 1;
     const windowEnd = selectedEnd + NEXT_LINK_START_THRESHOLD_FRAMES;
+    const source = uniqueIdsData?.data?.objects.find(object => object.id === selected.object_id);
+    if (!source?.end_coordinate) return [];
     return (uniqueIdsData?.data?.objects ?? [])
+      .map(object => ({
+        ...object,
+        linkDistance: getCoordinateDistance(source.end_coordinate, object.start_coordinate),
+      }))
       .filter(object =>
         object.id !== selected.object_id &&
         object.start_frame >= windowStart &&
-        object.start_frame <= windowEnd
+        object.start_frame <= windowEnd &&
+        object.linkDistance !== null &&
+        object.linkDistance <= NEXT_LINK_MAX_DISTANCE_PX
       )
-      .sort((a, b) => a.start_frame - b.start_frame || a.id - b.id)
+      .sort((a, b) =>
+        (a.linkDistance ?? Infinity) - (b.linkDistance ?? Infinity) ||
+        a.start_frame - b.start_frame ||
+        a.id - b.id
+      )
       .slice(0, 5);
   }, [selectedObjects, uniqueIdsData]);
 
@@ -693,6 +709,10 @@ export default function DynamicVideo({
         id: obj.object_id,
         start_frame: obj.start_frame,
         end_frame: obj.end_frame,
+        start_coordinate: obj.start_coordinate,
+        end_coordinate: obj.end_coordinate,
+        N_frame: obj.N_frame,
+        trk_len: obj.trk_len,
       };
       if (!uniqueMap.has(normalized.id) || normalized.end_frame > uniqueMap.get(normalized.id)!.end_frame) {
         uniqueMap.set(normalized.id, normalized);

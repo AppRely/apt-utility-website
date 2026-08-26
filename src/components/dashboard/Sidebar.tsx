@@ -21,7 +21,11 @@ import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 import { clipObject } from "@/lib/api/clipObject";
 import { getUniqueIdsData, type UniqueIdObject } from "@/lib/api/getUniqueIdsData";
-import { NEXT_LINK_START_THRESHOLD_FRAMES } from "@/lib/trajectoryLinking";
+import {
+  getCoordinateDistance,
+  NEXT_LINK_MAX_DISTANCE_PX,
+  NEXT_LINK_START_THRESHOLD_FRAMES,
+} from "@/lib/trajectoryLinking";
 
 type SidebarProps = SelectedObjectProps & {
   clipStartFrame: number | null;
@@ -124,7 +128,7 @@ export default function Sidebar({
     : null;
   const { data: nextLinkData, isLoading: isLoadingNextLinkCandidates } = useQuery({
     queryKey: ["nextLinkCandidates", projectId, selectedClipObject?.object_id, nextLinkWindowStart, nextLinkWindowEnd],
-    queryFn: () => getUniqueIdsData(Number(projectId), nextLinkWindowStart!, nextLinkWindowEnd!),
+    queryFn: () => getUniqueIdsData(Number(projectId), selectedObjectEnd!, nextLinkWindowEnd!),
     enabled: Boolean(
       projectId &&
       selectedObjects.length === 1 &&
@@ -135,18 +139,31 @@ export default function Sidebar({
   });
   const nextLinkCandidates = useMemo(() => {
     if (selectedObjects.length !== 1 || nextLinkWindowStart === null || nextLinkWindowEnd === null) return [];
-    return (nextLinkData?.data?.objects ?? [])
+    const normalizedObjects = (nextLinkData?.data?.objects ?? [])
       .map(object => ({
         ...object,
         id: object.id ?? (object as UniqueIdObject & { object_id?: number }).object_id,
+      }));
+    const source = normalizedObjects.find(object => object.id === selectedClipObject?.object_id);
+    if (!source?.end_coordinate) return [];
+    return normalizedObjects
+      .map(object => ({
+        ...object,
+        linkDistance: getCoordinateDistance(source.end_coordinate, object.start_coordinate),
       }))
-      .filter((object): object is UniqueIdObject =>
+      .filter(object =>
         object.id !== undefined &&
         object.id !== selectedClipObject?.object_id &&
         object.start_frame >= nextLinkWindowStart &&
-        object.start_frame <= nextLinkWindowEnd
+        object.start_frame <= nextLinkWindowEnd &&
+        object.linkDistance !== null &&
+        object.linkDistance <= NEXT_LINK_MAX_DISTANCE_PX
       )
-      .sort((a, b) => a.start_frame - b.start_frame || a.id - b.id);
+      .sort((a, b) =>
+        (a.linkDistance ?? Infinity) - (b.linkDistance ?? Infinity) ||
+        a.start_frame - b.start_frame ||
+        a.id - b.id
+      );
   }, [nextLinkData, nextLinkWindowEnd, nextLinkWindowStart, selectedClipObject?.object_id, selectedObjects.length]);
   const capturedClipStart = clipStartFrame !== null && clipEndFrame !== null
     ? Math.min(clipStartFrame, clipEndFrame)
