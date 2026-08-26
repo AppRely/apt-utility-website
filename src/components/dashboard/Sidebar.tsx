@@ -416,20 +416,17 @@ export default function Sidebar({
 
     linkOrderRef.current = { obj1: first, obj2: second };
 
-    // Check overlap for default selection
-    // FIX: use non-null assertion on first.start_frame inside fallback
+    // Non-overlapping trajectories can be linked unambiguously, so link them
+    // immediately. Only overlapping ranges require a user decision.
     const overlap = (first.end_frame ?? first.start_frame!) >= second.start_frame!;
 
-    // Set default operation and preferred ID
-    if (overlap) {
-      setLinkOperation('overlap');
-      setLinkPreferredId(first.object_id);
-    } else {
-      setLinkOperation('link');
-      setLinkPreferredId(null);
+    if (!overlap) {
+      performLink('link');
+      return;
     }
 
-    // Open the unified dialog
+    setLinkOperation('overlap');
+    setLinkPreferredId(first.object_id);
     setLinkDialogOpen(true);
   };
   // --------------------------------------------------------------
