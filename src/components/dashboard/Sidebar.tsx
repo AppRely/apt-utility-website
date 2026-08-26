@@ -4,7 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, useCallback, useRef, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
 import { linkObjects } from "@/lib/api/linkObjects";
@@ -20,6 +20,8 @@ import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 import { clipObject } from "@/lib/api/clipObject";
+import { getUniqueIdsData, type UniqueIdObject } from "@/lib/api/getUniqueIdsData";
+import { NEXT_LINK_START_THRESHOLD_FRAMES } from "@/lib/trajectoryLinking";
 
 type SidebarProps = SelectedObjectProps & {
   clipStartFrame: number | null;
@@ -115,6 +117,37 @@ export default function Sidebar({
   // The first object in the current selection is always the clip target.
   // Removing it naturally promotes the next selected object.
   const selectedClipObject = selectedObjects[0] ?? null;
+  const selectedObjectEnd = selectedClipObject?.end_frame ?? selectedClipObject?.start_frame;
+  const nextLinkWindowStart = selectedObjectEnd !== undefined ? selectedObjectEnd + 1 : null;
+  const nextLinkWindowEnd = nextLinkWindowStart !== null
+    ? nextLinkWindowStart + NEXT_LINK_START_THRESHOLD_FRAMES - 1
+    : null;
+  const { data: nextLinkData, isLoading: isLoadingNextLinkCandidates } = useQuery({
+    queryKey: ["nextLinkCandidates", projectId, selectedClipObject?.object_id, nextLinkWindowStart, nextLinkWindowEnd],
+    queryFn: () => getUniqueIdsData(Number(projectId), nextLinkWindowStart!, nextLinkWindowEnd!),
+    enabled: Boolean(
+      projectId &&
+      selectedObjects.length === 1 &&
+      nextLinkWindowStart !== null &&
+      nextLinkWindowEnd !== null
+    ),
+    staleTime: 30_000,
+  });
+  const nextLinkCandidates = useMemo(() => {
+    if (selectedObjects.length !== 1 || nextLinkWindowStart === null || nextLinkWindowEnd === null) return [];
+    return (nextLinkData?.data?.objects ?? [])
+      .map(object => ({
+        ...object,
+        id: object.id ?? (object as UniqueIdObject & { object_id?: number }).object_id,
+      }))
+      .filter((object): object is UniqueIdObject =>
+        object.id !== undefined &&
+        object.id !== selectedClipObject?.object_id &&
+        object.start_frame >= nextLinkWindowStart &&
+        object.start_frame <= nextLinkWindowEnd
+      )
+      .sort((a, b) => a.start_frame - b.start_frame || a.id - b.id);
+  }, [nextLinkData, nextLinkWindowEnd, nextLinkWindowStart, selectedClipObject?.object_id, selectedObjects.length]);
   const capturedClipStart = clipStartFrame !== null && clipEndFrame !== null
     ? Math.min(clipStartFrame, clipEndFrame)
     : null;
@@ -373,7 +406,37 @@ export default function Sidebar({
     linkMutation.mutate(payload);
   };
 
+  const linkNextCandidate = (candidate: UniqueIdObject) => {
+    const selected = selectedObjects[0];
+    if (!selected || selected.start_frame === undefined) return;
+    linkOrderRef.current = {
+      obj1: selected,
+      obj2: {
+        object_id: candidate.id,
+        frame_id: candidate.start_frame,
+        start_frame: candidate.start_frame,
+        end_frame: candidate.end_frame,
+      },
+    };
+    performLink('link');
+  };
+
   const handleLinkObjects = () => {
+    if (selectedObjects.length === 1) {
+      const candidate = nextLinkCandidates[0];
+      if (candidate) {
+        linkNextCandidate(candidate);
+      } else {
+        toast({
+          title: isLoadingNextLinkCandidates ? "Finding next object" : "No nearby object found",
+          description: isLoadingNextLinkCandidates
+            ? "Please try again when the search completes."
+            : `No object starts within ${NEXT_LINK_START_THRESHOLD_FRAMES} frames after this object ends.`,
+          duration: 2500,
+        });
+      }
+      return;
+    }
     if (selectedObjects.length !== 2) {
       toast({
         title: "⚠️ Invalid Selection",
@@ -602,8 +665,8 @@ export default function Sidebar({
       if (preventDefaultKeys.includes(key)) e.preventDefault();
 
       if (key === "l") {
-        if (selectedObjects.length !== 2) {
-          toast({ title: "⚠️ Invalid Selection", description: "Please select exactly 2 objects to link.", variant: "destructive", duration: 3000 });
+        if (![1, 2].includes(selectedObjects.length)) {
+          toast({ title: "⚠️ Invalid Selection", description: "Select an object to link.", variant: "destructive", duration: 3000 });
           return;
         }
         if (!linkMutation.isPending) handleLinkObjects();
@@ -867,7 +930,7 @@ export default function Sidebar({
         <Button className="min-w-0 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
           <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
-        <Button className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || linkMutation.isPending} onClick={handleLinkObjects}>
+        <Button className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
           <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
         <Button className="min-w-0 w-full bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
