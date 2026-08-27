@@ -23,6 +23,10 @@ import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { getTimelineData } from "@/lib/api/getTimelineData";
 import { getUniqueIdsData, UniqueIdsResponse, UniqueIdObject } from "@/lib/api/getUniqueIdsData";
 import { exportTrk } from "@/lib/api/exportTrk";
+import {
+  getTrajectoryClipSuggestions,
+  TrajectoryClipSuggestion,
+} from "@/lib/api/getTrajectoryClipSuggestions";
 import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
 import {
   getTrajectoryLinkingSuggestions,
@@ -442,6 +446,51 @@ export default function DynamicVideo({
   const safeToast = useCallback((...args: Parameters<typeof toast>) => {
     setTimeout(() => toast(...args), 0);
   }, [toast]);
+
+  const [clipSuggestions, setClipSuggestions] = useState<TrajectoryClipSuggestion[]>([]);
+  const [areClipSuggestionsLoading, setAreClipSuggestionsLoading] = useState(false);
+
+  useEffect(() => {
+    const selected = selectedObjects.length === 1 ? selectedObjects[0] : null;
+    if (
+      !projectId ||
+      !selected ||
+      selected.start_frame === undefined ||
+      selected.end_frame === undefined
+    ) {
+      setClipSuggestions([]);
+      setAreClipSuggestionsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setClipSuggestions([]);
+    setAreClipSuggestionsLoading(true);
+    getTrajectoryClipSuggestions(projectId, {
+      object_id: selected.object_id,
+      start_frame: selected.start_frame,
+      end_frame: selected.end_frame,
+      limit: 5,
+    }, controller.signal)
+      .then(data => {
+        if (!controller.signal.aborted) setClipSuggestions(data.suggestions.slice(0, 5));
+      })
+      .catch((error: Error) => {
+        if (controller.signal.aborted || error.name === "AbortError") return;
+        setClipSuggestions([]);
+        safeToast({
+          title: "Could not load clip suggestions",
+          description: error.message,
+          variant: "destructive",
+          duration: 1800,
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAreClipSuggestionsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [projectId, safeToast, selectedObjects]);
 
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
   const lastPanFrameRef = useRef<number>(-1);
@@ -2536,6 +2585,41 @@ export default function DynamicVideo({
                     ))}
                   </div>
                   <div className="mt-1.5 text-[11px] text-white/60">Press L to link the first match</div>
+                </div>
+              )}
+              {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
+                <div className="mt-2 min-w-64 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                  <div className="mb-1.5 text-xs font-semibold">Clip Suggestions</div>
+                  {areClipSuggestionsLoading ? (
+                    <div className="text-white/60">Analyzing trajectory…</div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {clipSuggestions.map((suggestion, index) => (
+                        <button
+                          key={`${suggestion.start_frame}-${suggestion.end_frame}`}
+                          type="button"
+                          className={`grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 text-left hover:bg-white/20 ${
+                            index === 0 ? "bg-white/15 text-white" : "text-white/85"
+                          }`}
+                          onClick={() => {
+                            setClipStartFrame(suggestion.start_frame);
+                            setClipEndFrame(suggestion.end_frame);
+                            handleFrameJump(suggestion.peak_frame);
+                            safeToast({
+                              title: `Clip range ${suggestion.start_frame}–${suggestion.end_frame} selected`,
+                              description: `Peak movement at frame ${suggestion.peak_frame}`,
+                              duration: 1600,
+                            });
+                          }}
+                        >
+                          <span className="text-white/50">{String(index + 1).padStart(2, "0")}</span>
+                          <span>{suggestion.start_frame}–{suggestion.end_frame}</span>
+                          <span>{(suggestion.score * 100).toFixed(1)}%</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-1.5 text-[11px] text-white/55">Select a range to preview its peak frame</div>
                 </div>
               )}
             </div>
