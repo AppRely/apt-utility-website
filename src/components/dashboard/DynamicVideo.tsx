@@ -27,6 +27,7 @@ import {
   getTrajectoryClipSuggestions,
   TrajectoryClipSuggestion,
 } from "@/lib/api/getTrajectoryClipSuggestions";
+import { getTrajectoryGaps, TrajectoryGap } from "@/lib/api/getTrajectoryGaps";
 import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
 import {
   getTrajectoryLinkingSuggestions,
@@ -449,6 +450,50 @@ export default function DynamicVideo({
 
   const [clipSuggestions, setClipSuggestions] = useState<TrajectoryClipSuggestion[]>([]);
   const [areClipSuggestionsLoading, setAreClipSuggestionsLoading] = useState(false);
+  const [trajectoryGaps, setTrajectoryGaps] = useState<TrajectoryGap[]>([]);
+  const [areTrajectoryGapsLoading, setAreTrajectoryGapsLoading] = useState(false);
+  const [activeTrajectoryGap, setActiveTrajectoryGap] = useState<TrajectoryGap | null>(null);
+  const trajectoryGapIndexRef = useRef(0);
+
+  useEffect(() => {
+    const selected = selectedObjects.length === 1 ? selectedObjects[0] : null;
+    trajectoryGapIndexRef.current = 0;
+    setActiveTrajectoryGap(null);
+    if (!projectId || !selected) {
+      setTrajectoryGaps([]);
+      setAreTrajectoryGapsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setTrajectoryGaps([]);
+    setAreTrajectoryGapsLoading(true);
+    getTrajectoryGaps(projectId, selected.object_id, {
+      minGap: 2,
+      limit: 20,
+      signal: controller.signal,
+    })
+      .then(data => {
+        if (!controller.signal.aborted) {
+          setTrajectoryGaps([...data.gaps].sort((a, b) => b.gap - a.gap));
+        }
+      })
+      .catch((error: Error) => {
+        if (controller.signal.aborted || error.name === "AbortError") return;
+        setTrajectoryGaps([]);
+        safeToast({
+          title: "Could not load trajectory gaps",
+          description: error.message,
+          variant: "destructive",
+          duration: 1800,
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAreTrajectoryGapsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [projectId, safeToast, selectedObjects]);
 
   useEffect(() => {
     const selected = selectedObjects.length === 1 ? selectedObjects[0] : null;
@@ -1158,6 +1203,9 @@ export default function DynamicVideo({
   const visibleClipStart = clipRangeMin === null ? null : Math.max(clipRangeMin, minFrame);
   const visibleClipEnd = clipRangeMax === null ? null : Math.min(clipRangeMax, maxFrame);
   const hasVisibleClipRange = visibleClipStart !== null && visibleClipEnd !== null && visibleClipStart <= visibleClipEnd;
+  const visibleGapStart = activeTrajectoryGap === null ? null : Math.max(activeTrajectoryGap.start_frame, minFrame);
+  const visibleGapEnd = activeTrajectoryGap === null ? null : Math.min(activeTrajectoryGap.end_frame, maxFrame);
+  const hasVisibleTrajectoryGap = visibleGapStart !== null && visibleGapEnd !== null && visibleGapStart <= visibleGapEnd;
 
   const selectedTimelineObjectIds = useMemo(
     () => selectedObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
@@ -2114,6 +2162,7 @@ export default function DynamicVideo({
       { action: "Jump -10 frames", key: "↓" },
       { action: "Go to Start", key: "S" },
       { action: "Go to End / select next link match", key: "E" },
+      { action: "Next largest trajectory gap", key: "G" },
       { action: "Previous break boundary", key: "," },
       { action: "Next break boundary", key: "." },
     ] },
@@ -2356,6 +2405,33 @@ export default function DynamicVideo({
           handleFrameJump(obj.end_frame);
           break;
         }
+        case "KeyG": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          if (selectedObjects.length !== 1) {
+            safeToast({ title: "Select one object to browse its gaps", duration: 1500 });
+            break;
+          }
+          if (areTrajectoryGapsLoading) {
+            safeToast({ title: "Trajectory gaps are still loading", duration: 1200 });
+            break;
+          }
+          if (trajectoryGaps.length === 0) {
+            safeToast({ title: "No trajectory gaps found", duration: 1500 });
+            break;
+          }
+          const gapIndex = trajectoryGapIndexRef.current % trajectoryGaps.length;
+          const gap = trajectoryGaps[gapIndex];
+          trajectoryGapIndexRef.current = (gapIndex + 1) % trajectoryGaps.length;
+          setActiveTrajectoryGap(gap);
+          handleFrameJump(gap.start_frame);
+          safeToast({
+            title: `Gap ${gapIndex + 1} of ${trajectoryGaps.length} · ${gap.gap} frames`,
+            description: `${gap.start_frame} → ${gap.end_frame}`,
+            duration: 1800,
+          });
+          break;
+        }
         case "Period": {
           if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
           e.preventDefault();
@@ -2466,7 +2542,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
@@ -3261,6 +3337,22 @@ export default function DynamicVideo({
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        {hasVisibleTrajectoryGap && (
+                          <ReferenceArea
+                            x1={visibleGapStart!}
+                            x2={visibleGapEnd!}
+                            fill="#f59e0b"
+                            fillOpacity={0.22}
+                            stroke="#fbbf24"
+                            strokeOpacity={0.9}
+                            label={{
+                              value: `${activeTrajectoryGap!.gap} frame gap`,
+                              position: "insideTop",
+                              fill: "#fde68a",
+                              fontSize: 10,
+                            }}
+                          />
+                        )}
                         {hasVisibleClipRange && (
                           <ReferenceArea
                             x1={visibleClipStart!}
