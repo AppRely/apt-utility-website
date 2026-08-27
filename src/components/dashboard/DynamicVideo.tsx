@@ -28,6 +28,10 @@ import {
   TrajectoryClipSuggestion,
 } from "@/lib/api/getTrajectoryClipSuggestions";
 import { getTrajectoryGaps, TrajectoryGap } from "@/lib/api/getTrajectoryGaps";
+import {
+  getTrajectoryLengths,
+  TrajectoryLengthOrdering,
+} from "@/lib/api/getTrajectoryLengths";
 import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
 import {
   getTrajectoryLinkingSuggestions,
@@ -667,6 +671,8 @@ export default function DynamicVideo({
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+  const [showTrajectoryLengths, setShowTrajectoryLengths] = useState(false);
+  const [trajectoryLengthOrdering, setTrajectoryLengthOrdering] = useState<TrajectoryLengthOrdering>("length_desc");
   const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     return sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light";
@@ -710,6 +716,18 @@ export default function DynamicVideo({
     if (duration <= 0 || stableFpsRef.current <= 0) return 0;
     return Math.floor(duration * stableFpsRef.current);
   }, [duration]);
+
+  const trajectoryLengthsQuery = useQuery({
+    queryKey: ["trajectoryLengths", projectId, trajectoryLengthOrdering],
+    queryFn: ({ signal }) => getTrajectoryLengths(projectId!, {
+      ordering: trajectoryLengthOrdering,
+      minLength: 1,
+      maxLength: Math.max(1, getTotalFrames() + 1),
+      signal,
+    }),
+    enabled: Boolean(projectId && showTrajectoryLengths && getTotalFrames() > 0),
+    staleTime: 30_000,
+  });
 
   const [objectPage, setObjectPage] = useState(0);
   const pageSize = 10;
@@ -2897,6 +2915,69 @@ export default function DynamicVideo({
                 {(stageScale.x*100).toFixed(0)}%
               </div>
             )}
+
+            {showTrajectoryLengths && (
+              <div className="absolute right-3 top-16 z-40 flex max-h-[70%] w-80 flex-col overflow-hidden rounded-xl border border-white/10 bg-black/80 p-3 font-sans text-white shadow-xl backdrop-blur-sm">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">Browse by Trajectory Length</div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTrajectoryLengths(false)}
+                    className="rounded px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white"
+                    aria-label="Close trajectory lengths"
+                  >
+                    ×
+                  </button>
+                </div>
+                <select
+                  value={trajectoryLengthOrdering}
+                  onChange={event => setTrajectoryLengthOrdering(event.target.value as TrajectoryLengthOrdering)}
+                  className="mb-2 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-white"
+                >
+                  <option value="length_desc">Longest to Shortest</option>
+                  <option value="length_asc">Shortest to Longest</option>
+                </select>
+                {trajectoryLengthsQuery.isLoading ? (
+                  <div className="py-4 text-center text-xs text-white/60">Loading trajectories…</div>
+                ) : trajectoryLengthsQuery.isError ? (
+                  <div className="py-4 text-center text-xs text-red-300">
+                    {trajectoryLengthsQuery.error instanceof Error
+                      ? trajectoryLengthsQuery.error.message
+                      : "Could not load trajectories"}
+                  </div>
+                ) : trajectoryLengthsQuery.data?.trajectories.length ? (
+                  <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+                    {trajectoryLengthsQuery.data.trajectories.map((trajectory, index) => (
+                      <button
+                        key={trajectory.object_id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedObjects([{
+                            object_id: trajectory.object_id,
+                            frame_id: trajectory.first_frame,
+                            start_frame: trajectory.first_frame,
+                            end_frame: trajectory.last_frame,
+                          }]);
+                          handleFrameJump(trajectory.first_frame);
+                          safeToast({
+                            title: `Object ${trajectory.object_id} selected`,
+                            description: `${trajectory.length} frames · ${trajectory.first_frame}–${trajectory.last_frame}`,
+                            duration: 1600,
+                          });
+                        }}
+                        className="grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-white/85 hover:bg-white/15"
+                      >
+                        <span className="text-white/45">{String(index + 1).padStart(2, "0")}</span>
+                        <span>ID {trajectory.object_id}</span>
+                        <span>{trajectory.length} frames</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-4 text-center text-xs text-white/60">No trajectories found.</div>
+                )}
+              </div>
+            )}
             
             <div className="absolute top-3 right-3 z-50">
               <Button
@@ -3055,6 +3136,17 @@ export default function DynamicVideo({
                   >
                     <span className="font-bold">i</span>
                     <span>Unique IDs</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowTrajectoryLengths(true);
+                      setIsToolbarOpen(false);
+                    }}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100"
+                  >
+                    <span>↕</span>
+                    <span>Browse by Length</span>
                   </button>
 
                   <button
