@@ -10,7 +10,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
-  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw,
+  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw, Palette,
 } from "lucide-react";
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
@@ -23,6 +23,25 @@ import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { getTimelineData } from "@/lib/api/getTimelineData";
 import { getUniqueIdsData, UniqueIdsResponse, UniqueIdObject } from "@/lib/api/getUniqueIdsData";
 import { exportTrk } from "@/lib/api/exportTrk";
+import {
+  getTrajectoryClipSuggestions,
+  TrajectoryClipSuggestion,
+} from "@/lib/api/getTrajectoryClipSuggestions";
+import { getTrajectoryGaps, TrajectoryGap } from "@/lib/api/getTrajectoryGaps";
+import {
+  getTrajectoryLengths,
+  TrajectoryLengthOrdering,
+} from "@/lib/api/getTrajectoryLengths";
+import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
+import {
+  getTrajectoryLinkingSuggestions,
+  TrajectoryLinkingSuggestion,
+} from "@/lib/api/getTrajectoryLinkingSuggestions";
+import {
+  getCoordinateDistance,
+  NEXT_LINK_MAX_DISTANCE_PX,
+  NEXT_LINK_START_THRESHOLD_FRAMES,
+} from "@/lib/trajectoryLinking";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
@@ -55,6 +74,24 @@ const sliderPositionToPlaybackRate = (position: number) => {
     : Math.pow(MAX_PLAYBACK_RATE, (clampedPosition - 50) / 50);
   return Math.round(rate * 100) / 100;
 };
+
+const formatFps = (value: number) => Number(value.toFixed(2)).toString();
+
+// Darker annotation colors remain visible on white/light video backgrounds.
+const LIGHT_VIDEO_COLORS = [
+  "#B91C1C", "#166534", "#1D4ED8", "#7E22CE", "#BE185D", "#0F766E",
+  "#9A3412", "#4338CA", "#3F6212", "#A21CAF", "#0369A1", "#92400E",
+  "#6B21A8", "#047857", "#C2410C", "#1E40AF", "#9F1239", "#115E59",
+  "#713F12", "#4C1D95", "#065F46", "#991B1B", "#0E7490", "#6D28D9",
+];
+
+// Brighter annotation colors remain visible on dark/gray video backgrounds.
+const DARK_VIDEO_COLORS = [
+  "#FF5252", "#69F0AE", "#40C4FF", "#FFD740", "#E040FB", "#18FFFF",
+  "#FFAB40", "#B388FF", "#CCFF90", "#FF80AB", "#80D8FF", "#FFFF8D",
+  "#EA80FC", "#64FFDA", "#FF9E80", "#8C9EFF", "#FF8A80", "#A7FFEB",
+  "#FFE57F", "#B39DDB", "#00E676", "#FF6E6E", "#84FFFF", "#B2FF59",
+];
 
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
@@ -339,6 +376,22 @@ export default function DynamicVideo({
   const lastSeekFrameRef = useRef<number>(-1);
   const lastSeekTimeRef = useRef<number>(-1);
   const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const breakNavigationHistoryRef = useRef<number[]>([]);
+  const breakNavigationObjectRef = useRef<number | null>(null);
+  const activeBreakRef = useRef<{
+    selectedObjectId: number;
+    breakStart: number;
+    breakEnd: number;
+  } | null>(null);
+  const isBreakNavigationPendingRef = useRef(false);
+  const suggestionRequestIdRef = useRef(0);
+  const [linkingSuggestions, setLinkingSuggestions] = useState<{
+    selectedObjectId: number;
+    breakStart: number;
+    breakEnd: number;
+    items: TrajectoryLinkingSuggestion[];
+  } | null>(null);
+  const [areLinkingSuggestionsLoading, setAreLinkingSuggestionsLoading] = useState(false);
 
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
@@ -399,6 +452,95 @@ export default function DynamicVideo({
     setTimeout(() => toast(...args), 0);
   }, [toast]);
 
+  const [clipSuggestions, setClipSuggestions] = useState<TrajectoryClipSuggestion[]>([]);
+  const [areClipSuggestionsLoading, setAreClipSuggestionsLoading] = useState(false);
+  const [trajectoryGaps, setTrajectoryGaps] = useState<TrajectoryGap[]>([]);
+  const [areTrajectoryGapsLoading, setAreTrajectoryGapsLoading] = useState(false);
+  const [activeTrajectoryGap, setActiveTrajectoryGap] = useState<TrajectoryGap | null>(null);
+  const trajectoryGapIndexRef = useRef(0);
+
+  useEffect(() => {
+    const selected = selectedObjects.length === 1 ? selectedObjects[0] : null;
+    trajectoryGapIndexRef.current = 0;
+    setActiveTrajectoryGap(null);
+    if (!projectId || !selected) {
+      setTrajectoryGaps([]);
+      setAreTrajectoryGapsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setTrajectoryGaps([]);
+    setAreTrajectoryGapsLoading(true);
+    getTrajectoryGaps(projectId, selected.object_id, {
+      minGap: 2,
+      limit: 20,
+      signal: controller.signal,
+    })
+      .then(data => {
+        if (!controller.signal.aborted) {
+          setTrajectoryGaps([...data.gaps].sort((a, b) => b.gap - a.gap));
+        }
+      })
+      .catch((error: Error) => {
+        if (controller.signal.aborted || error.name === "AbortError") return;
+        setTrajectoryGaps([]);
+        safeToast({
+          title: "Could not load trajectory gaps",
+          description: error.message,
+          variant: "destructive",
+          duration: 1800,
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAreTrajectoryGapsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [projectId, safeToast, selectedObjects]);
+
+  useEffect(() => {
+    const selected = selectedObjects.length === 1 ? selectedObjects[0] : null;
+    if (
+      !projectId ||
+      !selected ||
+      selected.start_frame === undefined ||
+      selected.end_frame === undefined
+    ) {
+      setClipSuggestions([]);
+      setAreClipSuggestionsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setClipSuggestions([]);
+    setAreClipSuggestionsLoading(true);
+    getTrajectoryClipSuggestions(projectId, {
+      object_id: selected.object_id,
+      start_frame: selected.start_frame,
+      end_frame: selected.end_frame,
+      limit: 5,
+    }, controller.signal)
+      .then(data => {
+        if (!controller.signal.aborted) setClipSuggestions(data.suggestions.slice(0, 5));
+      })
+      .catch((error: Error) => {
+        if (controller.signal.aborted || error.name === "AbortError") return;
+        setClipSuggestions([]);
+        safeToast({
+          title: "Could not load clip suggestions",
+          description: error.message,
+          variant: "destructive",
+          duration: 1800,
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAreClipSuggestionsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [projectId, safeToast, selectedObjects]);
+
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
   const lastPanFrameRef = useRef<number>(-1);
 
@@ -421,13 +563,99 @@ export default function DynamicVideo({
 
   const [uniqueIdsData, setUniqueIdsData] = useState<UniqueIdsResponse | null>(null);
   const [isLoadingUnique, setIsLoadingUnique] = useState(false);
+  const pendingEndMatchObjectRef = useRef<number | null>(null);
+  const nextFrameLinkMatchesRef = useRef<{
+    sourceObjectId: number;
+    matches: UniqueIdObject[];
+  } | null>(null);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
+  const nextFrameLinkMatches = useMemo(() => {
+    if (selectedObjects.length !== 1) return [];
+    const selected = selectedObjects[0];
+    const selectedEnd = selected.end_frame ?? selected.start_frame;
+    if (selectedEnd === undefined) return [];
+    const windowStart = selectedEnd + 1;
+    const windowEnd = selectedEnd + NEXT_LINK_START_THRESHOLD_FRAMES;
+    const source = uniqueIdsData?.data?.objects.find(object => object.id === selected.object_id);
+    if (!source?.end_coordinate) return [];
+    return (uniqueIdsData?.data?.objects ?? [])
+      .map(object => ({
+        ...object,
+        linkDistance: getCoordinateDistance(source.end_coordinate, object.start_coordinate),
+      }))
+      .filter(object =>
+        object.id !== selected.object_id &&
+        object.start_frame >= windowStart &&
+        object.start_frame <= windowEnd &&
+        object.linkDistance !== null &&
+        object.linkDistance <= NEXT_LINK_MAX_DISTANCE_PX
+      )
+      .sort((a, b) =>
+        a.start_frame - b.start_frame ||
+        (a.linkDistance ?? Infinity) - (b.linkDistance ?? Infinity) ||
+        a.id - b.id
+      )
+      .slice(0, 5);
+  }, [selectedObjects, uniqueIdsData]);
+
+  useEffect(() => {
+    if (selectedObjects.length === 1 && nextFrameLinkMatches.length > 0) {
+      nextFrameLinkMatchesRef.current = {
+        sourceObjectId: selectedObjects[0].object_id,
+        matches: nextFrameLinkMatches,
+      };
+    }
+  }, [nextFrameLinkMatches, selectedObjects]);
+
+  const visibleNextFrameLinkMatches = nextFrameLinkMatches.length > 0
+    ? nextFrameLinkMatches
+    : selectedObjects.length === 2 &&
+        nextFrameLinkMatchesRef.current?.sourceObjectId === selectedObjects[0].object_id &&
+        nextFrameLinkMatchesRef.current.matches.some(match => match.id === selectedObjects[1].object_id)
+      ? nextFrameLinkMatchesRef.current.matches
+      : [];
+
+  useEffect(() => {
+    const selected = selectedObjects[0];
+    const candidate = nextFrameLinkMatches[0];
+    if (
+      pendingEndMatchObjectRef.current === null ||
+      selectedObjects.length !== 1 ||
+      selected?.object_id !== pendingEndMatchObjectRef.current ||
+      !candidate
+    ) return;
+
+    pendingEndMatchObjectRef.current = null;
+    setSelectedObjects([
+      selected,
+      {
+        object_id: candidate.id,
+        frame_id: candidate.start_frame,
+        start_frame: candidate.start_frame,
+        end_frame: candidate.end_frame,
+      },
+    ]);
+    safeToast({
+      title: `Object ${candidate.id} selected for linking`,
+      description: `Top next match · starts at frame ${candidate.start_frame}`,
+      duration: 1800,
+    });
+  }, [nextFrameLinkMatches, safeToast, selectedObjects, setSelectedObjects]);
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
-  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy">("x");
+  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy">("x");
+  const isSkeletonCoordinateMode = coordinateMode.startsWith("skeleton-");
+  const [skeletonTimelinePoints, setSkeletonTimelinePoints] = useState<Array<{
+    frame: number;
+    objectId: number;
+    coordinates: [number, number][];
+  }>>([]);
+  const [isSkeletonTimelineLoading, setIsSkeletonTimelineLoading] = useState(false);
+  const skeletonTimelineAbortRef = useRef<AbortController | null>(null);
+  const skeletonTimelineRangeRef = useRef<{ start: number; end: number; objectIds: string } | null>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [isChartDragging, setIsChartDragging] = useState(false);
 
@@ -443,6 +671,17 @@ export default function DynamicVideo({
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+  const [showTrajectoryLengths, setShowTrajectoryLengths] = useState(false);
+  const [trajectoryLengthOrdering, setTrajectoryLengthOrdering] = useState<TrajectoryLengthOrdering>("length_desc");
+  const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    return sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light";
+  });
+  const objectColorSlotsRef = useRef<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    sessionStorage.setItem("videoColorTheme", videoColorTheme);
+  }, [videoColorTheme]);
 
   const [trajectoryFrames, setTrajectoryFrames] = useState(100);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
@@ -464,34 +703,34 @@ export default function DynamicVideo({
   }, []);
 
   const getObjectColor = useCallback((id: number) => {
-    const colors = ["#FF0000","#00FF00","#0000FF","#FFFF00","#FF00FF","#00FFFF","#FFA500","#800080","#008000","#000080","#FF1493","#00BFFF","#7CFC00","#FFD700","#A52A2A","#DC143C","#4B0082","#8B4513","#2E8B57","#4682B4"];
-    return colors[id % colors.length];
-  }, []);
+    const colors = videoColorTheme === "light" ? LIGHT_VIDEO_COLORS : DARK_VIDEO_COLORS;
+    let colorSlot = objectColorSlotsRef.current.get(id);
+    if (colorSlot === undefined) {
+      colorSlot = objectColorSlotsRef.current.size % colors.length;
+      objectColorSlotsRef.current.set(id, colorSlot);
+    }
+    return colors[colorSlot];
+  }, [videoColorTheme]);
 
   const getTotalFrames = useCallback(() => {
     if (duration <= 0 || stableFpsRef.current <= 0) return 0;
     return Math.floor(duration * stableFpsRef.current);
   }, [duration]);
 
+  const trajectoryLengthsQuery = useQuery({
+    queryKey: ["trajectoryLengths", projectId, trajectoryLengthOrdering],
+    queryFn: ({ signal }) => getTrajectoryLengths(projectId!, {
+      ordering: trajectoryLengthOrdering,
+      minLength: 1,
+      maxLength: Math.max(1, getTotalFrames() + 1),
+      signal,
+    }),
+    enabled: Boolean(projectId && showTrajectoryLengths && getTotalFrames() > 0),
+    staleTime: 30_000,
+  });
+
   const [objectPage, setObjectPage] = useState(0);
   const pageSize = 10;
-
-  const objectsInCurrentFrame = useMemo(() => {
-    const objects: { id: number; color: string }[] = [];
-    for (const anno of annotationMap.values()) {
-      if (anno.frame_id === currentFrame) {
-        objects.push({ id: anno.object_id, color: getObjectColor(anno.object_id) });
-      }
-    }
-    return objects.sort((a, b) => a.id - b.id);
-  }, [annotationMap, currentFrame, getObjectColor]);
-
-  const totalPages = Math.ceil(objectsInCurrentFrame.length / pageSize);
-  const currentPageObjects = objectsInCurrentFrame.slice(objectPage * pageSize, (objectPage + 1) * pageSize);
-
-  useEffect(() => {
-    setObjectPage(0);
-  }, [currentFrame]);
 
   const scale = useMemo(() => {
     if (videoWidth && videoHeight) return Math.min(stageWidth / videoWidth, stageHeight / videoHeight);
@@ -505,6 +744,37 @@ export default function DynamicVideo({
 
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
+
+  // Numeric shortcuts apply only to objects whose transformed bounding box is
+  // currently visible after zooming and panning the stage.
+  const objectsInCurrentFrame = useMemo(() => {
+    const objects: { id: number; color: string }[] = [];
+    for (const anno of annotationMap.values()) {
+      if (anno.frame_id !== currentFrame || anno.coordinates.length === 0) continue;
+
+      const transformedXs = anno.coordinates.map(([x]) => stagePos.x + mapX(x) * stageScale.x);
+      const transformedYs = anno.coordinates.map(([, y]) => stagePos.y + mapY(y) * stageScale.y);
+      const minX = Math.min(...transformedXs);
+      const maxX = Math.max(...transformedXs);
+      const minY = Math.min(...transformedYs);
+      const maxY = Math.max(...transformedYs);
+      const isVisible = maxX >= 0 && minX <= stageWidth && maxY >= 0 && minY <= stageHeight;
+
+      if (isVisible) objects.push({ id: anno.object_id, color: getObjectColor(anno.object_id) });
+    }
+    return objects.sort((a, b) => a.id - b.id);
+  }, [annotationMap, currentFrame, getObjectColor, mapX, mapY, stageHeight, stagePos.x, stagePos.y, stageScale.x, stageScale.y, stageWidth]);
+
+  const visibleObjectIdsKey = useMemo(
+    () => objectsInCurrentFrame.map(object => object.id).join(","),
+    [objectsInCurrentFrame]
+  );
+  const totalPages = Math.ceil(objectsInCurrentFrame.length / pageSize);
+  const currentPageObjects = objectsInCurrentFrame.slice(objectPage * pageSize, (objectPage + 1) * pageSize);
+
+  useEffect(() => {
+    setObjectPage(0);
+  }, [currentFrame, visibleObjectIdsKey]);
 
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
@@ -551,6 +821,10 @@ export default function DynamicVideo({
         id: obj.object_id,
         start_frame: obj.start_frame,
         end_frame: obj.end_frame,
+        start_coordinate: obj.start_coordinate,
+        end_coordinate: obj.end_coordinate,
+        N_frame: obj.N_frame,
+        trk_len: obj.trk_len,
       };
       if (!uniqueMap.has(normalized.id) || normalized.end_frame > uniqueMap.get(normalized.id)!.end_frame) {
         uniqueMap.set(normalized.id, normalized);
@@ -947,6 +1221,91 @@ export default function DynamicVideo({
   const visibleClipStart = clipRangeMin === null ? null : Math.max(clipRangeMin, minFrame);
   const visibleClipEnd = clipRangeMax === null ? null : Math.min(clipRangeMax, maxFrame);
   const hasVisibleClipRange = visibleClipStart !== null && visibleClipEnd !== null && visibleClipStart <= visibleClipEnd;
+  const visibleGapStart = activeTrajectoryGap === null ? null : Math.max(activeTrajectoryGap.start_frame, minFrame);
+  const visibleGapEnd = activeTrajectoryGap === null ? null : Math.min(activeTrajectoryGap.end_frame, maxFrame);
+  const hasVisibleTrajectoryGap = visibleGapStart !== null && visibleGapEnd !== null && visibleGapStart <= visibleGapEnd;
+
+  const selectedTimelineObjectIds = useMemo(
+    () => selectedObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
+    [selectedObjects]
+  );
+
+  // Skeleton coordinates are loaded separately and only while Skeleton mode is active.
+  // This keeps the existing mean-coordinate timeline and playback loading untouched.
+  useEffect(() => {
+    if (!isSkeletonCoordinateMode || !projectId || !selectedTimelineObjectIds) {
+      skeletonTimelineAbortRef.current?.abort();
+      if (isSkeletonTimelineLoading) setIsSkeletonTimelineLoading(false);
+      return;
+    }
+
+    const totalFrames = getTotalFrames();
+    if (totalFrames <= 0) return;
+    const requestKey = `${selectedTimelineObjectIds}|${refreshKey}`;
+    const visibleStart = Math.max(0, Math.floor(minFrame));
+    const visibleEnd = Math.min(totalFrames, Math.ceil(maxFrame));
+    const loaded = skeletonTimelineRangeRef.current;
+    if (
+      loaded &&
+      loaded.objectIds === requestKey &&
+      visibleStart >= loaded.start &&
+      visibleEnd <= loaded.end
+    ) return;
+
+    const buffer = Math.max(100, Math.floor(halfWindow / 2));
+    const requestStart = Math.max(0, visibleStart - buffer);
+    const requestEnd = Math.min(totalFrames, visibleEnd + buffer);
+    const controller = new AbortController();
+    skeletonTimelineAbortRef.current?.abort();
+    skeletonTimelineAbortRef.current = controller;
+    skeletonTimelineRangeRef.current = {
+      start: requestStart,
+      end: requestEnd,
+      objectIds: requestKey,
+    };
+    setIsSkeletonTimelineLoading(true);
+
+    const selectedIdSet = new Set(selectedTimelineObjectIds.split(",").map(Number));
+    getFrameRangeData(projectId, requestStart, requestEnd, controller.signal)
+      .then(response => {
+        if (!response || controller.signal.aborted) return;
+        const payload = response.data ?? response;
+        const objects = payload.objects ?? [];
+        const points: Array<{ frame: number; objectId: number; coordinates: [number, number][] }> = [];
+
+        objects.forEach((object: any) => {
+          const objectId = Number(object.object_id);
+          if (!selectedIdSet.has(objectId)) return;
+          const frames = object.frames ?? (payload.frame_number !== undefined
+            ? [{ frame_number: payload.frame_number, coordinates: object.coordinates }]
+            : []);
+          frames.forEach((frameData: any) => {
+            const frame = Number(frameData.frame_id ?? frameData.frame_number);
+            const coordinates = Array.isArray(frameData.coordinates)
+              ? frameData.coordinates.filter((point: unknown): point is [number, number] =>
+                  Array.isArray(point) && point.length >= 2 &&
+                  Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
+                  .map(([x, y]: [number, number]) => [Number(x), Number(y)] as [number, number])
+              : [];
+            if (Number.isFinite(frame) && coordinates.length > 0) {
+              points.push({ frame, objectId, coordinates });
+            }
+          });
+        });
+        setSkeletonTimelinePoints(points);
+      })
+      .catch(error => {
+        if (error?.name !== "AbortError") {
+          console.error("[Skeleton Timeline] Fetch error:", error);
+          setSkeletonTimelinePoints([]);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsSkeletonTimelineLoading(false);
+      });
+  }, [getTotalFrames, halfWindow, isSkeletonCoordinateMode, isSkeletonTimelineLoading, maxFrame, minFrame, projectId, refreshKey, selectedTimelineObjectIds]);
+
+  useEffect(() => () => skeletonTimelineAbortRef.current?.abort(), []);
 
   const chartData = useMemo(() => {
     if (timelinePoints.length === 0) return [];
@@ -989,6 +1348,31 @@ export default function DynamicVideo({
 
     return Array.from(dataMap.values()).sort((a, b) => a.frame - b.frame);
   }, [timelinePoints, coordinateMode, minFrame, maxFrame, uniqueObjectIds]);
+
+  const skeletonSeries = useMemo(() => {
+    const keys = new Map<string, { objectId: number; pointIndex: number }>();
+    skeletonTimelinePoints.forEach(point => {
+      point.coordinates.forEach((_, pointIndex) => {
+        const key = `${point.objectId}-${pointIndex}`;
+        if (!keys.has(key)) keys.set(key, { objectId: point.objectId, pointIndex });
+      });
+    });
+    return Array.from(keys.values());
+  }, [skeletonTimelinePoints]);
+
+  const skeletonChartData = useMemo(() => {
+    const rows = new Map<number, Record<string, number>>();
+    skeletonTimelinePoints.forEach(point => {
+      if (point.frame < minFrame || point.frame > maxFrame) return;
+      const row = rows.get(point.frame) ?? { frame: point.frame };
+      point.coordinates.forEach(([x, y], pointIndex) => {
+        row[`obj_${point.objectId}_point_${pointIndex}_x`] = x;
+        row[`obj_${point.objectId}_point_${pointIndex}_y`] = y;
+      });
+      rows.set(point.frame, row);
+    });
+    return Array.from(rows.values()).sort((a, b) => a.frame - b.frame);
+  }, [maxFrame, minFrame, skeletonTimelinePoints]);
 
   // ===== MEASURE actual axis offset and update measuredPadding =====
   useLayoutEffect(() => {
@@ -1795,7 +2179,10 @@ export default function DynamicVideo({
       { action: "Jump +10 frames", key: "↑" },
       { action: "Jump -10 frames", key: "↓" },
       { action: "Go to Start", key: "S" },
-      { action: "Go to End", key: "E" },
+      { action: "Go to End / select next link match", key: "E" },
+      { action: "Next largest trajectory gap", key: "G" },
+      { action: "Previous break boundary", key: "," },
+      { action: "Next break boundary", key: "." },
     ] },
     { category: "View", items: [
       { action: "Zoom In", key: "=" },
@@ -1846,6 +2233,59 @@ export default function DynamicVideo({
     const features = "width=1200,height=700,resizable=yes,scrollbars=yes";
     window.open(url, "_blank", features);
   }, [projectId]);
+
+  const loadLinkingSuggestions = useCallback((
+    selectedObjectId: number,
+    breakStart: number,
+    breakEnd: number,
+    objectStart?: number,
+  ) => {
+    if (!projectId) return;
+    // A break at frame 0/the object's first frame has no preceding segment to link.
+    if (breakStart <= 0 || (objectStart !== undefined && breakStart <= objectStart)) {
+      suggestionRequestIdRef.current += 1;
+      setLinkingSuggestions(null);
+      setAreLinkingSuggestionsLoading(false);
+      return;
+    }
+    const requestId = ++suggestionRequestIdRef.current;
+    setAreLinkingSuggestionsLoading(true);
+    setLinkingSuggestions({ selectedObjectId, breakStart, breakEnd, items: [] });
+    getTrajectoryLinkingSuggestions(projectId, {
+      object_id: selectedObjectId,
+      break_start: breakStart,
+      break_end: breakEnd,
+      limit: 5,
+    })
+      .then(items => {
+        if (suggestionRequestIdRef.current !== requestId) return;
+        setLinkingSuggestions({ selectedObjectId, breakStart, breakEnd, items });
+      })
+      .catch((error: Error) => {
+        if (suggestionRequestIdRef.current !== requestId) return;
+        setLinkingSuggestions(null);
+        safeToast({
+          title: "Could not load linking suggestions",
+          description: error.message,
+          variant: "destructive",
+          duration: 1800,
+        });
+      })
+      .finally(() => {
+        if (suggestionRequestIdRef.current === requestId) {
+          setAreLinkingSuggestionsLoading(false);
+        }
+      });
+  }, [projectId, safeToast]);
+
+  useEffect(() => {
+    const selectedObjectId = selectedObjects[0]?.object_id;
+    if (linkingSuggestions && linkingSuggestions.selectedObjectId !== selectedObjectId) {
+      suggestionRequestIdRef.current += 1;
+      setLinkingSuggestions(null);
+      setAreLinkingSuggestionsLoading(false);
+    }
+  }, [selectedObjects, linkingSuggestions]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -1943,7 +2383,170 @@ export default function DynamicVideo({
           });
           break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else safeToast({ title: "Start frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
-        case "KeyE": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.end_frame !== undefined) handleFrameJump(obj.end_frame); else safeToast({ title: "End frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
+        case "KeyE": {
+          e.preventDefault();
+          if (!selectedObjects.length) {
+            safeToast({ title: "No object selected", duration: 1500 });
+            break;
+          }
+          const obj = selectedObjects.length === 1
+            ? selectedObjects[0]
+            : selectedObjects[selectedObjects.length - 1];
+          if (obj.end_frame === undefined) {
+            safeToast({ title: "End frame not available", duration: 1500 });
+            break;
+          }
+          if (selectedObjects.length === 1) {
+            const candidate = nextFrameLinkMatches[0];
+            if (candidate) {
+              pendingEndMatchObjectRef.current = null;
+              setSelectedObjects([
+                obj,
+                {
+                  object_id: candidate.id,
+                  frame_id: candidate.start_frame,
+                  start_frame: candidate.start_frame,
+                  end_frame: candidate.end_frame,
+                },
+              ]);
+              safeToast({
+                title: `Object ${candidate.id} selected for linking`,
+                description: `Top next match · starts at frame ${candidate.start_frame}`,
+                duration: 1800,
+              });
+            } else {
+              pendingEndMatchObjectRef.current = obj.object_id;
+            }
+          } else {
+            pendingEndMatchObjectRef.current = null;
+          }
+          handleFrameJump(obj.end_frame);
+          break;
+        }
+        case "KeyG": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          if (selectedObjects.length !== 1) {
+            safeToast({ title: "Select one object to browse its gaps", duration: 1500 });
+            break;
+          }
+          if (areTrajectoryGapsLoading) {
+            safeToast({ title: "Trajectory gaps are still loading", duration: 1200 });
+            break;
+          }
+          if (trajectoryGaps.length === 0) {
+            safeToast({ title: "No trajectory gaps found", duration: 1500 });
+            break;
+          }
+          const gapIndex = trajectoryGapIndexRef.current % trajectoryGaps.length;
+          const gap = trajectoryGaps[gapIndex];
+          trajectoryGapIndexRef.current = (gapIndex + 1) % trajectoryGaps.length;
+          setActiveTrajectoryGap(gap);
+          handleFrameJump(gap.start_frame);
+          safeToast({
+            title: `Gap ${gapIndex + 1} of ${trajectoryGaps.length} · ${gap.gap} frames`,
+            description: `${gap.start_frame} → ${gap.end_frame}`,
+            duration: 1800,
+          });
+          break;
+        }
+        case "Period": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          const selected = selectedObjects[0];
+          if (!selected || !projectId) {
+            safeToast({ title: "Select an object to find its next break", duration: 1500 });
+            break;
+          }
+          if (isBreakNavigationPendingRef.current) break;
+          if (breakNavigationObjectRef.current !== selected.object_id) {
+            breakNavigationHistoryRef.current = [];
+            breakNavigationObjectRef.current = selected.object_id;
+            activeBreakRef.current = null;
+          }
+          const activeBreak = activeBreakRef.current;
+          if (
+            activeBreak?.selectedObjectId === selected.object_id &&
+            currentFrame >= activeBreak.breakStart &&
+            currentFrame < activeBreak.breakEnd
+          ) {
+            breakNavigationHistoryRef.current.push(currentFrame);
+            handleFrameJump(activeBreak.breakEnd);
+            safeToast({
+              title: `Break end: ${activeBreak.breakEnd}`,
+              description: `Range ${activeBreak.breakStart}–${activeBreak.breakEnd}`,
+              duration: 1500,
+            });
+            break;
+          }
+          isBreakNavigationPendingRef.current = true;
+          const breakSearchFrame = activeBreak?.selectedObjectId === selected.object_id &&
+            currentFrame >= activeBreak.breakEnd
+            ? currentFrame + 1
+            : currentFrame;
+          getNextBreak(projectId, selected.object_id, breakSearchFrame)
+            .then(nextBreak => {
+              activeBreakRef.current = {
+                selectedObjectId: selected.object_id,
+                breakStart: nextBreak.break_start,
+                breakEnd: nextBreak.break_end,
+              };
+              loadLinkingSuggestions(
+                selected.object_id,
+                nextBreak.break_start,
+                nextBreak.break_end,
+                selected.start_frame,
+              );
+              if (nextBreak.break_start !== currentFrame) {
+                breakNavigationHistoryRef.current.push(currentFrame);
+              }
+              handleFrameJump(nextBreak.break_start);
+              safeToast({
+                title: `Break start: ${nextBreak.break_start}`,
+                description: `Object ${nextBreak.object_id} · End ${nextBreak.break_end}`,
+                duration: 1800,
+              });
+            })
+            .catch((error: Error) => {
+              const objectEnd = selected.end_frame;
+              const hasNoMoreBreaks = error instanceof NextBreakError && error.status < 500;
+              if (hasNoMoreBreaks && objectEnd !== undefined && currentFrame !== objectEnd) {
+                breakNavigationHistoryRef.current.push(currentFrame);
+                activeBreakRef.current = null;
+                handleFrameJump(objectEnd);
+                safeToast({
+                  title: `Object end: ${objectEnd}`,
+                  description: `No more breaks for object ${selected.object_id}`,
+                  duration: 1800,
+                });
+                return;
+              }
+              safeToast({
+                title: hasNoMoreBreaks ? "Break navigation complete" : "Break navigation failed",
+                description: error.message,
+                variant: hasNoMoreBreaks ? "default" : "destructive",
+                duration: 1800,
+              });
+            })
+            .finally(() => { isBreakNavigationPendingRef.current = false; });
+          break;
+        }
+        case "Comma": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          const selected = selectedObjects[0];
+          if (!selected || breakNavigationObjectRef.current !== selected.object_id) {
+            safeToast({ title: "No previous break in this session", duration: 1500 });
+            break;
+          }
+          const previousFrame = breakNavigationHistoryRef.current.pop();
+          if (previousFrame === undefined) {
+            safeToast({ title: "No previous break in this session", duration: 1500 });
+            break;
+          }
+          handleFrameJump(previousFrame);
+          break;
+        }
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
         case "KeyC":
           if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1957,7 +2560,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
@@ -2014,15 +2617,105 @@ export default function DynamicVideo({
             ref={videoContainerRef}
             className="relative flex items-center justify-center w-full bg-black rounded-lg flex-1 min-h-0 overflow-hidden"
           >
-            <div className="absolute top-2 left-2 bg-black bg-opacity-80 text-green-400 px-2 py-1 rounded text-xs z-50 font-mono">
-              FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
-              {isSeekingRef.current && " 🔄 SEEKING"}
-              {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
-              {isLoadingAnnotations && " 📥 LOADING"}
-              {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
-              {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
-              {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
-              {autoInterpolation && " 🔄 AUTO-INTERP"}
+            <div className="absolute top-2 left-2 z-50 text-xs">
+              <div className="rounded bg-black/80 px-2 py-1 font-mono text-green-400">
+                FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
+                {isSeekingRef.current && " 🔄 SEEKING"}
+                {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
+                {isLoadingAnnotations && " 📥 LOADING"}
+                {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
+                {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
+                {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
+                {autoInterpolation && " 🔄 AUTO-INTERP"}
+              </div>
+              {linkingSuggestions &&
+                currentFrame >= linkingSuggestions.breakStart &&
+                currentFrame < linkingSuggestions.breakEnd && (
+                  <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                    <div className="mb-1.5 text-xs font-semibold text-white">
+                      Top Matches
+                    </div>
+                    {areLinkingSuggestionsLoading ? (
+                      <div className="text-slate-400">Loading...</div>
+                    ) : linkingSuggestions.items.length > 0 ? (
+                      <div className="space-y-0.5">
+                        {linkingSuggestions.items.slice(0, 5).map((suggestion, index) => (
+                          <div
+                            key={suggestion.object_id}
+                            className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
+                              index === 0 ? "bg-white/15 text-white" : "text-white/85"
+                            }`}
+                          >
+                            <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                            <span>{suggestion.object_id}</span>
+                            <span>{(suggestion.score * 100).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-slate-400">None found</div>
+                    )}
+                  </div>
+                )}
+              {visibleNextFrameLinkMatches.length > 0 && !(
+                linkingSuggestions &&
+                currentFrame >= linkingSuggestions.breakStart &&
+                currentFrame < linkingSuggestions.breakEnd
+              ) && (
+                <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                  <div className="mb-1.5 text-xs font-semibold text-white">Next Link Matches</div>
+                  <div className="space-y-0.5">
+                    {visibleNextFrameLinkMatches.map((candidate, index) => (
+                      <div
+                        key={candidate.id}
+                        className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
+                          index === 0 ? "bg-white/15 text-white" : "text-white/85"
+                        }`}
+                      >
+                        <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                        <span>ID {candidate.id}</span>
+                        <span>Frame {candidate.start_frame}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-white/60">Press L to link the first match</div>
+                </div>
+              )}
+              {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
+                <div className="mt-2 min-w-64 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                  <div className="mb-1.5 text-xs font-semibold">Clip Suggestions</div>
+                  {areClipSuggestionsLoading ? (
+                    <div className="text-white/60">Analyzing trajectory…</div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {clipSuggestions.map((suggestion, index) => (
+                        <button
+                          key={`${suggestion.start_frame}-${suggestion.end_frame}`}
+                          type="button"
+                          className={`grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 text-left hover:bg-white/20 ${
+                            index === 0 ? "bg-white/15 text-white" : "text-white/85"
+                          }`}
+                          onClick={() => {
+                            setClipStartFrame(suggestion.start_frame);
+                            setClipEndFrame(suggestion.end_frame);
+                            handleFrameJump(suggestion.peak_frame);
+                            safeToast({
+                              title: `Clip range ${suggestion.start_frame}–${suggestion.end_frame} selected`,
+                              description: `Peak movement at frame ${suggestion.peak_frame}`,
+                              duration: 1600,
+                            });
+                          }}
+                        >
+                          <span className="text-white/50">{String(index + 1).padStart(2, "0")}</span>
+                          <span>{suggestion.start_frame}–{suggestion.end_frame}</span>
+                          <span>{(suggestion.score * 100).toFixed(1)}%</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-1.5 text-[11px] text-white/55">Select a range to preview its peak frame</div>
+                </div>
+              )}
             </div>
             
             {/* ===== UPDATED: Annotation loading indicator (top‑right corner) ===== */}
@@ -2032,7 +2725,7 @@ export default function DynamicVideo({
                 <span>Loading annotations…</span>
               </div>
             )}
-            
+
             <Stage 
               ref={stageRef} 
               width={stageWidth} 
@@ -2183,7 +2876,7 @@ export default function DynamicVideo({
             {showObjectSelection && objectsInCurrentFrame.length > 0 && (
               <div className="absolute bottom-20 left-2 bg-black/80 text-white p-3 rounded-lg z-50 backdrop-blur-sm pointer-events-none">
                 <div className="text-xs font-mono mb-2">
-                  Objects in frame ({objectPage+1}/{totalPages || 1})
+                  Visible objects ({objectPage+1}/{totalPages || 1})
                   {totalPages > 1 && (
                     <span className="ml-2 text-yellow-400">
                       (Press <kbd>Shift</kbd> to cycle pages – {totalPages - (objectPage+1)} page{totalPages - (objectPage+1) > 1 ? 's' : ''} remaining)
@@ -2222,6 +2915,69 @@ export default function DynamicVideo({
                 {(stageScale.x*100).toFixed(0)}%
               </div>
             )}
+
+            {showTrajectoryLengths && (
+              <div className="absolute right-3 top-16 z-40 flex max-h-[70%] w-80 flex-col overflow-hidden rounded-xl border border-white/10 bg-black/80 p-3 font-sans text-white shadow-xl backdrop-blur-sm">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">Browse by Trajectory Length</div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTrajectoryLengths(false)}
+                    className="rounded px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white"
+                    aria-label="Close trajectory lengths"
+                  >
+                    ×
+                  </button>
+                </div>
+                <select
+                  value={trajectoryLengthOrdering}
+                  onChange={event => setTrajectoryLengthOrdering(event.target.value as TrajectoryLengthOrdering)}
+                  className="mb-2 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-xs text-white"
+                >
+                  <option value="length_desc">Longest to Shortest</option>
+                  <option value="length_asc">Shortest to Longest</option>
+                </select>
+                {trajectoryLengthsQuery.isLoading ? (
+                  <div className="py-4 text-center text-xs text-white/60">Loading trajectories…</div>
+                ) : trajectoryLengthsQuery.isError ? (
+                  <div className="py-4 text-center text-xs text-red-300">
+                    {trajectoryLengthsQuery.error instanceof Error
+                      ? trajectoryLengthsQuery.error.message
+                      : "Could not load trajectories"}
+                  </div>
+                ) : trajectoryLengthsQuery.data?.trajectories.length ? (
+                  <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+                    {trajectoryLengthsQuery.data.trajectories.map((trajectory, index) => (
+                      <button
+                        key={trajectory.object_id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedObjects([{
+                            object_id: trajectory.object_id,
+                            frame_id: trajectory.first_frame,
+                            start_frame: trajectory.first_frame,
+                            end_frame: trajectory.last_frame,
+                          }]);
+                          handleFrameJump(trajectory.first_frame);
+                          safeToast({
+                            title: `Object ${trajectory.object_id} selected`,
+                            description: `${trajectory.length} frames · ${trajectory.first_frame}–${trajectory.last_frame}`,
+                            duration: 1600,
+                          });
+                        }}
+                        className="grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-white/85 hover:bg-white/15"
+                      >
+                        <span className="text-white/45">{String(index + 1).padStart(2, "0")}</span>
+                        <span>ID {trajectory.object_id}</span>
+                        <span>{trajectory.length} frames</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-4 text-center text-xs text-white/60">No trajectories found.</div>
+                )}
+              </div>
+            )}
             
             <div className="absolute top-3 right-3 z-50">
               <Button
@@ -2248,6 +3004,22 @@ export default function DynamicVideo({
                   >
                     <Target className="w-4 h-4" />
                     <span>Auto-pan {autoPanEnabled ? "ON" : "OFF"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const nextTheme = videoColorTheme === "light" ? "dark" : "light";
+                      setVideoColorTheme(nextTheme);
+                      safeToast({
+                        title: `${nextTheme === "light" ? "Light" : "Dark"} video color palette`,
+                        duration: 1000,
+                      });
+                    }}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100"
+                    title="Switch annotation colors for the video background"
+                  >
+                    <Palette className="h-4 w-4" />
+                    <span>{videoColorTheme === "light" ? "Light video colors" : "Dark video colors"}</span>
                   </button>
 
                   <button
@@ -2367,6 +3139,17 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    onClick={() => {
+                      setShowTrajectoryLengths(true);
+                      setIsToolbarOpen(false);
+                    }}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100"
+                  >
+                    <span>↕</span>
+                    <span>Browse by Length</span>
+                  </button>
+
+                  <button
                     onClick={() => setShowObjectSelection(!showObjectSelection)}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
                   >
@@ -2463,10 +3246,14 @@ export default function DynamicVideo({
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#212121] border border-[#3a3a3a] rounded-xl px-5 py-4 shadow-2xl z-50"
                   style={{ width: '280px' }}
                 >
-                  <div className="flex justify-between items-center mb-3">
+                  <div className="flex justify-between items-start mb-1">
                     <span className="text-white text-xs font-medium">Playback speed</span>
-                    <span className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</span>
+                    <div className="text-right">
+                      <div className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</div>
+                      <div className="text-blue-300 text-[10px]">{formatFps(fps * playbackRate)} FPS</div>
+                    </div>
                   </div>
+                  <div className="mb-3 text-[10px] text-gray-400">Source: {formatFps(fps)} FPS</div>
 
                   <div className="relative w-full h-10 flex items-start pt-2">
                     <div className="absolute left-0 right-0 top-2 h-1.5 bg-[#3a3a3a] rounded-full" />
@@ -2579,13 +3366,16 @@ export default function DynamicVideo({
               <div className="flex items-center gap-2">
                 <select
                   value={coordinateMode}
-                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy")}
+                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy")}
                   className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600"
                   disabled={selectedObjects.length === 0}
                 >
                   <option value="x">X Axis</option>
                   <option value="y">Y Axis</option>
                   <option value="xy">X + Y</option>
+                  <option value="skeleton-x">Skeleton X</option>
+                  <option value="skeleton-y">Skeleton Y</option>
+                  <option value="skeleton-xy">Skeleton X + Y</option>
                 </select>
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-gray-400">Visible frames:</span>
@@ -2633,10 +3423,28 @@ export default function DynamicVideo({
                   <div style={{ width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
-                        data={chartData.length > 0 ? chartData : [{ frame: currentFrame }]}
+                        data={isSkeletonCoordinateMode
+                          ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
+                          : (chartData.length > 0 ? chartData : [{ frame: currentFrame }])}
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        {hasVisibleTrajectoryGap && (
+                          <ReferenceArea
+                            x1={visibleGapStart!}
+                            x2={visibleGapEnd!}
+                            fill="#f59e0b"
+                            fillOpacity={0.22}
+                            stroke="#fbbf24"
+                            strokeOpacity={0.9}
+                            label={{
+                              value: `${activeTrajectoryGap!.gap} frame gap`,
+                              position: "insideTop",
+                              fill: "#fde68a",
+                              fontSize: 10,
+                            }}
+                          />
+                        )}
                         {hasVisibleClipRange && (
                           <ReferenceArea
                             x1={visibleClipStart!}
@@ -2674,14 +3482,14 @@ export default function DynamicVideo({
                           tick={{ fill: '#ccc', fontSize: 8 }}
                           domain={[0, 'auto']}
                           label={{
-                            value: coordinateMode === 'x' ? 'X' : coordinateMode === 'y' ? 'Y' : 'X/Y',
+                            value: coordinateMode === 'x' ? 'X' : coordinateMode === 'y' ? 'Y' : coordinateMode === 'skeleton-x' ? 'Points X' : coordinateMode === 'skeleton-y' ? 'Points Y' : 'X/Y',
                             angle: -90,
                             position: 'insideLeft',
                             fill: '#aaa',
                             fontSize: 10,
                           }}
                         />
-                        {uniqueObjectIds.map((objectId) => {
+                        {!isSkeletonCoordinateMode && uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
                           if (coordinateMode === 'x' || coordinateMode === 'xy') {
@@ -2715,11 +3523,47 @@ export default function DynamicVideo({
                           }
                           return lines;
                         })}
+                        {isSkeletonCoordinateMode && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
+                          const color = `hsl(${(objectId * 47 + pointIndex * 23) % 360} 75% 60%)`;
+                          const lines = [];
+                          if (coordinateMode === "skeleton-x" || coordinateMode === "skeleton-xy") {
+                            lines.push(<RechartsLine
+                              key={`${objectId}-${pointIndex}-skeleton-x`}
+                              type="linear"
+                              dataKey={`obj_${objectId}_point_${pointIndex}_x`}
+                              name={`Object ${objectId} Point ${pointIndex + 1} X`}
+                              stroke={color}
+                              strokeWidth={1}
+                              dot={false}
+                              isAnimationActive={false}
+                            />);
+                          }
+                          if (coordinateMode === "skeleton-y" || coordinateMode === "skeleton-xy") {
+                            lines.push(<RechartsLine
+                              key={`${objectId}-${pointIndex}-skeleton-y`}
+                              type="linear"
+                              dataKey={`obj_${objectId}_point_${pointIndex}_y`}
+                              name={`Object ${objectId} Point ${pointIndex + 1} Y`}
+                              stroke={color}
+                              strokeWidth={1}
+                              strokeDasharray="3 2"
+                              dot={false}
+                              isAnimationActive={false}
+                            />);
+                          }
+                          return lines;
+                        })}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {selectedObjects.length === 0 || timelinePoints.length === 0 ? (
+                {isSkeletonTimelineLoading && isSkeletonCoordinateMode ? (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="inline-flex items-center text-xs text-gray-300 bg-slate-900/80 px-3 py-1 rounded">
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading skeleton points…
+                    </span>
+                  </div>
+                ) : selectedObjects.length === 0 || (isSkeletonCoordinateMode ? skeletonChartData.length === 0 : timelinePoints.length === 0) ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
                       {selectedObjects.length === 0
