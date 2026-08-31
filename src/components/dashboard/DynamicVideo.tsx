@@ -2685,7 +2685,7 @@ export default function DynamicVideo({
                 </div>
               )}
               {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
-                <div className="mt-2 min-w-64 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold">Clip Suggestions</div>
                   {areClipSuggestionsLoading ? (
                     <div className="text-white/60">Analyzing trajectory…</div>
