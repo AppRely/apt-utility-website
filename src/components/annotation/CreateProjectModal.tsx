@@ -219,11 +219,11 @@ export default function CreateProjectModal({
               )}
             </div>
 
-            {/* File Upload */}
+            {/* Video Upload */}
             <div className="flex flex-col gap-2">
               <div className="flex items-start gap-4">
                 <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left pt-5">
-                  File Upload
+                  Video Upload
                 </label>
                 <div className="flex-1">
                   <div className="relative w-full">
