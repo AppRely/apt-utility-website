@@ -1235,6 +1235,9 @@ export default function DynamicVideo({
   useEffect(() => {
     if (!isSkeletonCoordinateMode || !projectId || !selectedTimelineObjectIds) {
       skeletonTimelineAbortRef.current?.abort();
+      skeletonTimelineAbortRef.current = null;
+      skeletonTimelineRangeRef.current = null;
+      setSkeletonTimelinePoints([]);
       if (isSkeletonTimelineLoading) setIsSkeletonTimelineLoading(false);
       return;
     }
@@ -3423,9 +3426,11 @@ export default function DynamicVideo({
                   <div style={{ width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
-                        data={isSkeletonCoordinateMode
-                          ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
-                          : (chartData.length > 0 ? chartData : [{ frame: currentFrame }])}
+                        data={selectedObjects.length === 0
+                          ? [{ frame: currentFrame }]
+                          : isSkeletonCoordinateMode
+                            ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
+                            : (chartData.length > 0 ? chartData : [{ frame: currentFrame }])}
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
@@ -3489,7 +3494,7 @@ export default function DynamicVideo({
                             fontSize: 10,
                           }}
                         />
-                        {!isSkeletonCoordinateMode && uniqueObjectIds.map((objectId) => {
+                        {!isSkeletonCoordinateMode && selectedObjects.length > 0 && uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
                           if (coordinateMode === 'x' || coordinateMode === 'xy') {
@@ -3523,7 +3528,7 @@ export default function DynamicVideo({
                           }
                           return lines;
                         })}
-                        {isSkeletonCoordinateMode && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
+                        {isSkeletonCoordinateMode && selectedObjects.length > 0 && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
                           const color = `hsl(${(objectId * 47 + pointIndex * 23) % 360} 75% 60%)`;
                           const lines = [];
                           if (coordinateMode === "skeleton-x" || coordinateMode === "skeleton-xy") {
