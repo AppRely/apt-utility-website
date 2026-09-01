@@ -4,7 +4,7 @@ APT Utility Website is a browser-based frontend for reviewing and correcting ani
 
 This repository contains the Next.js frontend and requires the APT video-processing backend.
 
-> For instructions on creating projects, reviewing trajectories, using operations, and keyboard shortcuts, see the [User Guide](./USER_GUIDE.md).
+> For instructions on creating projects, reviewing trajectories, using operations, and keyboard shortcuts, see the [User Guide](./docs/USER_GUIDE.md).
 
 ## Tech stack
 
@@ -140,4 +140,4 @@ When adding an endpoint:
 
 ## Documentation
 
-See [USER_GUIDE.md](./USER_GUIDE.md) for the complete application workflow, trajectory operations, smart features, video and timeline controls, and keyboard shortcuts.
+See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for the complete application workflow, trajectory operations, smart features, video and timeline controls, and keyboard shortcuts.

@@ -2,7 +2,7 @@
 
 APT Utility Website helps you review animal tracking data alongside its source video. You can inspect tracked objects, correct trajectory mistakes, navigate suspicious areas, and export the updated tracking file.
 
-> For installation, configuration, and development information, see the [Developer README](./README.md).
+> For installation, configuration, and development information, see the [Developer README](../README.md).
 
 ## Table of contents
 
@@ -35,7 +35,7 @@ The application combines a video with its tracking data. After opening a project
 
 ### Create a project
 
-![Create Project screen](docs/images/create_project.png)
+![Create Project screen](images/create_project.png)
 
 1. Open the landing page.
 2. Click **Create Project**.
@@ -57,7 +57,7 @@ Projects are grouped by processing status on the landing page. Open a processed 
 
 ## Dashboard overview
 
-![APT Utility dashboard](docs/images/dashboard.png)
+![APT Utility dashboard](images/dashboard.png)
 
 The dashboard has three main areas:
 
@@ -322,4 +322,3 @@ Shortcuts are ignored while typing in inputs, and operation shortcuts are genera
 1. Open the top-right dashboard menu.
 2. Choose **Export TRK**.
 3. Save the updated tracking file when the download begins.
-
