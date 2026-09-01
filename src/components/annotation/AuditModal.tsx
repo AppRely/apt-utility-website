@@ -177,7 +177,15 @@ export default function AuditModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+      <DialogContent
+        data-system-guide="audit-dialog"
+        className="max-w-5xl fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+        onInteractOutside={(event) => {
+          if (event.target instanceof Element && event.target.closest("[data-system-guide-ui]")) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogClose asChild>
           <button className="absolute top-3 right-3 hover:bg-gray-100 p-1 rounded-full">
             <X className="w-5 h-5" />
@@ -189,6 +197,7 @@ export default function AuditModal({
             Activity Logs
           </DialogTitle>
           <Button
+            data-system-guide="audit-export"
             variant="outline"
             size="sm"
             onClick={handleExport}
@@ -200,23 +209,24 @@ export default function AuditModal({
           </Button>
         </DialogHeader>
 
-        {isLoading && <p className="text-center py-4">Loading...</p>}
+        <div data-system-guide="audit-table">
+          {isLoading && <p className="text-center py-4">Loading...</p>}
 
-        {error && (
-          <p className="text-center text-red-500 py-4">Failed to load logs</p>
-        )}
+          {error && (
+            <p className="text-center text-red-500 py-4">Failed to load logs</p>
+          )}
 
-        {!isLoading && logs.length === 0 && (
-          <p className="text-center py-4 text-gray-500">
-            No activity logs found
-          </p>
-        )}
+          {!isLoading && logs.length === 0 && (
+            <p className="text-center py-4 text-gray-500">
+              No activity logs found
+            </p>
+          )}
 
-        {logs.length > 0 && (
-          <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
-            <Table>
-              {/* Sticky header fix applied here */}
-              <TableHeader className="sticky top-0 z-10 bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
+          {logs.length > 0 && (
+            <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
+              <Table>
+                {/* Sticky header fix applied here */}
+                <TableHeader className="sticky top-0 z-10 bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
                 <TableRow className="hover:bg-[#3B3B3B]">
                   <TableHead className="text-center text-white">
                     Sr. No.
@@ -249,9 +259,9 @@ export default function AuditModal({
                     Updated At (IST)
                   </TableHead>
                 </TableRow>
-              </TableHeader>
+                </TableHeader>
 
-              <TableBody>
+                <TableBody>
                 {[...logs]
                   .sort(
                     (a: any, b: any) =>
@@ -304,10 +314,11 @@ export default function AuditModal({
                       </TableRow>
                     );
                   })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

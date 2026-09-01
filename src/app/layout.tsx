@@ -5,7 +5,7 @@ import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { Navbar } from '@/components';
 import { ReactNode } from 'react';
 import { Toaster } from "@/components/ui/toaster"
-import { icons } from 'lucide-react';
+import SystemGuide from '@/features/system-guide/SystemGuide';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
@@ -23,6 +23,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Providers>
             {/* <Navbar /> */}
             <main>{children}</main>
+            <SystemGuide />
             <div className="fixed top-5 right-5 z-[9999]">
               <Toaster />
             </div>

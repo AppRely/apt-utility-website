@@ -184,7 +184,15 @@ export default function CreateProjectModal({
       <Dialog
         open={open}
         onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[800px] p-0 rounded-[12px] overflow-hidden">
+        <DialogContent
+          data-system-guide="project-form"
+          onInteractOutside={(event) => {
+            if (event.target instanceof Element && event.target.closest("[data-system-guide-ui]")) {
+              event.preventDefault();
+            }
+          }}
+          className="sm:max-w-[800px] p-0 rounded-[12px] overflow-hidden"
+        >
           {/* Header */}
           <div className="px-8 py-7 border-b-[2px]">
             <DialogHeader>
@@ -203,6 +211,7 @@ export default function CreateProjectModal({
                   Project Name
                 </label>
                 <input
+                  data-system-guide="project-name"
                   type="text"
                   value={projectName}
                   onChange={(e) => {
@@ -220,7 +229,7 @@ export default function CreateProjectModal({
             </div>
 
             {/* Video Upload */}
-            <div className="flex flex-col gap-2">
+            <div data-system-guide="video-upload" className="flex flex-col gap-2">
               <div className="flex items-start gap-4">
                 <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left pt-5">
                   Video Upload
@@ -264,7 +273,7 @@ export default function CreateProjectModal({
             </div>
 
             {/* Tracking File (optional) */}
-            <div className="flex items-start gap-4">
+            <div data-system-guide="tracking-upload" className="flex items-start gap-4">
               <label className="w-[180px] text-[#595959] text-[18px] font-medium text-left pt-5">
                 Upload Tracking file
               </label>
@@ -301,6 +310,7 @@ export default function CreateProjectModal({
           {/* Footer */}
           <div className="px-6 py-7 border-t-[2px] flex justify-end gap-5">
             <Button
+              data-system-guide="project-submit"
               size={null}
               onClick={handleSubmit}
               disabled={mutation.isPending}
