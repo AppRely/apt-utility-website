@@ -183,6 +183,8 @@ Select an object and press `.` to navigate forward through its break boundaries.
 
 At a valid mid-trajectory break, the video displays up to five ranked trajectory matches with confidence percentages. Suggestions are skipped at frame `0` or the object’s first frame because no preceding segment exists to link.
 
+Select a **Top Matches** row to keep the current trajectory as Object 1 and select the suggested trajectory as Object 2. Review both selections, then press `L` to link them.
+
 ### Automatic continuation matching
 
 With one object selected, press `E`. The application:

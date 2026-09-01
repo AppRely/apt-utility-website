@@ -2643,18 +2643,30 @@ export default function DynamicVideo({
                       <div className="text-slate-400">Loading...</div>
                     ) : linkingSuggestions.items.length > 0 ? (
                       <div className="space-y-0.5">
-                        {linkingSuggestions.items.slice(0, 5).map((suggestion, index) => (
-                          <div
-                            key={suggestion.object_id}
-                            className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
-                              index === 0 ? "bg-white/15 text-white" : "text-white/85"
-                            }`}
-                          >
-                            <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
-                            <span>{suggestion.object_id}</span>
-                            <span>{(suggestion.score * 100).toFixed(1)}%</span>
-                          </div>
-                        ))}
+                        {linkingSuggestions.items.slice(0, 5).map((suggestion, index) => {
+                          const isSelectedMatch = selectedObjects[1]?.object_id === suggestion.object_id;
+                          return (
+                            <button
+                              key={suggestion.object_id}
+                              type="button"
+                              aria-label={`Select object ${suggestion.object_id} as Object 2`}
+                              aria-pressed={isSelectedMatch}
+                              disabled={objectMutation.isPending}
+                              onClick={() => selectObjectForSlot(suggestion.object_id, 1)}
+                              className={`grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 text-left hover:bg-white/20 disabled:cursor-wait ${
+                                isSelectedMatch
+                                  ? "bg-white/25 text-white"
+                                  : index === 0
+                                    ? "bg-white/15 text-white"
+                                    : "text-white/85"
+                              }`}
+                            >
+                              <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                              <span>{suggestion.object_id}</span>
+                              <span>{(suggestion.score * 100).toFixed(1)}%</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="text-slate-400">None found</div>
