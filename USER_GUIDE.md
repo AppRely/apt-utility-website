@@ -323,39 +323,3 @@ Shortcuts are ignored while typing in inputs, and operation shortcuts are genera
 2. Choose **Export TRK**.
 3. Save the updated tracking file when the download begins.
 
-## Troubleshooting
-
-### The project or dashboard does not load
-
-- Confirm the backend service is available.
-- Return to the landing page and reopen the processed project.
-- If the project is still processing, wait for it to finish.
-
-### The dashboard has no project information
-
-Open it through the project row on the landing page. The application transfers required project information during this navigation.
-
-### Operation buttons are disabled
-
-- **One object:** Break, Delete, Clip, and single-object Interpolate.
-- **Two objects:** Swap, Link, and two-object Interpolate.
-- **Clip:** also requires two captured frame boundaries.
-
-### The skeleton timeline is empty
-
-Select an object, choose a Skeleton X/Y mode, wait for loading, and confirm that the tracking data contains skeleton coordinates.
-
-### Suggestions are missing
-
-- Linking suggestions require a valid mid-trajectory break.
-- Clip suggestions require exactly one selected object.
-- Continuation matches must satisfy frame and spatial-distance limits.
-- At an object’s first frame, no preceding trajectory exists to suggest.
-
-## Tips
-
-- Verify Object 1 and Object 2 in the sidebar before a two-object operation.
-- Use `E` and then `L` to review and link the best nearby continuation quickly.
-- Use `G` repeatedly to inspect missing-frame gaps from largest to smallest.
-- Treat suggestions as review aids; inspect the video and timeline before confirming a mutation.
-- Use undo immediately if a supported operation produces an unexpected result.
