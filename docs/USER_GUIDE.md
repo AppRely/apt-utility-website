@@ -161,11 +161,12 @@ Non-overlapping trajectories link immediately. With one selected object, press `
 2. Go to the first frame and press `Ctrl+C`.
 3. Go to the final frame and press `Ctrl+C` again.
 4. Review the purple timeline highlight.
-5. Click **Clip** and confirm.
+5. Press `X` or click **Clip**.
+6. Confirm the operation.
 
 The interval must be inside the selected object’s frame range. The resulting track is selected after success.
 
-**Shortcut:** `Ctrl+C` captures the two boundaries.
+**Shortcuts:** `Ctrl+C` captures the two boundaries. `X` opens the Clip confirmation for the selected range.
 
 ### Confusion, undo, redo, and refresh
 
@@ -308,6 +309,7 @@ Shortcuts are ignored while typing in inputs, and operation shortcuts are genera
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+C` | Capture clip start or end. |
+| `X` | Open Clip confirmation for the selected range. |
 | `L` | Link selected objects or the top continuation. |
 | `W` | Open Swap confirmation. |
 | `B` | Open Break confirmation. |

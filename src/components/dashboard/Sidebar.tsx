@@ -677,9 +677,16 @@ export default function Sidebar({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isAnyDialogOpen) return;
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (activeElement && (
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable
+      )) return;
       const key = e.key.toLowerCase();
       const preventDefaultKeys = ["l", "w", "b", "d", "i", "r"];
-      if (preventDefaultKeys.includes(key)) e.preventDefault();
+      const isPlainClipShortcut = key === "x" && !e.ctrlKey && !e.altKey && !e.metaKey;
+      if (preventDefaultKeys.includes(key) || isPlainClipShortcut) e.preventDefault();
 
       if (key === "l") {
         if (![1, 2].includes(selectedObjects.length)) {
@@ -711,13 +718,23 @@ export default function Sidebar({
           return;
         }
         if (!interpolateMutation.isPending) handleInterpolate();
+      } else if (isPlainClipShortcut) {
+        if (selectedObjects.length !== 1) {
+          toast({ title: "Select one object", description: "Exactly one object is required for clipping.", variant: "destructive", duration: 3000 });
+          return;
+        }
+        if (clipStartFrame === null || clipEndFrame === null) {
+          toast({ title: "Clip range incomplete", description: "Capture the start and end frames with Ctrl+C first.", variant: "destructive", duration: 3000 });
+          return;
+        }
+        if (!clipMutation.isPending) handleOpenClipDialog();
       } else if (key === "r" && !e.ctrlKey && !e.metaKey) {
         if (!recalculateMutation.isPending && !isConfusionRunning) recalculateMutation.mutate();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedObjects, isAnyDialogOpen, linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending, interpolateMutation.isPending, recalculateMutation.isPending, isConfusionRunning, toast, handleInterpolate, handleLinkObjects]);
+  }, [selectedObjects, isAnyDialogOpen, linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending, interpolateMutation.isPending, clipMutation.isPending, recalculateMutation.isPending, isConfusionRunning, clipStartFrame, clipEndFrame, toast, handleInterpolate, handleLinkObjects]);
 
   // Enter key confirmation
   useEffect(() => {

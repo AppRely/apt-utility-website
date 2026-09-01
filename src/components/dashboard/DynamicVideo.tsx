@@ -2213,6 +2213,7 @@ export default function DynamicVideo({
       category: "Operations",
       items: [
         { action: "Capture Clip Start / End", key: "Ctrl+C" },
+        { action: "Clip Selected Range", key: "X" },
         { action: "Link Objects", key: "L" },
         { action: "Swap Objects", key: "W" },
         { action: "Break Object", key: "B" },
