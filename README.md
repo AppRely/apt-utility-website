@@ -4,6 +4,27 @@ APT Utility Website is a browser-based animal trajectory review and correction t
 
 This repository contains the Next.js frontend. It requires the APT video-processing backend for project upload, video data, trajectory operations, suggestions, audit data, and exports.
 
+## Table of contents
+
+- [Main capabilities](#main-capabilities)
+- [Tech stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Getting started](#getting-started)
+- [Commands](#commands)
+- [Docker](#docker)
+- [Workflow](#workflow)
+- [Dashboard overview](#dashboard-overview)
+- [Selecting objects](#selecting-objects)
+- [Trajectory operations](#trajectory-operations)
+- [Features](#features)
+- [Video and timeline](#video-and-timeline)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Routes](#routes)
+- [Project structure](#project-structure)
+- [Backend integration](#backend-integration)
+- [Data flow](#data-flow)
+- [Troubleshooting](#troubleshooting)
+
 ## Main capabilities
 
 - Create projects from a video and an optional tracking file.
@@ -92,7 +113,7 @@ docker compose up --build
 
 The frontend is exposed on port `3000`. Ensure the browser/container can reach the backend. The current Compose files define `NEXT_PUBLIC_API_URL`, while application API clients use `NEXT_PUBLIC_SERVER_ENDPOINT`; deployments must provide `NEXT_PUBLIC_SERVER_ENDPOINT` explicitly.
 
-## First-time user workflow
+## Workflow
 
 ### Create a project
 
@@ -197,7 +218,7 @@ Click **Confusion** or press `R` without `Ctrl`/`Cmd`. The backend recalculates 
 - Press `Ctrl+R` or choose **Refresh Data** to reload dashboard data.
 - Choose **Export TRK** from the top-right menu to download updated tracking data.
 
-## Smart review features
+## Features
 
 ### Break navigation and linking suggestions
 
@@ -205,7 +226,7 @@ Select an object and press `.` to navigate forward through break boundaries; pre
 
 At a valid mid-trajectory break, the video shows up to five ranked linking suggestions with confidence percentages. Suggestions are skipped at frame `0` or the object’s first frame because no preceding segment exists.
 
-### Automatic continuation matching — `E`
+### Automatic continuation matching - `E`
 
 With one selected object, `E`:
 
@@ -226,7 +247,7 @@ With exactly one selected object, the backend identifies suspicious movement int
 - Clicking a row prepares the clip range and jumps to its peak-movement frame.
 - It does not clip automatically; confirm through the normal **Clip** workflow.
 
-### Largest-gap navigation — `G`
+### Largest-gap navigation - `G`
 
 Select one object and press `G` to browse missing-frame gaps from largest to smallest.
 
@@ -431,4 +452,3 @@ Select an object, choose a Skeleton X/Y mode, wait for loading, and confirm that
 - Clip suggestions require exactly one selected object.
 - Continuation matches must pass frame and spatial thresholds.
 - Confirm the backend suggestion endpoint succeeds in DevTools.
-
