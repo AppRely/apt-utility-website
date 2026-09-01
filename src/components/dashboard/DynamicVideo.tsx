@@ -3465,7 +3465,6 @@ export default function DynamicVideo({
                           x={currentFrame}
                           stroke="#ff3333"
                           strokeWidth={2}
-                          label={{ value: '◀', position: 'insideTopLeft', fill: '#ff3333', fontSize: 10 }}
                         />
                         <XAxis
                           type="number"
