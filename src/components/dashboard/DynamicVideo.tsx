@@ -2634,7 +2634,7 @@ export default function DynamicVideo({
               {linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd && (
-                  <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                  <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                     <div className="mb-1.5 text-xs font-semibold text-white">
                       Top Matches
                     </div>
@@ -2665,7 +2665,7 @@ export default function DynamicVideo({
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd
               ) && (
-                <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold text-white">Next Link Matches</div>
                   <div className="space-y-0.5">
                     {visibleNextFrameLinkMatches.map((candidate, index) => (
