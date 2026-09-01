@@ -117,6 +117,8 @@ The frontend is exposed on port `3000`. Ensure the browser/container can reach t
 
 ### Create a project
 
+![Create Project screen](docs/images/create_project.png)
+
 1. Open the landing page.
 2. Click **Create Project**.
 3. Enter a project name.
@@ -127,6 +129,8 @@ The frontend is exposed on port `3000`. Ensure the browser/container can reach t
 Video examples shown by the UI are `.avi`, `.mp4`, `.mov`, and `.ufmf`. Tracking examples are `.trk`, `.json`, `.csv`, and `.xml`. Actual support is determined by the backend.
 
 ### Open and manage projects
+
+![APT Utility dashboard](docs/images/dashboard.png)
 
 The landing page groups projects by status. Open a processed project to enter the dashboard. Users can also open its audit log or delete it after confirmation. The actual video and tracking filenames are displayed.
 
