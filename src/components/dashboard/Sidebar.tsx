@@ -83,27 +83,26 @@ export default function Sidebar({
 
   // Session storage hook
   const useSessionStorage = (key: string) => {
-    const [value, setValue] = useState<string | null>(
-      typeof window !== "undefined" ? sessionStorage.getItem(key) : null,
-    );
+    const [value, setValue] = useState<string | null>(null);
     useEffect(() => {
+      const readValue = () => sessionStorage.getItem(key);
+      setValue(readValue());
+
       const handleStorageChange = () => {
-        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
-        setValue(newValue);
+        setValue(readValue());
       };
       window.addEventListener("storage", handleStorageChange);
       const interval = setInterval(() => {
-        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
-        if (newValue !== value) {
-          setValue(newValue);
-          console.log(`${key} changed to:`, newValue);
-        }
+        setValue(currentValue => {
+          const newValue = readValue();
+          return newValue === currentValue ? currentValue : newValue;
+        });
       }, 200);
       return () => {
         window.removeEventListener("storage", handleStorageChange);
         clearInterval(interval);
       };
-    }, [key, value]);
+    }, [key]);
     return value;
   };
 

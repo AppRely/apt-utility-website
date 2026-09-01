@@ -414,17 +414,18 @@ export default function DynamicVideo({
   const [skeletonGraph, setSkeletonGraph] = useState<[number, number][]>([]);
   const [showSkeleton, setShowSkeleton] = useState(true);
 
-  const [autoInterpolation, setAutoInterpolation] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem("autoInterpolation");
-      return stored === "true";
-    }
-    return false;
-  });
+  const [autoInterpolation, setAutoInterpolation] = useState(false);
+  const [isAutoInterpolationPreferenceLoaded, setIsAutoInterpolationPreferenceLoaded] = useState(false);
 
   useEffect(() => {
+    setAutoInterpolation(sessionStorage.getItem("autoInterpolation") === "true");
+    setIsAutoInterpolationPreferenceLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isAutoInterpolationPreferenceLoaded) return;
     sessionStorage.setItem("autoInterpolation", String(autoInterpolation));
-  }, [autoInterpolation]);
+  }, [autoInterpolation, isAutoInterpolationPreferenceLoaded]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -678,10 +679,8 @@ export default function DynamicVideo({
   const toolbarOpenedByGuideRef = useRef(false);
   const [showTrajectoryLengths, setShowTrajectoryLengths] = useState(false);
   const [trajectoryLengthOrdering, setTrajectoryLengthOrdering] = useState<TrajectoryLengthOrdering>("length_desc");
-  const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">(() => {
-    if (typeof window === "undefined") return "light";
-    return sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light";
-  });
+  const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">("light");
+  const [isVideoColorThemePreferenceLoaded, setIsVideoColorThemePreferenceLoaded] = useState(false);
   const objectColorSlotsRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
@@ -703,8 +702,14 @@ export default function DynamicVideo({
   }, []);
 
   useEffect(() => {
+    setVideoColorTheme(sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light");
+    setIsVideoColorThemePreferenceLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isVideoColorThemePreferenceLoaded) return;
     sessionStorage.setItem("videoColorTheme", videoColorTheme);
-  }, [videoColorTheme]);
+  }, [videoColorTheme, isVideoColorThemePreferenceLoaded]);
 
   const [trajectoryFrames, setTrajectoryFrames] = useState(100);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
