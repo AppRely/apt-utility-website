@@ -195,7 +195,7 @@ With one object selected, press `E`. The application:
 4. Ranks valid candidates by frame proximity and coordinate distance.
 5. Selects the top result as Object 2.
 
-Review both objects and press `L` to link them.
+The **Next Link Matches** panel remains visible after the top result is selected. Select any row to replace Object 2 with that candidate, then review both objects and press `L` to link them.
 
 ### Clip suggestions
 

@@ -2710,20 +2710,48 @@ export default function DynamicVideo({
                 <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold text-white">Next Link Matches</div>
                   <div className="space-y-0.5">
-                    {visibleNextFrameLinkMatches.map((candidate, index) => (
-                      <div
-                        key={candidate.id}
-                        className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
-                          index === 0 ? "bg-white/15 text-white" : "text-white/85"
-                        }`}
-                      >
-                        <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
-                        <span>ID {candidate.id}</span>
-                        <span>Frame {candidate.start_frame}</span>
-                      </div>
-                    ))}
+                    {visibleNextFrameLinkMatches.map((candidate, index) => {
+                      const isSelectedMatch = selectedObjects[1]?.object_id === candidate.id;
+                      return (
+                        <button
+                          key={candidate.id}
+                          type="button"
+                          aria-label={`Select object ${candidate.id} as Object 2`}
+                          aria-pressed={isSelectedMatch}
+                          onClick={() => {
+                            const primaryObject = selectedObjects[0];
+                            if (!primaryObject) return;
+                            setSelectedObjects([
+                              primaryObject,
+                              {
+                                object_id: candidate.id,
+                                frame_id: candidate.start_frame,
+                                start_frame: candidate.start_frame,
+                                end_frame: candidate.end_frame,
+                              },
+                            ]);
+                            safeToast({
+                              title: `Object ${candidate.id} selected for linking`,
+                              description: `Starts at frame ${candidate.start_frame}`,
+                              duration: 1500,
+                            });
+                          }}
+                          className={`grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 text-left hover:bg-white/20 ${
+                            isSelectedMatch
+                              ? "bg-white/25 text-white"
+                              : index === 0
+                                ? "bg-white/15 text-white"
+                                : "text-white/85"
+                          }`}
+                        >
+                          <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                          <span>ID {candidate.id}</span>
+                          <span>Frame {candidate.start_frame}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="mt-1.5 text-[11px] text-white/60">Press L to link the first match</div>
+                  <div className="mt-1.5 text-[11px] text-white/60">Select a match, then press L to link</div>
                 </div>
               )}
               {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
