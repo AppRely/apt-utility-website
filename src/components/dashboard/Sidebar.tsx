@@ -83,27 +83,26 @@ export default function Sidebar({
 
   // Session storage hook
   const useSessionStorage = (key: string) => {
-    const [value, setValue] = useState<string | null>(
-      typeof window !== "undefined" ? sessionStorage.getItem(key) : null,
-    );
+    const [value, setValue] = useState<string | null>(null);
     useEffect(() => {
+      const readValue = () => sessionStorage.getItem(key);
+      setValue(readValue());
+
       const handleStorageChange = () => {
-        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
-        setValue(newValue);
+        setValue(readValue());
       };
       window.addEventListener("storage", handleStorageChange);
       const interval = setInterval(() => {
-        const newValue = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
-        if (newValue !== value) {
-          setValue(newValue);
-          console.log(`${key} changed to:`, newValue);
-        }
+        setValue(currentValue => {
+          const newValue = readValue();
+          return newValue === currentValue ? currentValue : newValue;
+        });
       }, 200);
       return () => {
         window.removeEventListener("storage", handleStorageChange);
         clearInterval(interval);
       };
-    }, [key, value]);
+    }, [key]);
     return value;
   };
 
@@ -677,9 +676,16 @@ export default function Sidebar({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isAnyDialogOpen) return;
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (activeElement && (
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable
+      )) return;
       const key = e.key.toLowerCase();
       const preventDefaultKeys = ["l", "w", "b", "d", "i", "r"];
-      if (preventDefaultKeys.includes(key)) e.preventDefault();
+      const isPlainClipShortcut = key === "x" && !e.ctrlKey && !e.altKey && !e.metaKey;
+      if (preventDefaultKeys.includes(key) || isPlainClipShortcut) e.preventDefault();
 
       if (key === "l") {
         if (![1, 2].includes(selectedObjects.length)) {
@@ -711,13 +717,23 @@ export default function Sidebar({
           return;
         }
         if (!interpolateMutation.isPending) handleInterpolate();
+      } else if (isPlainClipShortcut) {
+        if (selectedObjects.length !== 1) {
+          toast({ title: "Select one object", description: "Exactly one object is required for clipping.", variant: "destructive", duration: 3000 });
+          return;
+        }
+        if (clipStartFrame === null || clipEndFrame === null) {
+          toast({ title: "Clip range incomplete", description: "Capture the start and end frames with Ctrl+C first.", variant: "destructive", duration: 3000 });
+          return;
+        }
+        if (!clipMutation.isPending) handleOpenClipDialog();
       } else if (key === "r" && !e.ctrlKey && !e.metaKey) {
         if (!recalculateMutation.isPending && !isConfusionRunning) recalculateMutation.mutate();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedObjects, isAnyDialogOpen, linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending, interpolateMutation.isPending, recalculateMutation.isPending, isConfusionRunning, toast, handleInterpolate, handleLinkObjects]);
+  }, [selectedObjects, isAnyDialogOpen, linkMutation.isPending, swapMutation.isPending, breakMutation.isPending, deleteMutation.isPending, interpolateMutation.isPending, clipMutation.isPending, recalculateMutation.isPending, isConfusionRunning, clipStartFrame, clipEndFrame, toast, handleInterpolate, handleLinkObjects]);
 
   // Enter key confirmation
   useEffect(() => {
@@ -856,7 +872,7 @@ export default function Sidebar({
       className="flex w-full h-full min-h-0 flex-col bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-hidden"
       style={{ containerType: "inline-size" }}
     >
-      <CardHeader className="flex flex-row items-center gap-3 p-3 pb-0">
+      <CardHeader data-system-guide="sidebar-project" className="flex flex-row items-center gap-3 p-3 pb-0">
         <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
         <div>
           <div className="flex items-center gap-3">
@@ -892,7 +908,7 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm">
+        <div data-system-guide="sidebar-selection" className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
             <Button variant="destructive" size="sm" onClick={() => { setSelectedObjects([]); clearClipRange(); toast({ title: "ℹ️ Cleared", description: "Selection and clip range cleared.", variant: "default", duration: 3000 }); }} disabled={selectedObjects.length === 0 && clipStartFrame === null}>
@@ -941,25 +957,26 @@ export default function Sidebar({
       </CardContent>
 
       <CardContent className="sidebar-action-grid p-3 pt-0">
-        <Button className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
+        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
           <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />{swapMutation.isPending ? "Swapping..." : "Swap"}
         </Button>
-        <Button className="min-w-0 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
+        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
           <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
-        <Button className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
+        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
           <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
-        <Button className="min-w-0 w-full bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
           <Image src="/images/delete.png" alt="Delete" width={35} height={35} />{deleteMutation.isPending ? "Deleting..." : "Delete"}
         </Button>
-        <Button className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
+        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
           <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25} />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
         </Button>
-        <Button className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
+        <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
           <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25} />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
         </Button>
         <Button
+          data-system-guide="sidebar-clip"
           className="min-w-0 w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
           disabled={!selectedClipObject || clipStartFrame === null || clipMutation.isPending}
           onClick={handleOpenClipDialog}
@@ -973,7 +990,7 @@ export default function Sidebar({
 
       <CardContent className="p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
-          <button onClick={() => setObjectsCollapsed(!objectsCollapsed)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition" aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}>
+          <button data-system-guide="sidebar-object-list" onClick={() => setObjectsCollapsed(!objectsCollapsed)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition" aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}>
             Object List
             {objectsCollapsed ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>

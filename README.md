@@ -1,118 +1,143 @@
-# Next.js 15 Hybrid Starter ⸺ Tailwind v4, shadcn/ui, TanStack Query v5, Zustand, Zod, nuqs
+# APT Utility Website
 
-> A modern, opinionated template demonstrating a **hybrid-rendered** Next.js 15 app with a clean, scalable folder structure.
+APT Utility Website is a browser-based frontend for reviewing and correcting animal trajectory data. It combines video playback with tracking annotations, trajectory timelines, correction operations, and backend-generated suggestions.
 
----
+This repository contains the Next.js frontend and requires the APT video-processing backend.
 
-## ✨ Tech Stack
+> For instructions on creating projects, reviewing trajectories, using operations, and keyboard shortcuts, see the [User Guide](./docs/USER_GUIDE.md).
 
-| Layer | Package | Purpose |
-|-------|---------|---------|
-| Framework | **next@canary (15)** | React 18 app-router, edge runtime, server actions |
-| Styling | **tailwindcss@canary (v4)** | Utility-first CSS, JIT mode |
-| UI primitives | **shadcn/ui** | Accessible, theme-able components (generated into `src/components/ui`) |
-| Data fetching | **@tanstack/react-query v5** | Caching & network state management |
-| Global state | **zustand** | Tiny, unopinionated store |
-| Validation | **zod** | Runtime schemas ↔︎ TypeScript types |
-| URL state | **nuqs** | Query-string ↔︎ React state sync |
-| Utils | **clsx + tailwind-merge** | Class-name composition (`cn` helper) |
+## Tech stack
 
-Dev-tooling: ESLint (Next + TS + Tailwind plugin), Prettier, TypeScript 5, pnpm 8, Turbopack dev server.
+| Area | Technology |
+| --- | --- |
+| Framework | Next.js 15 App Router |
+| UI | React 19, TypeScript, Tailwind CSS, shadcn/Radix primitives |
+| Server state | TanStack Query 5 |
+| Video overlay | Konva and react-konva |
+| Charts | Recharts |
+| Icons | Lucide React |
+| Utilities | Zod, clsx, tailwind-merge |
+| Media support | FFmpeg WebAssembly |
+| Packaging | pnpm, Docker, standalone Next.js output |
 
----
+## Quick start
 
-## 📂 Folder Structure (monorepo-friendly)
+### Prerequisites
 
-```
-src/
-│
-├─ app/                 # Next.js app-router routes
-│   ├─ layout.tsx       # Root layout (HTML, Providers, global CSS)
-│   ├─ page.tsx         # Landing page (renders <Home />)
-│   └─ api/hello/route.ts  # Edge function demo
-│
-├─ components/          # Re-usable *presentational* React components
-│   ├─ ui/              # shadcn‐generated primitives (Button, Dialog, …)
-│   ├─ layout/          # Navbar, Footer, Shell …
-│   ├─ feedback/        # Spinner, ErrorState …
-│   ├─ Home.tsx         # Showcase component (client)
-│   └─ index.ts         # Barrel exports
-│
-├─ features/            # “Vertical slices” → UI + hooks + API + schema per domain
-│   └─ posts/
-│       ├─ posts-list.tsx
-│       ├─ hooks.ts
-│       ├─ api.ts
-│       ├─ schema.ts
-│       └─ index.ts
-│
-├─ hooks/               # Truly generic React hooks (useDebounce …)
-│
-├─ lib/                 # Cross-cutting runtime libraries (no JSX)
-│   ├─ queryClient.ts
-│   └─ api/fetcher.ts
-│
-├─ store/               # Global Zustand stores
-├─ schemas/             # zod schemas used by multiple features
-├─ utils/               # Stateless helpers (cn, formatDate …)
-├─ data/                # Static mocks / fixtures
-└─ types/               # Global TypeScript declarations
-```
+- Node.js 18 or newer. Node.js 20 is recommended and used by Docker.
+- pnpm. The repository includes `pnpm-lock.yaml`.
+- A running APT backend providing the `/api/v1/videos/...` endpoints.
+- A modern browser with JavaScript enabled.
 
-### Why this layout?
-
-* **Separation of concerns.** UI vs feature domain vs low-level utilities.
-* **Discoverability.** Find anything in one hop.
-* **Scalability.** Each new domain becomes a new folder under `features/` without bloating `components/`.
-* **Import clarity.** `@/components`, `@/features/posts`, `@/utils` etc. via path aliases.
-
----
-
-## 🚀 Getting Started
-
-1. **Install dependencies** (pnpm recommended):
+### Installation
 
 ```bash
+git clone <repository-url>
+cd apt-utility-website
 pnpm install
 ```
 
-2. **Run dev server** (Turbopack):
+Create or update `.env` in the repository root:
+
+```env
+NEXT_PUBLIC_SERVER_ENDPOINT=http://localhost:8002
+```
+
+Start the development server:
 
 ```bash
 pnpm dev
 ```
 
-3. Open <http://localhost:3000> → play with the counter, filter posts, inspect network tab — TanStack Query caches the mock request.
+Open [http://localhost:3000](http://localhost:3000).
 
-4. **Build & start prod preview**:
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm dev` | Start the development server. |
+| `pnpm build` | Create a production build. |
+| `pnpm start` | Start the production server after building. |
+| `pnpm type-check` | Run TypeScript without emitting files. |
+| `pnpm lint` | Run the configured Next.js lint command. |
+| `pnpm shadcn` | Run the shadcn component CLI. |
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SERVER_ENDPOINT` | Yes | Base URL of the APT backend. It must be reachable from the browser. |
+
+Restart the development server after changing environment variables.
+
+## Docker
 
 ```bash
-pnpm build && pnpm start
+docker compose up --build
 ```
 
----
+The frontend is exposed on port `3000`. Ensure the browser or container can reach the backend.
 
-## 🛠️ How the pieces fit together
+> The current Compose files define `NEXT_PUBLIC_API_URL`, while the application API clients use `NEXT_PUBLIC_SERVER_ENDPOINT`. Deployments must provide `NEXT_PUBLIC_SERVER_ENDPOINT` explicitly.
 
-| Concern | Implementation |
-|---------|----------------|
-| **Global context** | `src/app/layout.tsx` wraps every route with `<Providers>` which mounts `QueryClientProvider` (TanStack Query). |
-| **Styling** | `globals.css` imports Tailwind v4 layers; `tailwind.config.ts` enables dark mode (`class`) and shadcn preset. |
-| **shadcn/ui** | CLI writes components into `src/components/ui`. `Button.tsx` demonstrates theming with Tailwind classes via `cn`. |
-| **Data fetching** | `lib/queryClient.ts` exports a singleton; feature hooks (`features/posts/hooks.ts`) call `@tanstack/react-query`. |
-| **Mock API** | `features/posts/api.ts` fetches from `data/posts.ts` (simulated latency) and validates with zod. |
-| **State management** | `store/counter.ts` exposes a simple counter store consumed in `Home.tsx`. |
-| **URL state** | `nuqs` kept filter query param in sync with React state (`Home.tsx`). |
-| **Utilities** | `utils/cn.ts` merges class names safely; `utils/formatDate.ts` tiny example. |
-| **Edge route** | `app/api/hello/route.ts` shows an Edge-runtime function returning JSON. |
+## Project structure
 
----
+```text
+src/
+├── app/                         # Routes and pages
+│   ├── dashboard/              # Main annotation workspace
+│   └── popup/                  # Unique IDs and confusion views
+├── components/
+│   ├── annotation/             # Project, audit, and dialog UI
+│   ├── dashboard/              # Video, sidebar, timelines, and tables
+│   └── ui/                     # Shared UI primitives
+├── lib/
+│   ├── api/                    # Typed backend API clients
+│   ├── trajectoryLinking.ts    # Continuation thresholds and helpers
+│   └── utils/                  # Shared utilities
+├── types/                      # Shared TypeScript types
+├── styles/                     # Global styles
+└── store/, hooks/, schemas/    # State, hooks, and validation
+```
 
-## 🧭 Next Steps
+Important components:
 
-* Run `pnpm shadcn` to add more UI primitives.
-* Replace mocks in `data/` with real REST/GraphQL calls.
-* Add feature folders (e.g., `auth/`, `profile/`), following the `posts/` blueprint.
-* Enable **server actions** or **edge runtime** where beneficial — layout is already compatible.
+- `MainFrames.tsx` owns shared object-selection and clip state.
+- `DynamicVideo.tsx` implements playback, annotations, timelines, suggestions, and view shortcuts.
+- `Sidebar.tsx` implements selection details and mutation workflows.
+- `CreateProjectModal.tsx` implements project upload.
+- `src/lib/api/` contains backend clients.
 
-Enjoy your new playground! ✌️
+## Backend integration
+
+The frontend uses the backend for project processing, frame annotations, object metadata, timeline coordinates, trajectory mutations, undo/redo, audit logs, TRK export, confusion processing, and trajectory suggestions.
+
+When adding an endpoint:
+
+1. Add a typed client in `src/lib/api`.
+2. Build the URL from `NEXT_PUBLIC_SERVER_ENDPOINT`.
+3. Handle non-2xx and malformed responses.
+4. Cancel or ignore stale range and suggestion requests where appropriate.
+5. Refresh affected caches and local state after mutations.
+
+### Application data flow
+
+- TanStack Query manages project, frame, activity, and on-demand server data.
+- Annotation and ID ranges are fetched incrementally around the current frame.
+- `sessionStorage` carries project metadata from the landing page to the dashboard.
+- `MainFrames` shares selections and clip boundaries between the video and sidebar.
+- Successful mutations refresh affected annotations and timelines.
+- Suggestion requests are scoped to the selected object, and stale requests are cancelled or ignored.
+
+## Routes
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Project list, project creation, audit access, and deletion. |
+| `/dashboard` | Main annotation workspace. |
+| `/popup/unique-ids` | Unique trajectory ID table. |
+| `/popup/confusion` | Confusion review table. |
+
+## Documentation
+
+See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for the complete application workflow, trajectory operations, smart features, video and timeline controls, and keyboard shortcuts.

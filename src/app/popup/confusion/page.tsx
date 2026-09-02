@@ -90,8 +90,8 @@ export default function ConfusionPopup() {
   return (
     <div className="h-screen bg-gray-50 p-4">
       <Card className="h-full flex flex-col p-4">
-        <h2 className="text-xl font-semibold mb-4">Confusion Table</h2>
-        <div className="flex-1 min-h-0"><ConfusionTable rows={rows} loading={loading} message={message} onRowClick={handleRowClick}/> </div>
+        <h2 data-system-guide="confusion-header" className="text-xl font-semibold mb-4">Confusion Table</h2>
+        <div data-system-guide="confusion-table" className="flex-1 min-h-0"><ConfusionTable rows={rows} loading={loading} message={message} onRowClick={handleRowClick}/> </div>
       </Card>
     </div>
   );

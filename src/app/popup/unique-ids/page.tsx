@@ -85,14 +85,14 @@ export default function UniqueIdsPopup() {
     <div className="h-screen p-4 bg-gray-50">
       <Card className="h-full flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="border-b bg-white px-4 py-3 flex-shrink-0">
+        <div data-system-guide="unique-ids-header" className="border-b bg-white px-4 py-3 flex-shrink-0">
           <h2 className="text-lg font-bold">
             Linking Table
           </h2>
         </div>
 
         {/* Table */}
-        <div className="flex-1 min-h-0 p-4">
+        <div data-system-guide="unique-ids-table" className="flex-1 min-h-0 p-4">
           <UniqueIdsTable
             data={data}
             isLoading={loading}

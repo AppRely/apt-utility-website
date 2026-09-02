@@ -34,6 +34,10 @@ import {
 } from "@/lib/api/getTrajectoryLengths";
 import { getNextBreak, NextBreakError } from "@/lib/api/getNextBreak";
 import {
+  SYSTEM_GUIDE_STEP_EVENT,
+  type SystemGuideStepEventDetail,
+} from "@/features/system-guide/events";
+import {
   getTrajectoryLinkingSuggestions,
   TrajectoryLinkingSuggestion,
 } from "@/lib/api/getTrajectoryLinkingSuggestions";
@@ -410,17 +414,18 @@ export default function DynamicVideo({
   const [skeletonGraph, setSkeletonGraph] = useState<[number, number][]>([]);
   const [showSkeleton, setShowSkeleton] = useState(true);
 
-  const [autoInterpolation, setAutoInterpolation] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem("autoInterpolation");
-      return stored === "true";
-    }
-    return false;
-  });
+  const [autoInterpolation, setAutoInterpolation] = useState(false);
+  const [isAutoInterpolationPreferenceLoaded, setIsAutoInterpolationPreferenceLoaded] = useState(false);
 
   useEffect(() => {
+    setAutoInterpolation(sessionStorage.getItem("autoInterpolation") === "true");
+    setIsAutoInterpolationPreferenceLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isAutoInterpolationPreferenceLoaded) return;
     sessionStorage.setItem("autoInterpolation", String(autoInterpolation));
-  }, [autoInterpolation]);
+  }, [autoInterpolation, isAutoInterpolationPreferenceLoaded]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -671,17 +676,40 @@ export default function DynamicVideo({
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+  const toolbarOpenedByGuideRef = useRef(false);
   const [showTrajectoryLengths, setShowTrajectoryLengths] = useState(false);
   const [trajectoryLengthOrdering, setTrajectoryLengthOrdering] = useState<TrajectoryLengthOrdering>("length_desc");
-  const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">(() => {
-    if (typeof window === "undefined") return "light";
-    return sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light";
-  });
+  const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">("light");
+  const [isVideoColorThemePreferenceLoaded, setIsVideoColorThemePreferenceLoaded] = useState(false);
   const objectColorSlotsRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
+    const handleGuideStep = (event: Event) => {
+      const { selector } = (event as CustomEvent<SystemGuideStepEventDetail>).detail;
+      const isWorkspaceMenuStep = selector?.startsWith('[data-system-guide="menu-') ?? false;
+
+      if (isWorkspaceMenuStep) {
+        toolbarOpenedByGuideRef.current = true;
+        setIsToolbarOpen(true);
+      } else if (toolbarOpenedByGuideRef.current) {
+        toolbarOpenedByGuideRef.current = false;
+        setIsToolbarOpen(false);
+      }
+    };
+
+    document.addEventListener(SYSTEM_GUIDE_STEP_EVENT, handleGuideStep);
+    return () => document.removeEventListener(SYSTEM_GUIDE_STEP_EVENT, handleGuideStep);
+  }, []);
+
+  useEffect(() => {
+    setVideoColorTheme(sessionStorage.getItem("videoColorTheme") === "dark" ? "dark" : "light");
+    setIsVideoColorThemePreferenceLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isVideoColorThemePreferenceLoaded) return;
     sessionStorage.setItem("videoColorTheme", videoColorTheme);
-  }, [videoColorTheme]);
+  }, [videoColorTheme, isVideoColorThemePreferenceLoaded]);
 
   const [trajectoryFrames, setTrajectoryFrames] = useState(100);
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
@@ -1235,6 +1263,9 @@ export default function DynamicVideo({
   useEffect(() => {
     if (!isSkeletonCoordinateMode || !projectId || !selectedTimelineObjectIds) {
       skeletonTimelineAbortRef.current?.abort();
+      skeletonTimelineAbortRef.current = null;
+      skeletonTimelineRangeRef.current = null;
+      setSkeletonTimelinePoints([]);
       if (isSkeletonTimelineLoading) setIsSkeletonTimelineLoading(false);
       return;
     }
@@ -2210,6 +2241,7 @@ export default function DynamicVideo({
       category: "Operations",
       items: [
         { action: "Capture Clip Start / End", key: "Ctrl+C" },
+        { action: "Clip Selected Range", key: "X" },
         { action: "Link Objects", key: "L" },
         { action: "Swap Objects", key: "W" },
         { action: "Break Object", key: "B" },
@@ -2614,6 +2646,7 @@ export default function DynamicVideo({
         <Card className="flex-1 flex flex-col border rounded-[7px] overflow-hidden p-2 min-h-0">
           {/* Video container – takes all remaining vertical space */}
           <div
+            data-system-guide="video-canvas"
             ref={videoContainerRef}
             className="relative flex items-center justify-center w-full bg-black rounded-lg flex-1 min-h-0 overflow-hidden"
           >
@@ -2631,7 +2664,7 @@ export default function DynamicVideo({
               {linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd && (
-                  <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                  <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                     <div className="mb-1.5 text-xs font-semibold text-white">
                       Top Matches
                     </div>
@@ -2639,18 +2672,30 @@ export default function DynamicVideo({
                       <div className="text-slate-400">Loading...</div>
                     ) : linkingSuggestions.items.length > 0 ? (
                       <div className="space-y-0.5">
-                        {linkingSuggestions.items.slice(0, 5).map((suggestion, index) => (
-                          <div
-                            key={suggestion.object_id}
-                            className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
-                              index === 0 ? "bg-white/15 text-white" : "text-white/85"
-                            }`}
-                          >
-                            <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
-                            <span>{suggestion.object_id}</span>
-                            <span>{(suggestion.score * 100).toFixed(1)}%</span>
-                          </div>
-                        ))}
+                        {linkingSuggestions.items.slice(0, 5).map((suggestion, index) => {
+                          const isSelectedMatch = selectedObjects[1]?.object_id === suggestion.object_id;
+                          return (
+                            <button
+                              key={suggestion.object_id}
+                              type="button"
+                              aria-label={`Select object ${suggestion.object_id} as Object 2`}
+                              aria-pressed={isSelectedMatch}
+                              disabled={objectMutation.isPending}
+                              onClick={() => selectObjectForSlot(suggestion.object_id, 1)}
+                              className={`grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 text-left hover:bg-white/20 disabled:cursor-wait ${
+                                isSelectedMatch
+                                  ? "bg-white/25 text-white"
+                                  : index === 0
+                                    ? "bg-white/15 text-white"
+                                    : "text-white/85"
+                              }`}
+                            >
+                              <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                              <span>{suggestion.object_id}</span>
+                              <span>{(suggestion.score * 100).toFixed(1)}%</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="text-slate-400">None found</div>
@@ -2662,27 +2707,55 @@ export default function DynamicVideo({
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd
               ) && (
-                <div className="mt-2 min-w-52 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold text-white">Next Link Matches</div>
                   <div className="space-y-0.5">
-                    {visibleNextFrameLinkMatches.map((candidate, index) => (
-                      <div
-                        key={candidate.id}
-                        className={`grid grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 ${
-                          index === 0 ? "bg-white/15 text-white" : "text-white/85"
-                        }`}
-                      >
-                        <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
-                        <span>ID {candidate.id}</span>
-                        <span>Frame {candidate.start_frame}</span>
-                      </div>
-                    ))}
+                    {visibleNextFrameLinkMatches.map((candidate, index) => {
+                      const isSelectedMatch = selectedObjects[1]?.object_id === candidate.id;
+                      return (
+                        <button
+                          key={candidate.id}
+                          type="button"
+                          aria-label={`Select object ${candidate.id} as Object 2`}
+                          aria-pressed={isSelectedMatch}
+                          onClick={() => {
+                            const primaryObject = selectedObjects[0];
+                            if (!primaryObject) return;
+                            setSelectedObjects([
+                              primaryObject,
+                              {
+                                object_id: candidate.id,
+                                frame_id: candidate.start_frame,
+                                start_frame: candidate.start_frame,
+                                end_frame: candidate.end_frame,
+                              },
+                            ]);
+                            safeToast({
+                              title: `Object ${candidate.id} selected for linking`,
+                              description: `Starts at frame ${candidate.start_frame}`,
+                              duration: 1500,
+                            });
+                          }}
+                          className={`grid w-full grid-cols-[2rem_1fr_auto] items-center gap-2 rounded px-2 py-1 text-left hover:bg-white/20 ${
+                            isSelectedMatch
+                              ? "bg-white/25 text-white"
+                              : index === 0
+                                ? "bg-white/15 text-white"
+                                : "text-white/85"
+                          }`}
+                        >
+                          <span className="text-white/55">{String(index + 1).padStart(2, "0")}</span>
+                          <span>ID {candidate.id}</span>
+                          <span>Frame {candidate.start_frame}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="mt-1.5 text-[11px] text-white/60">Press L to link the first match</div>
+                  <div className="mt-1.5 text-[11px] text-white/60">Select a match, then press L to link</div>
                 </div>
               )}
               {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
-                <div className="mt-2 min-w-64 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
+                <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold">Clip Suggestions</div>
                   {areClipSuggestionsLoading ? (
                     <div className="text-white/60">Analyzing trajectory…</div>
@@ -2979,19 +3052,24 @@ export default function DynamicVideo({
               </div>
             )}
             
-            <div className="absolute top-3 right-3 z-50">
+            <div className="pointer-events-none absolute inset-y-3 right-3 z-50 flex flex-col items-end">
               <Button
+                data-system-guide="workspace-menu-trigger"
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsToolbarOpen(!isToolbarOpen)}
-                className="h-10 w-10 rounded-xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl hover:bg-white/100 text-xl font-bold"
+                className="pointer-events-auto h-10 w-10 flex-shrink-0 rounded-xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl hover:bg-white/100 text-xl font-bold"
               >
                 ☰
               </Button>
 
               {isToolbarOpen && (
-                <div className="absolute top-12 right-0 w-64 bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-slate-200/80 p-2 flex flex-col gap-1 animate-in slide-in-from-top-2 duration-200">
+                <div
+                  data-system-guide-scroll-container
+                  className="pointer-events-auto mt-2 flex max-h-[calc(100%-3rem)] w-64 flex-col gap-1 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-2xl backdrop-blur-lg animate-in slide-in-from-top-2 duration-200"
+                >
                   <button
+                    data-system-guide="menu-auto-pan"
                     onClick={() => {
                       setAutoPanEnabled(!autoPanEnabled);
                       safeToast({ title: `Auto-pan ${!autoPanEnabled ? "enabled" : "disabled"}`, duration: 1000 });
@@ -3007,6 +3085,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-colors"
                     onClick={() => {
                       const nextTheme = videoColorTheme === "light" ? "dark" : "light";
                       setVideoColorTheme(nextTheme);
@@ -3023,6 +3102,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-skeleton"
                     onClick={() => {
                       setShowSkeleton(!showSkeleton);
                       safeToast({ title: `Skeleton ${!showSkeleton ? "ON" : "OFF"}`, duration: 1000 });
@@ -3038,6 +3118,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-auto-interpolation"
                     onClick={() => {
                       setAutoInterpolation(!autoInterpolation);
                       safeToast({ title: `Auto-interpolation ${!autoInterpolation ? "enabled" : "disabled"}`, duration: 1000 });
@@ -3054,7 +3135,7 @@ export default function DynamicVideo({
 
                   <div className="border-t border-slate-200 my-1" />
 
-                  <div className="flex items-center gap-2 px-3 py-1">
+                  <div data-system-guide="menu-trajectory-length" className="flex items-center gap-2 px-3 py-1">
                     <span className="text-xs text-slate-600">Trajectory (frames):</span>
                     <input
                       type="number"
@@ -3066,7 +3147,7 @@ export default function DynamicVideo({
                       className="w-16 h-7 bg-white border border-slate-300 rounded text-xs px-2"
                     />
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1">
+                  <div data-system-guide="menu-label-offset" className="flex items-center gap-2 px-3 py-1">
                     <span className="text-xs text-slate-600">Label offset:</span>
                     <input
                       type="range"
@@ -3079,7 +3160,7 @@ export default function DynamicVideo({
                     />
                     <span className="text-xs text-slate-500 w-8">{labelOffsetScale.toFixed(1)}</span>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1">
+                  <div data-system-guide="menu-text-size" className="flex items-center gap-2 px-3 py-1">
                     <span className="text-xs text-slate-600">Text size:</span>
                     <input
                       type="range"
@@ -3096,6 +3177,7 @@ export default function DynamicVideo({
 
                   {downloadUrl ? (
                     <button
+                      data-system-guide="menu-export"
                       onClick={() => {
                         const link = document.createElement("a");
                         link.href = downloadUrl;
@@ -3110,6 +3192,7 @@ export default function DynamicVideo({
                     </button>
                   ) : (
                     <button
+                      data-system-guide="menu-export"
                       onClick={() => exportMutation.mutate()}
                       disabled={!projectId}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-all disabled:opacity-50"
@@ -3123,6 +3206,7 @@ export default function DynamicVideo({
 
                   {/* Refresh button */}
                   <button
+                    data-system-guide="menu-refresh"
                     onClick={handleRefresh}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all"
                   >
@@ -3131,6 +3215,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-unique-ids"
                     onClick={openUniqueIdsPopup}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
                   >
@@ -3139,6 +3224,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-trajectory-lengths"
                     onClick={() => {
                       setShowTrajectoryLengths(true);
                       setIsToolbarOpen(false);
@@ -3150,6 +3236,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-object-selection"
                     onClick={() => setShowObjectSelection(!showObjectSelection)}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
                   >
@@ -3158,6 +3245,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-shortcuts"
                     onClick={() => setShowShortcutModal(true)}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
                   >
@@ -3166,6 +3254,7 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-confusion"
                     onClick={openConfusionPopup}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 transition-all text-slate-700"
                   >
@@ -3184,8 +3273,9 @@ export default function DynamicVideo({
           <Separator className="my-1" />
           
           {/* Controls row – fixed height, no shrink */}
-          <div className="flex items-center gap-2 flex-wrap flex-shrink-0 py-1">
+          <div data-system-guide="video-controls" className="flex items-center gap-2 flex-wrap flex-shrink-0 py-1">
             <Button 
+              data-system-guide="control-undo"
               size="icon" 
               variant="ghost" 
               onClick={() => undoMutation.mutate()} 
@@ -3194,6 +3284,7 @@ export default function DynamicVideo({
               <Undo className="w-4 h-4" />
             </Button>
             <Button 
+              data-system-guide="control-redo"
               size="icon" 
               variant="ghost" 
               onClick={() => redoMutation.mutate()} 
@@ -3201,16 +3292,17 @@ export default function DynamicVideo({
             >
               <Redo className="w-4 h-4" />
             </Button>
-            <Button size="icon" variant="ghost" onClick={() => handleFrameStep(-1)}>
+            <Button data-system-guide="control-previous-frame" size="icon" variant="ghost" onClick={() => handleFrameStep(-1)}>
               <SkipBack />
             </Button>
-            <Button size="icon" variant="ghost" onClick={togglePlayPause} disabled={!video}>
+            <Button data-system-guide="control-play" size="icon" variant="ghost" onClick={togglePlayPause} disabled={!video}>
               {isPlaying ? <Pause /> : <Play />}
             </Button>
-            <Button size="icon" variant="ghost" onClick={() => handleFrameStep(1)}>
+            <Button data-system-guide="control-next-frame" size="icon" variant="ghost" onClick={() => handleFrameStep(1)}>
               <SkipForward />
             </Button>
             <Slider 
+              data-system-guide="control-seek"
               value={[dragTime ?? currentTime]} 
               max={duration || 100} 
               step={0.01} 
@@ -3221,22 +3313,22 @@ export default function DynamicVideo({
             <span className="text-[11px] text-[#5A5A5A] px-2 whitespace-nowrap tabular-nums">
               {formatTime(dragTime ?? currentTime)} / {formatTime(duration)}
             </span>
-            <Button size="icon" variant="ghost" onClick={handleZoomOut}>
+            <Button data-system-guide="control-zoom-out" size="icon" variant="ghost" onClick={handleZoomOut}>
               <ZoomOut className="w-3 h-3" />
             </Button>
-            <Button size="sm" variant="ghost" onClick={handleResetZoom} className="px-2 text-xs font-semibold">
+            <Button data-system-guide="control-zoom-reset" size="sm" variant="ghost" onClick={handleResetZoom} className="px-2 text-xs font-semibold">
               Reset
             </Button>
-            <Button size="icon" variant="ghost" onClick={handleZoomIn}>
+            <Button data-system-guide="control-zoom-in" size="icon" variant="ghost" onClick={handleZoomIn}>
               <ZoomIn className="w-3 h-3" />
             </Button>
-            <Button size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
+            <Button data-system-guide="control-track" size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
               Track
             </Button>
 
             {/* Speed popup */}
             <div className="relative">
-              <button className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
+              <button data-system-guide="control-speed" className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
                 <Clock className="w-4 h-4" />
                 <span>{playbackRate.toFixed(2).replace(/\.00$/,"")}x</span>
                 <ChevronRight className={`w-3 h-3 transition-transform ${showSpeed?"rotate-90":""}`} />
@@ -3333,7 +3425,7 @@ export default function DynamicVideo({
             </div>
 
             {/* Frame input */}
-            <div className="flex items-center gap-1 ml-1">
+            <div data-system-guide="control-frame-jump" className="flex items-center gap-1 ml-1">
               <span className="text-[11px] text-[#5A5A5A] whitespace-nowrap">Frame</span>
               <Input 
                 type="number" 
@@ -3357,7 +3449,7 @@ export default function DynamicVideo({
           </div>
 
           {/* Unified timeline */}
-          <div className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
+          <div data-system-guide="trajectory-timeline" className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines
@@ -3423,9 +3515,11 @@ export default function DynamicVideo({
                   <div style={{ width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
-                        data={isSkeletonCoordinateMode
-                          ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
-                          : (chartData.length > 0 ? chartData : [{ frame: currentFrame }])}
+                        data={selectedObjects.length === 0
+                          ? [{ frame: currentFrame }]
+                          : isSkeletonCoordinateMode
+                            ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
+                            : (chartData.length > 0 ? chartData : [{ frame: currentFrame }])}
                         margin={{ top: 5, right: 30, bottom: 5, left: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#444" />
@@ -3460,7 +3554,6 @@ export default function DynamicVideo({
                           x={currentFrame}
                           stroke="#ff3333"
                           strokeWidth={2}
-                          label={{ value: '◀', position: 'insideTopLeft', fill: '#ff3333', fontSize: 10 }}
                         />
                         <XAxis
                           type="number"
@@ -3489,7 +3582,7 @@ export default function DynamicVideo({
                             fontSize: 10,
                           }}
                         />
-                        {!isSkeletonCoordinateMode && uniqueObjectIds.map((objectId) => {
+                        {!isSkeletonCoordinateMode && selectedObjects.length > 0 && uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
                           if (coordinateMode === 'x' || coordinateMode === 'xy') {
@@ -3523,7 +3616,7 @@ export default function DynamicVideo({
                           }
                           return lines;
                         })}
-                        {isSkeletonCoordinateMode && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
+                        {isSkeletonCoordinateMode && selectedObjects.length > 0 && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
                           const color = `hsl(${(objectId * 47 + pointIndex * 23) % 360} 75% 60%)`;
                           const lines = [];
                           if (coordinateMode === "skeleton-x" || coordinateMode === "skeleton-xy") {

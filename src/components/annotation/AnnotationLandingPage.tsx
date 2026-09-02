@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,6 +31,10 @@ import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import {
+  SYSTEM_GUIDE_STEP_EVENT,
+  type SystemGuideStepEventDetail,
+} from "@/features/system-guide/events";
 
 export default function AnnotationLandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -39,6 +43,61 @@ export default function AnnotationLandingPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
   const [pendingProjects, setPendingProjects] = useState<any[]>([]);
+  const projectModalOpenedByGuideRef = useRef(false);
+  const auditModalUsedByGuideRef = useRef(false);
+  const auditProjectIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const handleGuideStep = (event: Event) => {
+      const { selector } = (event as CustomEvent<SystemGuideStepEventDetail>).detail;
+      const isProjectFormStep = [
+        '[data-system-guide="project-form"]',
+        '[data-system-guide="project-name"]',
+        '[data-system-guide="video-upload"]',
+        '[data-system-guide="tracking-upload"]',
+        '[data-system-guide="project-submit"]',
+      ].includes(selector ?? "");
+      const isAuditDialogStep = [
+        '[data-system-guide="audit-dialog"]',
+        '[data-system-guide="audit-export"]',
+        '[data-system-guide="audit-table"]',
+      ].includes(selector ?? "");
+
+      if (isProjectFormStep) {
+        projectModalOpenedByGuideRef.current = true;
+        setModalOpen(true);
+      } else if (projectModalOpenedByGuideRef.current) {
+        projectModalOpenedByGuideRef.current = false;
+        setModalOpen(false);
+      }
+
+      if (isAuditDialogStep) {
+        if (auditProjectIdRef.current === null) {
+          const firstAvailableAuditButton = Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[data-system-guide="project-audit"]'),
+          ).find((button) => !button.disabled);
+          const firstAvailableProjectId = Number(firstAvailableAuditButton?.dataset.projectId);
+          if (Number.isFinite(firstAvailableProjectId) && firstAvailableProjectId > 0) {
+            auditProjectIdRef.current = firstAvailableProjectId;
+          }
+        }
+
+        if (auditProjectIdRef.current !== null) {
+          setAuditProjectId(auditProjectIdRef.current);
+          setAuditOpen(true);
+        }
+        auditModalUsedByGuideRef.current = true;
+      } else if (auditModalUsedByGuideRef.current) {
+        auditModalUsedByGuideRef.current = false;
+        auditProjectIdRef.current = null;
+        setAuditOpen(false);
+        setAuditProjectId(null);
+      }
+    };
+
+    document.addEventListener(SYSTEM_GUIDE_STEP_EVENT, handleGuideStep);
+    return () => document.removeEventListener(SYSTEM_GUIDE_STEP_EVENT, handleGuideStep);
+  }, []);
 
   const router = useRouter();
   const { toast } = useToast();
@@ -195,6 +254,7 @@ export default function AnnotationLandingPage() {
               <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
               <TableCell>
                 <span
+                  data-system-guide="project-open"
                   className="text-blue-600 hover:text-blue-800 cursor-pointer font-medium"
                   onClick={() => navigateToDashboard(p)} // uses helper
                 >
@@ -226,6 +286,7 @@ export default function AnnotationLandingPage() {
               <TableCell className="flex gap-2">
                 {/* Edit */}
                 <Button
+                  data-system-guide="project-edit"
                   size="sm"
                   disabled={isDeletingRow || isPendingProject}
                   className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
@@ -236,10 +297,13 @@ export default function AnnotationLandingPage() {
 
                 {/* Audit */}
                 <Button
+                  data-system-guide="project-audit"
+                  data-project-id={p.project_id}
                   size="sm"
                   disabled={isDeletingRow || isPendingProject}
                   className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
                   onClick={() => {
+                    auditProjectIdRef.current = p.project_id;
                     setAuditOpen(true);
                     setAuditProjectId(p.project_id);
                   }}
@@ -249,6 +313,7 @@ export default function AnnotationLandingPage() {
 
                 {/* Delete */}
                 <Button
+                  data-system-guide="project-delete"
                   size="sm"
                   disabled={deleteMutation.isPending || isPendingProject}
                   className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
@@ -270,7 +335,7 @@ export default function AnnotationLandingPage() {
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
       {/* HEADER */}
-      <header className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
+      <header data-system-guide="landing-header" className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
         <div className="bg-[#D9D9D9] text-white text-[16px] font-medium px-8 py-[11px] leading-[21px]">
           Logo
         </div>
@@ -310,6 +375,7 @@ export default function AnnotationLandingPage() {
         </p>
 
         <Button
+          data-system-guide="create-project"
           size={null}
           onClick={() => setModalOpen(true)}
           className="bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]"
@@ -324,7 +390,7 @@ export default function AnnotationLandingPage() {
         </Button>
 
         {/* TABS + TABLE BOX */}
-        <section className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
+        <section data-system-guide="project-list" className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
           <Tabs defaultValue="inprogress" className="w-full">
             <TabsList className="grid grid-cols-2 w-1/3 mx-auto mb-4 bg-gray-100">
               <TabsTrigger value="inprogress">In Progress</TabsTrigger>

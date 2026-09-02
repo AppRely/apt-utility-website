@@ -97,6 +97,7 @@ export function MainFrames() {
     >
       {/* Sidebar */}
         <div
+          data-system-guide="dashboard-sidebar"
           ref={sidebarRef}
           className="h-full shrink-0 min-w-0 overflow-hidden"
           style={{
@@ -154,7 +155,7 @@ export function MainFrames() {
       </div>
 
       {/* Dashboard */}
-      <div className="flex flex-1 min-w-0 min-h-0 flex-col gap-2 overflow-hidden h-full">
+      <div data-system-guide="dashboard-workspace" className="flex flex-1 min-w-0 min-h-0 flex-col gap-2 overflow-hidden h-full">
         <DynamicVideo
           selectedObjects={selectedObjects}
           setSelectedObjects={setSelectedObjects}
