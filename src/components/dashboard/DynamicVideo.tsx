@@ -3052,13 +3052,13 @@ export default function DynamicVideo({
               </div>
             )}
             
-            <div className="absolute top-3 right-3 z-50">
+            <div className="pointer-events-none absolute inset-y-3 right-3 z-50 flex flex-col items-end">
               <Button
                 data-system-guide="workspace-menu-trigger"
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsToolbarOpen(!isToolbarOpen)}
-                className="h-10 w-10 rounded-xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl hover:bg-white/100 text-xl font-bold"
+                className="pointer-events-auto h-10 w-10 flex-shrink-0 rounded-xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl hover:bg-white/100 text-xl font-bold"
               >
                 ☰
               </Button>
@@ -3066,7 +3066,7 @@ export default function DynamicVideo({
               {isToolbarOpen && (
                 <div
                   data-system-guide-scroll-container
-                  className="absolute top-12 right-0 flex max-h-[calc(100vh-7rem)] w-64 flex-col gap-1 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-2xl backdrop-blur-lg animate-in slide-in-from-top-2 duration-200"
+                  className="pointer-events-auto mt-2 flex max-h-[calc(100%-3rem)] w-64 flex-col gap-1 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-2xl backdrop-blur-lg animate-in slide-in-from-top-2 duration-200"
                 >
                   <button
                     data-system-guide="menu-auto-pan"
