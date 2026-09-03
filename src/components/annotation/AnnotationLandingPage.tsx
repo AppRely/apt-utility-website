@@ -3,14 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -31,6 +28,7 @@ import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import { Search } from "lucide-react";
 import {
   SYSTEM_GUIDE_STEP_EVENT,
   type SystemGuideStepEventDetail,
@@ -43,6 +41,7 @@ export default function AnnotationLandingPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
   const [pendingProjects, setPendingProjects] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const projectModalOpenedByGuideRef = useRef(false);
   const auditModalUsedByGuideRef = useRef(false);
   const auditProjectIdRef = useRef<number | null>(null);
@@ -160,48 +159,38 @@ export default function AnnotationLandingPage() {
       ? data
       : [];
 
-  // SAFE: Only filter if projects is array (always true now)
-  const inProgress = [
-    ...projects.filter(
-      (p: any) => p.project_status?.toLowerCase() === "inprogress",
-    ),
-    ...pendingProjects,
-  ]; // <-- merge pending projects
+  const allProjects = [...pendingProjects, ...projects];
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredProjects = allProjects
+    .filter((project: any) => {
+      const searchableText = [
+        project.project_name,
+        project.video_name,
+        project.trk_file_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
 
-  const completed = projects.filter(
-    (p: any) => p.project_status.toLowerCase() === "completed",
-  );
+      return searchableText.includes(normalizedSearch);
+    })
+    .sort((first: any, second: any) => {
+      if (first._isPending !== second._isPending) {
+        return first._isPending ? -1 : 1;
+      }
 
-  const getStatusBadge = (project: any) => {
-    if (project._isPending) {
-      return (
-        <Badge className="bg-gray-100 text-gray-700 hover:bg-gray-100">
-          Creating...
-        </Badge>
-      );
-    }
+      const firstCreatedAt = Date.parse(first.created_at ?? "") || 0;
+      const secondCreatedAt = Date.parse(second.created_at ?? "") || 0;
+      return secondCreatedAt - firstCreatedAt;
+    });
 
-    const status = project.project_status.toLowerCase();
+  const formatCreatedAt = (createdAt: unknown) => {
+    const value = String(createdAt ?? "");
+    const [date, time] = value.split("T");
 
-    if (status === "inprogress")
-      return (
-        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-          In Progress
-        </Badge>
-      );
+    if (!date) return "—";
 
-    if (status === "completed")
-      return (
-        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-          Completed
-        </Badge>
-      );
-
-    return (
-      <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">
-        Archived
-      </Badge>
-    );
+    return time ? `${date} ${time.slice(0, 5)}` : date;
   };
 
   // --------------------------------------------------------------
@@ -227,18 +216,16 @@ export default function AnnotationLandingPage() {
     router.push("/dashboard");
   };
 
-  // TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
-  const renderTable = (rows: any[], isCompleted: boolean) => (
+  const renderTable = (rows: any[]) => (
     <Table>
-      <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
-        <TableRow className="hover:bg-[#3B3B3B]">
-          <TableHead className="text-white text-center">Sr No.</TableHead>
-          <TableHead className="text-white text-center">Project Name</TableHead>
-          <TableHead className="text-white text-center">Video File</TableHead>
-          <TableHead className="text-white text-center">TRK File</TableHead>
-          <TableHead className="text-white text-center">Date</TableHead>
-          <TableHead className="text-white text-center">Status</TableHead>
-          <TableHead className="text-white">Action</TableHead>
+      <TableHeader className="bg-[#F1F3F5] text-[#374151]">
+        <TableRow className="border-[#E2E5E9] hover:bg-[#F1F3F5]">
+          <TableHead className="text-center text-[#374151]">Sr No.</TableHead>
+          <TableHead className="text-center text-[#374151]">Project Name</TableHead>
+          <TableHead className="text-center text-[#374151]">Video File</TableHead>
+          <TableHead className="text-center text-[#374151]">TRK File</TableHead>
+          <TableHead className="text-center text-[#374151]">Date &amp; Time</TableHead>
+          <TableHead className="text-center text-[#374151]">Action</TableHead>
         </TableRow>
       </TableHeader>
 
@@ -250,7 +237,10 @@ export default function AnnotationLandingPage() {
           const isPendingProject = p._isPending;
 
           return (
-            <TableRow key={p.project_id}>
+            <TableRow
+              key={p.project_id}
+              className="hover:bg-[#FAFAF9]"
+            >
               <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
               <TableCell>
                 <span
@@ -278,52 +268,52 @@ export default function AnnotationLandingPage() {
                 {formatFileName(p.trk_file_name)}
               </TableCell>
 
-              <TableCell>{p.created_at.split("T")[0]}</TableCell>
-
-              <TableCell>{getStatusBadge(p)}</TableCell>
+              <TableCell>{formatCreatedAt(p.created_at)}</TableCell>
 
               {/* ACTION BUTTONS */}
-              <TableCell className="flex gap-2">
-                {/* Edit */}
-                <Button
-                  data-system-guide="project-edit"
-                  size="sm"
-                  disabled={isDeletingRow || isPendingProject}
-                  className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                  onClick={() => navigateToDashboard(p)} // uses helper
-                >
-                  Edit
-                </Button>
+              <TableCell>
+                <div className="flex items-center justify-center gap-2">
+                  {/* Edit */}
+                  <Button
+                    data-system-guide="project-edit"
+                    size="sm"
+                    disabled={isDeletingRow || isPendingProject}
+                    className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                    onClick={() => navigateToDashboard(p)} // uses helper
+                  >
+                    Edit
+                  </Button>
 
-                {/* Audit */}
-                <Button
-                  data-system-guide="project-audit"
-                  data-project-id={p.project_id}
-                  size="sm"
-                  disabled={isDeletingRow || isPendingProject}
-                  className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
-                  onClick={() => {
-                    auditProjectIdRef.current = p.project_id;
-                    setAuditOpen(true);
-                    setAuditProjectId(p.project_id);
-                  }}
-                >
-                  Audit
-                </Button>
+                  {/* Audit */}
+                  <Button
+                    data-system-guide="project-audit"
+                    data-project-id={p.project_id}
+                    size="sm"
+                    disabled={isDeletingRow || isPendingProject}
+                    className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+                    onClick={() => {
+                      auditProjectIdRef.current = p.project_id;
+                      setAuditOpen(true);
+                      setAuditProjectId(p.project_id);
+                    }}
+                  >
+                    Audit
+                  </Button>
 
-                {/* Delete */}
-                <Button
-                  data-system-guide="project-delete"
-                  size="sm"
-                  disabled={deleteMutation.isPending || isPendingProject}
-                  className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
-                  onClick={() => {
-                    setDeleteOpen(true);
-                    setDeleteProjectId(p.project_id);
-                  }}
-                >
-                  {isDeletingRow ? "Deleting..." : "Delete"}
-                </Button>
+                  {/* Delete */}
+                  <Button
+                    data-system-guide="project-delete"
+                    size="sm"
+                    disabled={deleteMutation.isPending || isPendingProject}
+                    className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
+                    onClick={() => {
+                      setDeleteOpen(true);
+                      setDeleteProjectId(p.project_id);
+                    }}
+                  >
+                    {isDeletingRow ? "Deleting..." : "Delete"}
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           );
@@ -334,32 +324,12 @@ export default function AnnotationLandingPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
-      {/* HEADER */}
-      <header data-system-guide="landing-header" className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
-        <div className="bg-[#D9D9D9] text-white text-[16px] font-medium px-8 py-[11px] leading-[21px]">
-          Logo
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Avatar className="w-[34px] h-[34px]">
-            <AvatarFallback className="bg-[#F3B56E] text-white text-[16px] font-medium leading-[12px]">
-              M
-            </AvatarFallback>
-          </Avatar>
-
-          <Image
-            src="/images/downArrow.svg"
-            alt="Down Arrow"
-            width={13}
-            height={7}
-            className="opacity-80"
-          />
-        </div>
-      </header>
-
       {/* LANDING CONTENT */}
-      <main className="flex flex-1 flex-col items-center justify-center text-center">
-        <h1 className="text-[24px] font-bold text-black py-4">
+      <main
+        data-system-guide="landing-home"
+        className="flex flex-1 flex-col items-center justify-center text-center"
+      >
+        <h1 className="pt-10 text-[24px] font-bold text-black">
           APT TRACKING SYSTEM
         </h1>
 
@@ -389,32 +359,40 @@ export default function AnnotationLandingPage() {
           Create a new Project
         </Button>
 
-        {/* TABS + TABLE BOX */}
+        {/* PROJECT TABLE */}
         <section data-system-guide="project-list" className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
-          <Tabs defaultValue="inprogress" className="w-full">
-            <TabsList className="grid grid-cols-2 w-1/3 mx-auto mb-4 bg-gray-100">
-              <TabsTrigger value="inprogress">In Progress</TabsTrigger>
-              <TabsTrigger value="completed">Completed</TabsTrigger>
-            </TabsList>
+          <div className="mb-5 flex">
+            <div className="relative w-full sm:max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                data-system-guide="project-search"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search projects..."
+                aria-label="Search projects"
+                className="h-10 pl-9"
+              />
+            </div>
+          </div>
 
-            {/* IN PROGRESS TAB */}
-            <TabsContent value="inprogress">
-              {!isLoading && inProgress.length === 0 ? (
-                <NoData message="No in-progress projects found" />
-              ) : (
-                renderTable(inProgress, false)
-              )}
-            </TabsContent>
-
-            {/* COMPLETED TAB */}
-            <TabsContent value="completed">
-              {!isLoading && completed.length === 0 ? (
-                <NoData message="No completed projects found" />
-              ) : (
-                renderTable(completed, true)
-              )}
-            </TabsContent>
-          </Tabs>
+          {isLoading ? (
+            <NoData message="Loading projects..." />
+          ) : isError ? (
+            <NoData message="Unable to load projects" />
+          ) : filteredProjects.length === 0 ? (
+            <NoData
+              message={
+                searchQuery
+                  ? "No projects match your search"
+                  : "No projects found"
+              }
+            />
+          ) : (
+            <div className="max-h-[420px] overflow-y-auto rounded-sm">
+              {renderTable(filteredProjects)}
+            </div>
+          )}
         </section>
       </main>
 

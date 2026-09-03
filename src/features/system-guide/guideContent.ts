@@ -8,10 +8,10 @@ export type SystemGuideStep = {
 export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
   "/": [
     {
-      selector: '[data-system-guide="landing-header"]',
+      selector: '[data-system-guide="landing-home"]',
       title: "Project home",
       description:
-        "This is the starting point for APT Vision. Create a project here or return to a project that is already being processed or reviewed.",
+        "This is the starting point for APT Vision. Create a project here or browse the project list below.",
     },
     {
       selector: '[data-system-guide="create-project"]',
@@ -52,9 +52,9 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
     },
     {
       selector: '[data-system-guide="project-list"]',
-      title: "Follow processing status",
+      title: "Browse your projects",
       description:
-        "In Progress and Completed tabs organize projects by backend status. After processing, use the project row to continue into the annotation workspace.",
+        "All projects appear in one table. Use search to find a project, then use its row to continue into the annotation workspace.",
     },
     {
       selector: '[data-system-guide="project-open"]',
