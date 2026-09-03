@@ -156,6 +156,13 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
         "Select one object and capture two frame boundaries with Ctrl+C. Clip becomes available for a valid range and asks for confirmation before removing that interval.",
     },
     {
+      selector: '[data-system-guide="sidebar-video-information"]',
+      title: "Video information",
+      allowInteraction: true,
+      description:
+        "Expand this section to review the active video's FPS, resolution, duration, total frame count, and active object count.",
+    },
+    {
       selector: '[data-system-guide="sidebar-object-list"]',
       title: "Object list",
       description:

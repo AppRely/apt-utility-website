@@ -47,6 +47,25 @@ const getObjectColor = (id: number) => {
   return colors[id % colors.length];
 };
 
+const formatMetadataNumber = (value: string | null) => {
+  const number = Number(value);
+  return value && Number.isFinite(number) ? number.toLocaleString() : "—";
+};
+
+const formatVideoDuration = (value: string | null) => {
+  const duration = Number(value);
+  if (!Number.isFinite(duration) || duration < 0) return "—";
+
+  const totalSeconds = Math.round(duration);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return hours > 0
+    ? `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
+    : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+};
+
 export default function Sidebar({
   selectedObjects,
   setSelectedObjects,
@@ -79,6 +98,7 @@ export default function Sidebar({
   }, [isAnyDialogOpen]);
 
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
+  const [videoInfoCollapsed, setVideoInfoCollapsed] = useState(true);
   const linkOrderRef = useRef<{ obj1: any; obj2: any } | null>(null);
 
   // Session storage hook
@@ -112,7 +132,12 @@ export default function Sidebar({
   const projectName = useSessionStorage("project_name");
   const videoName = useSessionStorage("video_name");
   const trkFileName = useSessionStorage("trk_file_name");
-  const totalFrames = useSessionStorage("totalFrames");
+  const fps = useSessionStorage("fps");
+  const videoWidth = useSessionStorage("width");
+  const videoHeight = useSessionStorage("height");
+  const videoDuration = useSessionStorage("duration");
+  const totalFrames = useSessionStorage("total_frames");
+  const activeObjectCount = useSessionStorage("active_object_count");
   const videoStoragePath = useSessionStorage("video_storage_path");
   const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
@@ -370,8 +395,6 @@ export default function Sidebar({
       }, 8000);
     },
   });
-
-  const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
 
   // Listen for operation complete
   useEffect(() => {
@@ -989,6 +1012,63 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-shrink-0 pt-2">
+          <button
+            data-system-guide="sidebar-video-information"
+            type="button"
+            onClick={() => setVideoInfoCollapsed((collapsed) => !collapsed)}
+            className="flex w-full items-center justify-between rounded-md bg-slate-100 px-3 py-2 text-left text-slate-700 transition hover:bg-slate-200 focus:outline-none"
+            aria-expanded={!videoInfoCollapsed}
+          >
+            <span className="font-medium">Video Information</span>
+            <svg
+              className={`h-4 w-4 transition-transform ${videoInfoCollapsed ? "" : "rotate-180"}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {!videoInfoCollapsed && (
+            <dl className="mt-2 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">FPS</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatMetadataNumber(fps) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Resolution</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted && videoWidth && videoHeight
+                    ? `${formatMetadataNumber(videoWidth)} × ${formatMetadataNumber(videoHeight)}`
+                    : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Duration</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatVideoDuration(videoDuration) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Total Frames</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatMetadataNumber(totalFrames) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Active Object Ids</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatMetadataNumber(activeObjectCount) : "—"}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
+
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button data-system-guide="sidebar-object-list" onClick={() => setObjectsCollapsed(!objectsCollapsed)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition" aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}>
             Object List

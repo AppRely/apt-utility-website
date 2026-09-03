@@ -61,6 +61,9 @@ type DynamicVideoProps = SelectedObjectProps & {
 
 const MIN_PLAYBACK_RATE = 0.1;
 const MAX_PLAYBACK_RATE = 16;
+const DEFAULT_TIMELINE_HEIGHT = 176;
+const MIN_TIMELINE_HEIGHT = 140;
+const MIN_VIDEO_HEIGHT = 180;
 
 // Keep normal speed centered while retaining logarithmic control on each side.
 const playbackRateToSliderPosition = (rate: number) => {
@@ -674,6 +677,86 @@ export default function DynamicVideo({
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineHeight, setTimelineHeight] = useState(DEFAULT_TIMELINE_HEIGHT);
+  const timelineResizeRef = useRef({
+    isResizing: false,
+    startY: 0,
+    startHeight: DEFAULT_TIMELINE_HEIGHT,
+  });
+
+  const clampTimelineHeight = useCallback((height: number) => {
+    const availableHeight = rootContainerRef.current?.clientHeight ?? 0;
+    const maxHeight = Math.max(
+      MIN_TIMELINE_HEIGHT,
+      availableHeight - MIN_VIDEO_HEIGHT - 90,
+    );
+
+    return Math.min(Math.max(height, MIN_TIMELINE_HEIGHT), maxHeight);
+  }, []);
+
+  const handleTimelineResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      timelineResizeRef.current = {
+        isResizing: true,
+        startY: event.clientY,
+        startHeight: timelineHeight,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    },
+    [timelineHeight],
+  );
+
+  const handleTimelineResizeMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const resize = timelineResizeRef.current;
+      if (!resize.isResizing) return;
+
+      setTimelineHeight(
+        clampTimelineHeight(resize.startHeight + resize.startY - event.clientY),
+      );
+    },
+    [clampTimelineHeight],
+  );
+
+  const handleTimelineResizeEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!timelineResizeRef.current.isResizing) return;
+      timelineResizeRef.current.isResizing = false;
+
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already have been released.
+      }
+
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    },
+    [],
+  );
+
+  const resetTimelineHeight = useCallback(() => {
+    setTimelineHeight(clampTimelineHeight(DEFAULT_TIMELINE_HEIGHT));
+  }, [clampTimelineHeight]);
+
+  useEffect(() => {
+    const root = rootContainerRef.current;
+    if (!root) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      setTimelineHeight((current) => clampTimelineHeight(current));
+    });
+    resizeObserver.observe(root);
+
+    return () => {
+      resizeObserver.disconnect();
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [clampTimelineHeight]);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
   const toolbarOpenedByGuideRef = useRef(false);
@@ -3448,8 +3531,36 @@ export default function DynamicVideo({
             </div>
           </div>
 
+          <div
+            role="separator"
+            aria-label="Resize video and timeline. Double-click to reset."
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_TIMELINE_HEIGHT}
+            aria-valuenow={Math.round(timelineHeight)}
+            tabIndex={0}
+            title="Drag to resize · Double-click to reset"
+            onPointerDown={handleTimelineResizeStart}
+            onPointerMove={handleTimelineResizeMove}
+            onPointerUp={handleTimelineResizeEnd}
+            onPointerCancel={handleTimelineResizeEnd}
+            onDoubleClick={resetTimelineHeight}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              event.preventDefault();
+              const change = event.key === "ArrowUp" ? 16 : -16;
+              setTimelineHeight((current) => clampTimelineHeight(current + change));
+            }}
+            className="group relative h-2 w-full shrink-0 touch-none cursor-row-resize bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
+            <div className="absolute left-1/2 top-1/2 h-1 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-slate-500" />
+          </div>
+
           {/* Unified timeline */}
-          <div data-system-guide="trajectory-timeline" className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
+          <div
+            data-system-guide="trajectory-timeline"
+            className="flex w-full flex-shrink-0 flex-col overflow-hidden rounded-md bg-gray-900"
+            style={{ height: `${timelineHeight}px` }}
+          >
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines

@@ -226,6 +226,7 @@ export default function AnnotationLandingPage() {
     sessionStorage.setItem("height", project.height);
     sessionStorage.setItem("duration", project.duration);
     sessionStorage.setItem("total_frames", project.total_frames);
+    sessionStorage.setItem("active_object_count", project.active_object_count);
     sessionStorage.setItem("skeleton_graph", JSON.stringify(project.skeleton_graph));
 
     // ✅ Store storage paths for hover and dashboard use
