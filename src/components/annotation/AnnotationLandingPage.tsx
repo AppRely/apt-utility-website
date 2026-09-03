@@ -27,6 +27,7 @@ import { getProjectList } from "@/lib/api/getProjectList";
 import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
+import { getISTDateTimeParts } from "@/lib/utils/formatDateTime";
 import { formatFileName } from "@/lib/utils/formatFileName";
 import { Search } from "lucide-react";
 import {
@@ -35,6 +36,7 @@ import {
 } from "@/features/system-guide/events";
 
 export default function AnnotationLandingPage() {
+  const pageSize = 5;
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
@@ -42,6 +44,7 @@ export default function AnnotationLandingPage() {
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
   const [pendingProjects, setPendingProjects] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const projectModalOpenedByGuideRef = useRef(false);
   const auditModalUsedByGuideRef = useRef(false);
   const auditProjectIdRef = useRef<number | null>(null);
@@ -103,8 +106,8 @@ export default function AnnotationLandingPage() {
 
   // Fetch project list
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["project-list"],
-    queryFn: getProjectList,
+    queryKey: ["project-list", page, pageSize],
+    queryFn: () => getProjectList(page, pageSize),
   });
 
   const queryClient = useQueryClient();
@@ -141,6 +144,7 @@ export default function AnnotationLandingPage() {
   // Remove pending project after successful creation
   const handleProjectCreated = (createdProject: any) => {
     setPendingProjects((prev) => prev.filter((p) => !p._isPending));
+    setPage(1);
     queryClient.invalidateQueries({ queryKey: ["project-list"] });
   };
 
@@ -158,6 +162,30 @@ export default function AnnotationLandingPage() {
     : Array.isArray(data)
       ? data
       : [];
+
+  const pagination = data?.pagination ?? data?.meta ?? data ?? {};
+  const totalItems = Number(
+    pagination.total_count ??
+      pagination.total_items ??
+      pagination.count ??
+      data?.total_count ??
+      data?.count,
+  );
+  const reportedTotalPages = Number(
+    pagination.total_pages ??
+      pagination.totalPages ??
+      data?.total_pages ??
+      data?.totalPages,
+  );
+  const totalPages =
+    Number.isFinite(reportedTotalPages) && reportedTotalPages > 0
+      ? reportedTotalPages
+      : Number.isFinite(totalItems)
+        ? Math.max(1, Math.ceil(totalItems / pageSize))
+        : null;
+  const hasNextPage = totalPages
+    ? page < totalPages
+    : Boolean(pagination.next ?? data?.next) || projects.length === pageSize;
 
   const allProjects = [...pendingProjects, ...projects];
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -184,15 +212,6 @@ export default function AnnotationLandingPage() {
       return secondCreatedAt - firstCreatedAt;
     });
 
-  const formatCreatedAt = (createdAt: unknown) => {
-    const value = String(createdAt ?? "");
-    const [date, time] = value.split("T");
-
-    if (!date) return "—";
-
-    return time ? `${date} ${time.slice(0, 5)}` : date;
-  };
-
   // --------------------------------------------------------------
   // Helper to store project data in sessionStorage and navigate
   // --------------------------------------------------------------
@@ -216,15 +235,29 @@ export default function AnnotationLandingPage() {
     router.push("/dashboard");
   };
 
+  const renderDateTime = (value: unknown) => {
+    const parts = getISTDateTimeParts(value);
+
+    if (!parts) return "—";
+
+    return (
+      <div className="flex flex-col items-start leading-tight">
+        <span className="text-gray-900">{parts.date}</span>
+        <span className="mt-1 text-xs text-gray-500">{parts.time}</span>
+      </div>
+    );
+  };
+
   const renderTable = (rows: any[]) => (
-    <Table>
+    <Table className="text-left">
       <TableHeader className="bg-[#F1F3F5] text-[#374151]">
         <TableRow className="border-[#E2E5E9] hover:bg-[#F1F3F5]">
-          <TableHead className="text-center text-[#374151]">Sr No.</TableHead>
-          <TableHead className="text-center text-[#374151]">Project Name</TableHead>
-          <TableHead className="text-center text-[#374151]">Video File</TableHead>
-          <TableHead className="text-center text-[#374151]">TRK File</TableHead>
-          <TableHead className="text-center text-[#374151]">Date &amp; Time</TableHead>
+          <TableHead className="text-left text-[#374151]">Sr No.</TableHead>
+          <TableHead className="text-left text-[#374151]">Project Name</TableHead>
+          <TableHead className="text-left text-[#374151]">Video File</TableHead>
+          <TableHead className="text-left text-[#374151]">TRK File</TableHead>
+          <TableHead className="text-left text-[#374151]">Date &amp; Time</TableHead>
+          <TableHead className="text-left text-[#374151]">Last Updated At</TableHead>
           <TableHead className="text-center text-[#374151]">Action</TableHead>
         </TableRow>
       </TableHeader>
@@ -241,7 +274,9 @@ export default function AnnotationLandingPage() {
               key={p.project_id}
               className="hover:bg-[#FAFAF9]"
             >
-              <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
+              <TableCell>
+                {String((page - 1) * pageSize + index + 1).padStart(2, "0")}
+              </TableCell>
               <TableCell>
                 <span
                   data-system-guide="project-open"
@@ -268,7 +303,8 @@ export default function AnnotationLandingPage() {
                 {formatFileName(p.trk_file_name)}
               </TableCell>
 
-              <TableCell>{formatCreatedAt(p.created_at)}</TableCell>
+              <TableCell>{renderDateTime(p.created_at)}</TableCell>
+              <TableCell>{renderDateTime(p.last_updated)}</TableCell>
 
               {/* ACTION BUTTONS */}
               <TableCell>
@@ -391,6 +427,32 @@ export default function AnnotationLandingPage() {
           ) : (
             <div className="max-h-[420px] overflow-y-auto rounded-sm">
               {renderTable(filteredProjects)}
+            </div>
+          )}
+
+          {!isError && (
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page === 1 || isLoading}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                Previous
+              </Button>
+              <span className="min-w-24 text-sm text-gray-600">
+                Page {page}{totalPages ? ` of ${totalPages}` : ""}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasNextPage || isLoading}
+                onClick={() => setPage((current) => current + 1)}
+              >
+                Next
+              </Button>
             </div>
           )}
         </section>

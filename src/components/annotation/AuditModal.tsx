@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs } from "@/lib/api/getActivityLogs";
 import { exportActivityLogs } from "@/lib/api/exportActivityLogs";
+import { getISTDateTimeParts } from "@/lib/utils/formatDateTime";
 import { AuditModalProps, NormalizedObject } from "@/types";
 
 // Helper to normalize objects based on operation type
@@ -132,22 +133,6 @@ function normalizeObjects(
   return { obj1, obj2, newObjectId };
 }
 
-// Helper to format date in IST (YYYY-MM-DD HH:mm:ss)
-function formatToIST(dateString: string): string {
-  const date = new Date(dateString);
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istTime = new Date(date.getTime() + istOffset);
-  
-  const year = istTime.getUTCFullYear();
-  const month = String(istTime.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(istTime.getUTCDate()).padStart(2, "0");
-  const hours = String(istTime.getUTCHours()).padStart(2, "0");
-  const minutes = String(istTime.getUTCMinutes()).padStart(2, "0");
-  const seconds = String(istTime.getUTCSeconds()).padStart(2, "0");
-  
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
-
 export default function AuditModal({
   open,
   onClose,
@@ -162,6 +147,19 @@ export default function AuditModal({
   });
 
   const logs = data?.data?.logs ?? [];
+
+  const renderDateTime = (value: unknown) => {
+    const parts = getISTDateTimeParts(value);
+
+    if (!parts) return "—";
+
+    return (
+      <div className="flex flex-col items-start leading-tight">
+        <span className="text-gray-900">{parts.date}</span>
+        <span className="mt-1 text-xs text-gray-500">{parts.time}</span>
+      </div>
+    );
+  };
 
   const handleExport = async () => {
     if (!projectId) return;
@@ -224,38 +222,38 @@ export default function AuditModal({
 
           {logs.length > 0 && (
             <div className="max-h-[400px] overflow-y-auto border rounded-md mt-3">
-              <Table>
+              <Table className="text-left">
                 {/* Sticky header fix applied here */}
                 <TableHeader className="sticky top-0 z-10 bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
                 <TableRow className="hover:bg-[#3B3B3B]">
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Sr. No.
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Obj1 ID
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Obj1 Start
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Obj1 End
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Obj2 ID
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Obj2 Start
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Obj2 End
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     New Obj ID
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Operation
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-left text-white">
                     Updated At (IST)
                   </TableHead>
                 </TableRow>
@@ -276,40 +274,40 @@ export default function AuditModal({
 
                     return (
                       <TableRow key={log.activity_id}>
-                        <TableCell className="text-center font-medium">
+                        <TableCell className="text-left font-medium">
                           {index + 1}
                         </TableCell>
 
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {obj1.id ?? "-"}
                         </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {obj1.start_frame ?? "-"}
                         </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {obj1.end_frame ?? "-"}
                         </TableCell>
 
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {obj2?.id ?? "-"}
                         </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {obj2?.start_frame ?? "-"}
                         </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {obj2?.end_frame ?? "-"}
                         </TableCell>
 
-                        <TableCell className="text-center">
+                        <TableCell className="text-left">
                           {newObjectId ?? "-"}
                         </TableCell>
 
-                        <TableCell className="text-center capitalize">
+                        <TableCell className="text-left capitalize">
                           {log.operation.replace("_", " ")}
                         </TableCell>
 
-                        <TableCell className="text-center">
-                          {formatToIST(log.activity_updated_at)}
+                        <TableCell className="text-left">
+                          {renderDateTime(log.activity_updated_at)}
                         </TableCell>
                       </TableRow>
                     );
