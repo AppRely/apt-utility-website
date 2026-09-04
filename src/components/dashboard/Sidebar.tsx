@@ -362,7 +362,6 @@ export default function Sidebar({
         return;
       }
       toast({ title: "Success", description: "Interpolation completed successfully", duration: 3000, className: "text-green-600" });
-      setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
     },
   });
