@@ -341,19 +341,10 @@ export default function Sidebar({
         end_frame: endFrame,
       }),
     onSuccess: (response) => {
-      const selected = selectedObjects[0];
       toast({ title: "Clip", description: response?.message || "Object clipped successfully", duration: 3000, className: "text-green-600" });
       setClipDialogOpen(false);
       setClipStartFrame(null);
       setClipEndFrame(null);
-      if (selected && response?.new_object_id != null) {
-        setSelectedObjects(previous => previous.map((object, index) => index === 0 ? {
-          ...object,
-          object_id: response.new_object_id,
-          start_frame: response.clipped_object_track?.start_frame ?? clipStartFrame ?? object.start_frame,
-          end_frame: response.clipped_object_track?.end_frame ?? clipEndFrame ?? object.end_frame,
-        } : object));
-      }
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
     },
     onError: (error: Error) => {
