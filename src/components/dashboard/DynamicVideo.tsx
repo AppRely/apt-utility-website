@@ -3793,7 +3793,10 @@ export default function DynamicVideo({
               </div>
 
               {/* Object ranges timeline */}
-              <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
+              <div
+                className="w-full min-h-0 shrink-0"
+                style={{ flex: '0 0 25%', minHeight: '28px' }}
+              >
                 {isLoadingUnique ? (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
