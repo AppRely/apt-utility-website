@@ -2560,13 +2560,17 @@ export default function DynamicVideo({
           const activeBreak = activeBreakRef.current;
           if (
             activeBreak?.selectedObjectId === selected.object_id &&
-            currentFrame >= activeBreak.breakStart &&
+            currentFrame >= activeBreak.breakStart - 1 &&
             currentFrame < activeBreak.breakEnd
           ) {
+            const objectEnd = selected.end_frame;
+            const breakAfterFrame = objectEnd === undefined
+              ? activeBreak.breakEnd + 1
+              : Math.min(activeBreak.breakEnd + 1, objectEnd);
             breakNavigationHistoryRef.current.push(currentFrame);
-            handleFrameJump(activeBreak.breakEnd);
+            handleFrameJump(breakAfterFrame);
             safeToast({
-              title: `Break end: ${activeBreak.breakEnd}`,
+              title: `After break: ${breakAfterFrame}`,
               description: `Range ${activeBreak.breakStart}–${activeBreak.breakEnd}`,
               duration: 1500,
             });
@@ -2590,13 +2594,15 @@ export default function DynamicVideo({
                 nextBreak.break_end,
                 selected.start_frame,
               );
-              if (nextBreak.break_start !== currentFrame) {
+              const objectStart = selected.start_frame ?? 0;
+              const breakBeforeFrame = Math.max(objectStart, nextBreak.break_start - 1);
+              if (breakBeforeFrame !== currentFrame) {
                 breakNavigationHistoryRef.current.push(currentFrame);
               }
-              handleFrameJump(nextBreak.break_start);
+              handleFrameJump(breakBeforeFrame);
               safeToast({
-                title: `Break start: ${nextBreak.break_start}`,
-                description: `Object ${nextBreak.object_id} · End ${nextBreak.break_end}`,
+                title: `Before break: ${breakBeforeFrame}`,
+                description: `Object ${nextBreak.object_id} · Range ${nextBreak.break_start}–${nextBreak.break_end}`,
                 duration: 1800,
               });
             })
