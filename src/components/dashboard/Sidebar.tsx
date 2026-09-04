@@ -14,7 +14,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
-import { ArrowLeft, Crop, X } from "lucide-react";
+import { ArrowLeft, Crop, PawPrint, X } from "lucide-react";
 import { formatFileName } from "@/lib/utils/formatFileName";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
@@ -138,9 +138,24 @@ export default function Sidebar({
   const videoDuration = useSessionStorage("duration");
   const totalFrames = useSessionStorage("total_frames");
   const activeObjectCount = useSessionStorage("active_object_count");
+  const [displayActiveObjectCount, setDisplayActiveObjectCount] = useState<string | null>(null);
   const videoStoragePath = useSessionStorage("video_storage_path");
   const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
+
+  useEffect(() => {
+    setDisplayActiveObjectCount(activeObjectCount);
+  }, [activeObjectCount]);
+
+  const adjustActiveObjectCount = useCallback((delta: number) => {
+    setDisplayActiveObjectCount((current) => {
+      const count = Number(current);
+      if (!Number.isFinite(count)) return current;
+      const nextCount = Math.max(0, count + delta).toString();
+      sessionStorage.setItem("active_object_count", nextCount);
+      return nextCount;
+    });
+  }, []);
 
   // The first object in the current selection is always the clip target.
   // Removing it naturally promotes the next selected object.
@@ -265,6 +280,7 @@ export default function Sidebar({
       linkObjects(Number(projectId), payload),
     onSuccess: () => {
       toast({ title: "✅ Success", description: "Objects linked successfully.", duration: 3000, className: "text-green-600" });
+      adjustActiveObjectCount(-1);
       setLinkDialogOpen(false);
       if (linkOrderRef.current) {
         const { obj1, obj2 } = linkOrderRef.current;
@@ -308,6 +324,7 @@ export default function Sidebar({
       breakObjects(Number(projectId), formData, breakType),
     onSuccess: () => {
       toast({ title: "Break", description: "Object broken successfully", duration: 3000, className: "text-green-600" });
+      adjustActiveObjectCount(1);
       setBreakDialogOpen(false);
       setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
@@ -318,6 +335,7 @@ export default function Sidebar({
     mutationFn: (formData: FormData) => objectDelete(Number(projectId), formData),
     onSuccess: () => {
       toast({ title: "Delete", description: "Object deleted successfully", duration: 3000, className: "text-green-600" });
+      adjustActiveObjectCount(-1);
       setDeleteDialogOpen(false);
       setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
@@ -896,7 +914,9 @@ export default function Sidebar({
       style={{ containerType: "inline-size" }}
     >
       <CardHeader data-system-guide="sidebar-project" className="flex flex-row items-center gap-3 p-3 pb-0">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm">
+          <PawPrint className="h-5 w-5" aria-hidden="true" />
+        </div>
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-[#595959] text-[16px] font-medium">Animal Annotation</h2>
@@ -980,19 +1000,19 @@ export default function Sidebar({
       </CardContent>
 
       <CardContent className="sidebar-action-grid p-3 pt-0">
-        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
+        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-indigo-600 hover:bg-indigo-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
           <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />{swapMutation.isPending ? "Swapping..." : "Swap"}
         </Button>
-        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
+        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-amber-600 hover:bg-amber-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
           <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
-        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
+        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-teal-700 hover:bg-teal-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
           <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
-        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
           <Image src="/images/delete.png" alt="Delete" width={35} height={35} />{deleteMutation.isPending ? "Deleting..." : "Delete"}
         </Button>
-        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
+        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-blue-700 hover:bg-blue-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
           <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25} />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
         </Button>
         <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
@@ -1000,7 +1020,7 @@ export default function Sidebar({
         </Button>
         <Button
           data-system-guide="sidebar-clip"
-          className="min-w-0 w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
+          className="min-w-0 w-full bg-cyan-700 hover:bg-cyan-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
           disabled={!selectedClipObject || clipStartFrame === null || clipMutation.isPending}
           onClick={handleOpenClipDialog}
         >
@@ -1062,7 +1082,7 @@ export default function Sidebar({
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-slate-500">Active Object Ids</dt>
                 <dd className="font-medium tabular-nums text-slate-800">
-                  {mounted ? formatMetadataNumber(activeObjectCount) : "—"}
+                  {mounted ? formatMetadataNumber(displayActiveObjectCount) : "—"}
                 </dd>
               </div>
             </dl>
