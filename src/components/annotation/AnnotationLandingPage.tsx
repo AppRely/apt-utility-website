@@ -37,7 +37,7 @@ import {
 } from "@/features/system-guide/events";
 
 export default function AnnotationLandingPage() {
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
@@ -468,7 +468,7 @@ export default function AnnotationLandingPage() {
 
         {/* PROJECT TABLE */}
         <section data-system-guide="project-list" className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
-          <div className="mb-5 flex">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <div className="relative w-full sm:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
@@ -481,6 +481,24 @@ export default function AnnotationLandingPage() {
                 className="h-10 pl-9"
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <span>Records per page</span>
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="Records per page"
+              >
+                {[5,10,20,50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {isLoading ? (
