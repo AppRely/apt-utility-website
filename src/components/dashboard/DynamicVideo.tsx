@@ -10,7 +10,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
-  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw, Palette,
+  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw, Palette, Lightbulb,
 } from "lucide-react";
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
@@ -384,6 +384,7 @@ export default function DynamicVideo({
     items: TrajectoryLinkingSuggestion[];
   } | null>(null);
   const [areLinkingSuggestionsLoading, setAreLinkingSuggestionsLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
 
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
@@ -2283,6 +2284,7 @@ export default function DynamicVideo({
       { action: "Auto Pan (edge only)", key: "A" },
       { action: "Toggle BBox Scale 3×", key: "Z" },
       { action: "Toggle Skeleton", key: "K" },
+      { action: "Toggle Suggestions", key: "Y" },
     ] },
     { category: "Selection", items: [
       { action: "Select as first object", key: "0-9" },
@@ -2472,6 +2474,14 @@ export default function DynamicVideo({
           setShowSkeleton(prev => {
             const newState = !prev;
             safeToast({ title: `Skeleton ${newState ? "ON" : "OFF"}`, duration: 1000 });
+            return newState;
+          });
+          break;
+        case "KeyY":
+          e.preventDefault();
+          setShowSuggestions(prev => {
+            const newState = !prev;
+            safeToast({ title: `Suggestions ${newState ? "ON" : "OFF"}`, duration: 1000 });
             return newState;
           });
           break;
@@ -2728,7 +2738,7 @@ export default function DynamicVideo({
                 {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
                 {autoInterpolation && " 🔄 AUTO-INTERP"}
               </div>
-              {linkingSuggestions &&
+              {showSuggestions && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd && (
                   <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
@@ -2769,7 +2779,7 @@ export default function DynamicVideo({
                     )}
                   </div>
                 )}
-              {visibleNextFrameLinkMatches.length > 0 && !(
+              {showSuggestions && visibleNextFrameLinkMatches.length > 0 && !(
                 linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd
@@ -2821,7 +2831,7 @@ export default function DynamicVideo({
                   <div className="mt-1.5 text-[11px] text-white/60">Select a match, then press L to link</div>
                 </div>
               )}
-              {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
+              {showSuggestions && selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
                 <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold">Clip Suggestions</div>
                   {areClipSuggestionsLoading ? (
@@ -3166,6 +3176,25 @@ export default function DynamicVideo({
                   >
                     <Palette className="h-4 w-4" />
                     <span>{videoColorTheme === "light" ? "Light video colors" : "Dark video colors"}</span>
+                  </button>
+
+                  <button
+                    data-system-guide="menu-suggestions"
+                    onClick={() => {
+                      setShowSuggestions(prev => {
+                        const newState = !prev;
+                        safeToast({ title: `Suggestions ${newState ? "ON" : "OFF"}`, duration: 1000 });
+                        return newState;
+                      });
+                    }}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      showSuggestions
+                        ? "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Lightbulb className="h-4 w-4" />
+                    <span>Suggestions {showSuggestions ? "ON" : "OFF"}</span>
                   </button>
 
                   <button
