@@ -108,8 +108,56 @@ export default function AnnotationLandingPage() {
 
   // Fetch project list
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["project-list", page, pageSize],
-    queryFn: () => getProjectList(page, pageSize),
+    queryKey: ["project-list", pageSize],
+    queryFn: async () => {
+      const firstPage = await getProjectList(1, pageSize);
+      const firstPageProjects = Array.isArray(firstPage?.data)
+        ? firstPage.data
+        : Array.isArray(firstPage)
+          ? firstPage
+          : [];
+      const pagination = firstPage?.pagination ?? firstPage?.meta ?? firstPage ?? {};
+      const totalItems = Number(
+        pagination.total_count ??
+          pagination.total_items ??
+          pagination.count ??
+          firstPage?.total_count ??
+          firstPage?.count,
+      );
+      const reportedTotalPages = Number(
+        pagination.total_pages ??
+          pagination.totalPages ??
+          firstPage?.total_pages ??
+          firstPage?.totalPages,
+      );
+      const totalPages =
+        Number.isFinite(reportedTotalPages) && reportedTotalPages > 0
+          ? reportedTotalPages
+          : Number.isFinite(totalItems)
+            ? Math.ceil(totalItems / pageSize)
+            : firstPageProjects.length < pageSize
+              ? 1
+              : null;
+
+      if (!totalPages || totalPages <= 1) return firstPageProjects;
+
+      const remainingPages = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, index) =>
+          getProjectList(index + 2, pageSize),
+        ),
+      );
+
+      return [
+        ...firstPageProjects,
+        ...remainingPages.flatMap((response) =>
+          Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response)
+              ? response
+              : [],
+        ),
+      ];
+    },
   });
 
   const queryClient = useQueryClient();
@@ -191,35 +239,7 @@ export default function AnnotationLandingPage() {
     <p className="text-center py-6 text-gray-500">{message}</p>
   );
 
-  const projects = Array.isArray(data?.data)
-    ? data.data
-    : Array.isArray(data)
-      ? data
-      : [];
-
-  const pagination = data?.pagination ?? data?.meta ?? data ?? {};
-  const totalItems = Number(
-    pagination.total_count ??
-      pagination.total_items ??
-      pagination.count ??
-      data?.total_count ??
-      data?.count,
-  );
-  const reportedTotalPages = Number(
-    pagination.total_pages ??
-      pagination.totalPages ??
-      data?.total_pages ??
-      data?.totalPages,
-  );
-  const totalPages =
-    Number.isFinite(reportedTotalPages) && reportedTotalPages > 0
-      ? reportedTotalPages
-      : Number.isFinite(totalItems)
-        ? Math.max(1, Math.ceil(totalItems / pageSize))
-        : null;
-  const hasNextPage = totalPages
-    ? page < totalPages
-    : Boolean(pagination.next ?? data?.next) || projects.length === pageSize;
+  const projects = Array.isArray(data) ? data : [];
 
   const allProjects = [...pendingProjects, ...projects];
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -245,6 +265,9 @@ export default function AnnotationLandingPage() {
       const secondCreatedAt = Date.parse(second.created_at ?? "") || 0;
       return secondCreatedAt - firstCreatedAt;
     });
+  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / pageSize));
+  const visibleProjects = filteredProjects.slice((page - 1) * pageSize, page * pageSize);
+  const hasNextPage = page < totalPages;
 
   // --------------------------------------------------------------
   // Helper to store project data in sessionStorage and navigate
@@ -474,7 +497,7 @@ export default function AnnotationLandingPage() {
             />
           ) : (
             <div className="max-h-[420px] overflow-y-auto rounded-sm">
-              {renderTable(filteredProjects)}
+              {renderTable(visibleProjects)}
             </div>
           )}
 
