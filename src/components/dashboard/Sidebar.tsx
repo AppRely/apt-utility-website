@@ -14,8 +14,9 @@ import { useToast } from "@/components/hooks/use-toast";
 import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
-import { ArrowLeft, Crop, X } from "lucide-react";
+import { ArrowLeft, Crop, PawPrint, X } from "lucide-react";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import { getObjectColor } from "@/lib/objectColors";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
@@ -36,15 +37,23 @@ type SidebarProps = SelectedObjectProps & {
   onToggleCollapse?: () => void;
 };
 
-// Helper to get consistent color per object ID
-const getObjectColor = (id: number) => {
-  const colors = [
-    "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-    "#00FFFF", "#FFA500", "#800080", "#008000", "#000080",
-    "#FF1493", "#00BFFF", "#7CFC00", "#FFD700", "#A52A2A",
-    "#DC143C", "#4B0082", "#8B4513", "#2E8B57", "#4682B4",
-  ];
-  return colors[id % colors.length];
+const formatMetadataNumber = (value: string | null) => {
+  const number = Number(value);
+  return value && Number.isFinite(number) ? number.toLocaleString() : "—";
+};
+
+const formatVideoDuration = (value: string | null) => {
+  const duration = Number(value);
+  if (!Number.isFinite(duration) || duration < 0) return "—";
+
+  const totalSeconds = Math.round(duration);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return hours > 0
+    ? `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
+    : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 };
 
 export default function Sidebar({
@@ -79,6 +88,7 @@ export default function Sidebar({
   }, [isAnyDialogOpen]);
 
   const [objectsCollapsed, setObjectsCollapsed] = useState(true);
+  const [videoInfoCollapsed, setVideoInfoCollapsed] = useState(true);
   const linkOrderRef = useRef<{ obj1: any; obj2: any } | null>(null);
 
   // Session storage hook
@@ -112,10 +122,31 @@ export default function Sidebar({
   const projectName = useSessionStorage("project_name");
   const videoName = useSessionStorage("video_name");
   const trkFileName = useSessionStorage("trk_file_name");
-  const totalFrames = useSessionStorage("totalFrames");
+  const fps = useSessionStorage("fps");
+  const videoWidth = useSessionStorage("width");
+  const videoHeight = useSessionStorage("height");
+  const videoDuration = useSessionStorage("duration");
+  const totalFrames = useSessionStorage("total_frames");
+  const activeObjectCount = useSessionStorage("active_object_count");
+  const [displayActiveObjectCount, setDisplayActiveObjectCount] = useState<string | null>(null);
   const videoStoragePath = useSessionStorage("video_storage_path");
   const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
+  const videoColorTheme = useSessionStorage("videoColorTheme") === "dark" ? "dark" : "light";
+
+  useEffect(() => {
+    setDisplayActiveObjectCount(activeObjectCount);
+  }, [activeObjectCount]);
+
+  const adjustActiveObjectCount = useCallback((delta: number) => {
+    setDisplayActiveObjectCount((current) => {
+      const count = Number(current);
+      if (!Number.isFinite(count)) return current;
+      const nextCount = Math.max(0, count + delta).toString();
+      sessionStorage.setItem("active_object_count", nextCount);
+      return nextCount;
+    });
+  }, []);
 
   // The first object in the current selection is always the clip target.
   // Removing it naturally promotes the next selected object.
@@ -240,6 +271,7 @@ export default function Sidebar({
       linkObjects(Number(projectId), payload),
     onSuccess: () => {
       toast({ title: "✅ Success", description: "Objects linked successfully.", duration: 3000, className: "text-green-600" });
+      adjustActiveObjectCount(-1);
       setLinkDialogOpen(false);
       if (linkOrderRef.current) {
         const { obj1, obj2 } = linkOrderRef.current;
@@ -283,6 +315,7 @@ export default function Sidebar({
       breakObjects(Number(projectId), formData, breakType),
     onSuccess: () => {
       toast({ title: "Break", description: "Object broken successfully", duration: 3000, className: "text-green-600" });
+      adjustActiveObjectCount(1);
       setBreakDialogOpen(false);
       setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
@@ -293,6 +326,7 @@ export default function Sidebar({
     mutationFn: (formData: FormData) => objectDelete(Number(projectId), formData),
     onSuccess: () => {
       toast({ title: "Delete", description: "Object deleted successfully", duration: 3000, className: "text-green-600" });
+      adjustActiveObjectCount(-1);
       setDeleteDialogOpen(false);
       setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
@@ -307,19 +341,10 @@ export default function Sidebar({
         end_frame: endFrame,
       }),
     onSuccess: (response) => {
-      const selected = selectedObjects[0];
       toast({ title: "Clip", description: response?.message || "Object clipped successfully", duration: 3000, className: "text-green-600" });
       setClipDialogOpen(false);
       setClipStartFrame(null);
       setClipEndFrame(null);
-      if (selected && response?.new_object_id != null) {
-        setSelectedObjects(previous => previous.map((object, index) => index === 0 ? {
-          ...object,
-          object_id: response.new_object_id,
-          start_frame: response.clipped_object_track?.start_frame ?? clipStartFrame ?? object.start_frame,
-          end_frame: response.clipped_object_track?.end_frame ?? clipEndFrame ?? object.end_frame,
-        } : object));
-      }
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
     },
     onError: (error: Error) => {
@@ -337,7 +362,6 @@ export default function Sidebar({
         return;
       }
       toast({ title: "Success", description: "Interpolation completed successfully", duration: 3000, className: "text-green-600" });
-      setSelectedObjects([]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
     },
   });
@@ -370,8 +394,6 @@ export default function Sidebar({
       }, 8000);
     },
   });
-
-  const fpsValue = mounted ? sessionStorage.getItem("fps") : "N/A";
 
   // Listen for operation complete
   useEffect(() => {
@@ -873,7 +895,9 @@ export default function Sidebar({
       style={{ containerType: "inline-size" }}
     >
       <CardHeader data-system-guide="sidebar-project" className="flex flex-row items-center gap-3 p-3 pb-0">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm">
+          <PawPrint className="h-5 w-5" aria-hidden="true" />
+        </div>
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-[#595959] text-[16px] font-medium">Animal Annotation</h2>
@@ -917,7 +941,7 @@ export default function Sidebar({
           </div>
           {selectedObjects.length === 0 && <p className="text-gray-500">No object selected</p>}
           {selectedObjects.map((obj, i) => {
-            const color = getObjectColor(obj.object_id);
+            const color = getObjectColor(obj.object_id, videoColorTheme);
             return (
               <div key={i} className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start" style={{ borderLeft: `5px solid ${color}` }}>
                 <div>
@@ -957,19 +981,19 @@ export default function Sidebar({
       </CardContent>
 
       <CardContent className="sidebar-action-grid p-3 pt-0">
-        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
+        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-indigo-600 hover:bg-indigo-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
           <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />{swapMutation.isPending ? "Swapping..." : "Swap"}
         </Button>
-        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
+        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-amber-600 hover:bg-amber-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
           <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
-        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
+        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-teal-700 hover:bg-teal-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
           <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
-        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
           <Image src="/images/delete.png" alt="Delete" width={35} height={35} />{deleteMutation.isPending ? "Deleting..." : "Delete"}
         </Button>
-        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
+        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-blue-700 hover:bg-blue-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
           <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25} />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
         </Button>
         <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
@@ -977,7 +1001,7 @@ export default function Sidebar({
         </Button>
         <Button
           data-system-guide="sidebar-clip"
-          className="min-w-0 w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
+          className="min-w-0 w-full bg-cyan-700 hover:bg-cyan-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
           disabled={!selectedClipObject || clipStartFrame === null || clipMutation.isPending}
           onClick={handleOpenClipDialog}
         >
@@ -989,6 +1013,63 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-shrink-0 pt-2">
+          <button
+            data-system-guide="sidebar-video-information"
+            type="button"
+            onClick={() => setVideoInfoCollapsed((collapsed) => !collapsed)}
+            className="flex w-full items-center justify-between rounded-md bg-slate-100 px-3 py-2 text-left text-slate-700 transition hover:bg-slate-200 focus:outline-none"
+            aria-expanded={!videoInfoCollapsed}
+          >
+            <span className="font-medium">Video Information</span>
+            <svg
+              className={`h-4 w-4 transition-transform ${videoInfoCollapsed ? "" : "rotate-180"}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {!videoInfoCollapsed && (
+            <dl className="mt-2 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">FPS</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatMetadataNumber(fps) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Resolution</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted && videoWidth && videoHeight
+                    ? `${formatMetadataNumber(videoWidth)} × ${formatMetadataNumber(videoHeight)}`
+                    : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Duration</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatVideoDuration(videoDuration) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Total Frames</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatMetadataNumber(totalFrames) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Active Object Ids</dt>
+                <dd className="font-medium tabular-nums text-slate-800">
+                  {mounted ? formatMetadataNumber(displayActiveObjectCount) : "—"}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
+
         <div className="flex justify-end flex-shrink-0 pt-2 pb-3">
           <button data-system-guide="sidebar-object-list" onClick={() => setObjectsCollapsed(!objectsCollapsed)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl rounded-md focus:outline-none transition" aria-label={objectsCollapsed ? "Expand object list" : "Collapse object list"}>
             Object List

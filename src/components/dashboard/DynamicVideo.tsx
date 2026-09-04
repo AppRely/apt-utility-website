@@ -10,7 +10,7 @@ import { useToast } from "@/components/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
-  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw, Palette,
+  ZoomIn, ZoomOut, Undo, Redo, Target, RefreshCw, Palette, Lightbulb,
 } from "lucide-react";
 import {
   Stage, Layer, Image as KonvaImage, Text, Circle, Group, Rect, Line,
@@ -46,6 +46,7 @@ import {
   NEXT_LINK_MAX_DISTANCE_PX,
   NEXT_LINK_START_THRESHOLD_FRAMES,
 } from "@/lib/trajectoryLinking";
+import { getObjectColor as getSharedObjectColor } from "@/lib/objectColors";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
@@ -61,6 +62,9 @@ type DynamicVideoProps = SelectedObjectProps & {
 
 const MIN_PLAYBACK_RATE = 0.1;
 const MAX_PLAYBACK_RATE = 16;
+const DEFAULT_TIMELINE_HEIGHT = 176;
+const MIN_TIMELINE_HEIGHT = 140;
+const MIN_VIDEO_HEIGHT = 180;
 
 // Keep normal speed centered while retaining logarithmic control on each side.
 const playbackRateToSliderPosition = (rate: number) => {
@@ -80,22 +84,6 @@ const sliderPositionToPlaybackRate = (position: number) => {
 };
 
 const formatFps = (value: number) => Number(value.toFixed(2)).toString();
-
-// Darker annotation colors remain visible on white/light video backgrounds.
-const LIGHT_VIDEO_COLORS = [
-  "#B91C1C", "#166534", "#1D4ED8", "#7E22CE", "#BE185D", "#0F766E",
-  "#9A3412", "#4338CA", "#3F6212", "#A21CAF", "#0369A1", "#92400E",
-  "#6B21A8", "#047857", "#C2410C", "#1E40AF", "#9F1239", "#115E59",
-  "#713F12", "#4C1D95", "#065F46", "#991B1B", "#0E7490", "#6D28D9",
-];
-
-// Brighter annotation colors remain visible on dark/gray video backgrounds.
-const DARK_VIDEO_COLORS = [
-  "#FF5252", "#69F0AE", "#40C4FF", "#FFD740", "#E040FB", "#18FFFF",
-  "#FFAB40", "#B388FF", "#CCFF90", "#FF80AB", "#80D8FF", "#FFFF8D",
-  "#EA80FC", "#64FFDA", "#FF9E80", "#8C9EFF", "#FF8A80", "#A7FFEB",
-  "#FFE57F", "#B39DDB", "#00E676", "#FF6E6E", "#84FFFF", "#B2FF59",
-];
 
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
@@ -396,6 +384,7 @@ export default function DynamicVideo({
     items: TrajectoryLinkingSuggestion[];
   } | null>(null);
   const [areLinkingSuggestionsLoading, setAreLinkingSuggestionsLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
 
   const stableFpsRef = useRef<number>(40);
   const originalFpsLoadedRef = useRef<boolean>(false);
@@ -674,6 +663,86 @@ export default function DynamicVideo({
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineHeight, setTimelineHeight] = useState(DEFAULT_TIMELINE_HEIGHT);
+  const timelineResizeRef = useRef({
+    isResizing: false,
+    startY: 0,
+    startHeight: DEFAULT_TIMELINE_HEIGHT,
+  });
+
+  const clampTimelineHeight = useCallback((height: number) => {
+    const availableHeight = rootContainerRef.current?.clientHeight ?? 0;
+    const maxHeight = Math.max(
+      MIN_TIMELINE_HEIGHT,
+      availableHeight - MIN_VIDEO_HEIGHT - 90,
+    );
+
+    return Math.min(Math.max(height, MIN_TIMELINE_HEIGHT), maxHeight);
+  }, []);
+
+  const handleTimelineResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      timelineResizeRef.current = {
+        isResizing: true,
+        startY: event.clientY,
+        startHeight: timelineHeight,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    },
+    [timelineHeight],
+  );
+
+  const handleTimelineResizeMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const resize = timelineResizeRef.current;
+      if (!resize.isResizing) return;
+
+      setTimelineHeight(
+        clampTimelineHeight(resize.startHeight + resize.startY - event.clientY),
+      );
+    },
+    [clampTimelineHeight],
+  );
+
+  const handleTimelineResizeEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!timelineResizeRef.current.isResizing) return;
+      timelineResizeRef.current.isResizing = false;
+
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already have been released.
+      }
+
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    },
+    [],
+  );
+
+  const resetTimelineHeight = useCallback(() => {
+    setTimelineHeight(clampTimelineHeight(DEFAULT_TIMELINE_HEIGHT));
+  }, [clampTimelineHeight]);
+
+  useEffect(() => {
+    const root = rootContainerRef.current;
+    if (!root) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      setTimelineHeight((current) => clampTimelineHeight(current));
+    });
+    resizeObserver.observe(root);
+
+    return () => {
+      resizeObserver.disconnect();
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [clampTimelineHeight]);
 
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
   const toolbarOpenedByGuideRef = useRef(false);
@@ -681,7 +750,6 @@ export default function DynamicVideo({
   const [trajectoryLengthOrdering, setTrajectoryLengthOrdering] = useState<TrajectoryLengthOrdering>("length_desc");
   const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">("light");
   const [isVideoColorThemePreferenceLoaded, setIsVideoColorThemePreferenceLoaded] = useState(false);
-  const objectColorSlotsRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
     const handleGuideStep = (event: Event) => {
@@ -731,13 +799,7 @@ export default function DynamicVideo({
   }, []);
 
   const getObjectColor = useCallback((id: number) => {
-    const colors = videoColorTheme === "light" ? LIGHT_VIDEO_COLORS : DARK_VIDEO_COLORS;
-    let colorSlot = objectColorSlotsRef.current.get(id);
-    if (colorSlot === undefined) {
-      colorSlot = objectColorSlotsRef.current.size % colors.length;
-      objectColorSlotsRef.current.set(id, colorSlot);
-    }
-    return colors[colorSlot];
+    return getSharedObjectColor(id, videoColorTheme);
   }, [videoColorTheme]);
 
   const getTotalFrames = useCallback(() => {
@@ -2222,6 +2284,7 @@ export default function DynamicVideo({
       { action: "Auto Pan (edge only)", key: "A" },
       { action: "Toggle BBox Scale 3×", key: "Z" },
       { action: "Toggle Skeleton", key: "K" },
+      { action: "Toggle Suggestions", key: "Y" },
     ] },
     { category: "Selection", items: [
       { action: "Select as first object", key: "0-9" },
@@ -2414,6 +2477,14 @@ export default function DynamicVideo({
             return newState;
           });
           break;
+        case "KeyY":
+          e.preventDefault();
+          setShowSuggestions(prev => {
+            const newState = !prev;
+            safeToast({ title: `Suggestions ${newState ? "ON" : "OFF"}`, duration: 1000 });
+            return newState;
+          });
+          break;
         case "KeyS": e.preventDefault(); if(selectedObjects.length) { const obj = selectedObjects[selectedObjects.length-1]; if(obj.start_frame !== undefined) handleFrameJump(obj.start_frame); else safeToast({ title: "Start frame not available", duration: 1500 }); } else safeToast({ title: "No object selected", duration: 1500 }); break;
         case "KeyE": {
           e.preventDefault();
@@ -2499,13 +2570,17 @@ export default function DynamicVideo({
           const activeBreak = activeBreakRef.current;
           if (
             activeBreak?.selectedObjectId === selected.object_id &&
-            currentFrame >= activeBreak.breakStart &&
+            currentFrame >= activeBreak.breakStart - 1 &&
             currentFrame < activeBreak.breakEnd
           ) {
+            const objectEnd = selected.end_frame;
+            const breakAfterFrame = objectEnd === undefined
+              ? activeBreak.breakEnd + 1
+              : Math.min(activeBreak.breakEnd + 1, objectEnd);
             breakNavigationHistoryRef.current.push(currentFrame);
-            handleFrameJump(activeBreak.breakEnd);
+            handleFrameJump(breakAfterFrame);
             safeToast({
-              title: `Break end: ${activeBreak.breakEnd}`,
+              title: `After break: ${breakAfterFrame}`,
               description: `Range ${activeBreak.breakStart}–${activeBreak.breakEnd}`,
               duration: 1500,
             });
@@ -2529,13 +2604,15 @@ export default function DynamicVideo({
                 nextBreak.break_end,
                 selected.start_frame,
               );
-              if (nextBreak.break_start !== currentFrame) {
+              const objectStart = selected.start_frame ?? 0;
+              const breakBeforeFrame = Math.max(objectStart, nextBreak.break_start - 1);
+              if (breakBeforeFrame !== currentFrame) {
                 breakNavigationHistoryRef.current.push(currentFrame);
               }
-              handleFrameJump(nextBreak.break_start);
+              handleFrameJump(breakBeforeFrame);
               safeToast({
-                title: `Break start: ${nextBreak.break_start}`,
-                description: `Object ${nextBreak.object_id} · End ${nextBreak.break_end}`,
+                title: `Before break: ${breakBeforeFrame}`,
+                description: `Object ${nextBreak.object_id} · Range ${nextBreak.break_start}–${nextBreak.break_end}`,
                 duration: 1800,
               });
             })
@@ -2661,7 +2738,7 @@ export default function DynamicVideo({
                 {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
                 {autoInterpolation && " 🔄 AUTO-INTERP"}
               </div>
-              {linkingSuggestions &&
+              {showSuggestions && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd && (
                   <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
@@ -2702,7 +2779,7 @@ export default function DynamicVideo({
                     )}
                   </div>
                 )}
-              {visibleNextFrameLinkMatches.length > 0 && !(
+              {showSuggestions && visibleNextFrameLinkMatches.length > 0 && !(
                 linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd
@@ -2754,7 +2831,7 @@ export default function DynamicVideo({
                   <div className="mt-1.5 text-[11px] text-white/60">Select a match, then press L to link</div>
                 </div>
               )}
-              {selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
+              {showSuggestions && selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
                 <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
                   <div className="mb-1.5 text-xs font-semibold">Clip Suggestions</div>
                   {areClipSuggestionsLoading ? (
@@ -3099,6 +3176,25 @@ export default function DynamicVideo({
                   >
                     <Palette className="h-4 w-4" />
                     <span>{videoColorTheme === "light" ? "Light video colors" : "Dark video colors"}</span>
+                  </button>
+
+                  <button
+                    data-system-guide="menu-suggestions"
+                    onClick={() => {
+                      setShowSuggestions(prev => {
+                        const newState = !prev;
+                        safeToast({ title: `Suggestions ${newState ? "ON" : "OFF"}`, duration: 1000 });
+                        return newState;
+                      });
+                    }}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      showSuggestions
+                        ? "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Lightbulb className="h-4 w-4" />
+                    <span>Suggestions {showSuggestions ? "ON" : "OFF"}</span>
                   </button>
 
                   <button
@@ -3448,8 +3544,36 @@ export default function DynamicVideo({
             </div>
           </div>
 
+          <div
+            role="separator"
+            aria-label="Resize video and timeline. Double-click to reset."
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_TIMELINE_HEIGHT}
+            aria-valuenow={Math.round(timelineHeight)}
+            tabIndex={0}
+            title="Drag to resize · Double-click to reset"
+            onPointerDown={handleTimelineResizeStart}
+            onPointerMove={handleTimelineResizeMove}
+            onPointerUp={handleTimelineResizeEnd}
+            onPointerCancel={handleTimelineResizeEnd}
+            onDoubleClick={resetTimelineHeight}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              event.preventDefault();
+              const change = event.key === "ArrowUp" ? 16 : -16;
+              setTimelineHeight((current) => clampTimelineHeight(current + change));
+            }}
+            className="group relative h-2 w-full shrink-0 touch-none cursor-row-resize bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
+            <div className="absolute left-1/2 top-1/2 h-1 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-slate-500" />
+          </div>
+
           {/* Unified timeline */}
-          <div data-system-guide="trajectory-timeline" className="flex flex-col h-44 flex-shrink-0 bg-gray-900 rounded-md mt-1 overflow-hidden w-full">
+          <div
+            data-system-guide="trajectory-timeline"
+            className="flex w-full flex-shrink-0 flex-col overflow-hidden rounded-md bg-gray-900"
+            style={{ height: `${timelineHeight}px` }}
+          >
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines
@@ -3682,7 +3806,10 @@ export default function DynamicVideo({
               </div>
 
               {/* Object ranges timeline */}
-              <div className="flex-shrink-0 w-full" style={{ height: '40px' }}>
+              <div
+                className="w-full min-h-0 shrink-0"
+                style={{ flex: '0 0 25%', minHeight: '28px' }}
+              >
                 {isLoadingUnique ? (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />

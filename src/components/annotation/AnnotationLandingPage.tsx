@@ -3,14 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -30,19 +27,26 @@ import { getProjectList } from "@/lib/api/getProjectList";
 import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
+import { exportTrk } from "@/lib/api/exportTrk";
+import { getISTDateTimeParts } from "@/lib/utils/formatDateTime";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import { Loader2, Search } from "lucide-react";
 import {
   SYSTEM_GUIDE_STEP_EVENT,
   type SystemGuideStepEventDetail,
 } from "@/features/system-guide/events";
 
 export default function AnnotationLandingPage() {
+  const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
+  const [exportProjectId, setExportProjectId] = useState<number | null>(null);
   const [pendingProjects, setPendingProjects] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const projectModalOpenedByGuideRef = useRef(false);
   const auditModalUsedByGuideRef = useRef(false);
   const auditProjectIdRef = useRef<number | null>(null);
@@ -104,8 +108,56 @@ export default function AnnotationLandingPage() {
 
   // Fetch project list
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["project-list"],
-    queryFn: getProjectList,
+    queryKey: ["project-list", pageSize],
+    queryFn: async () => {
+      const firstPage = await getProjectList(1, pageSize);
+      const firstPageProjects = Array.isArray(firstPage?.data)
+        ? firstPage.data
+        : Array.isArray(firstPage)
+          ? firstPage
+          : [];
+      const pagination = firstPage?.pagination ?? firstPage?.meta ?? firstPage ?? {};
+      const totalItems = Number(
+        pagination.total_count ??
+          pagination.total_items ??
+          pagination.count ??
+          firstPage?.total_count ??
+          firstPage?.count,
+      );
+      const reportedTotalPages = Number(
+        pagination.total_pages ??
+          pagination.totalPages ??
+          firstPage?.total_pages ??
+          firstPage?.totalPages,
+      );
+      const totalPages =
+        Number.isFinite(reportedTotalPages) && reportedTotalPages > 0
+          ? reportedTotalPages
+          : Number.isFinite(totalItems)
+            ? Math.ceil(totalItems / pageSize)
+            : firstPageProjects.length < pageSize
+              ? 1
+              : null;
+
+      if (!totalPages || totalPages <= 1) return firstPageProjects;
+
+      const remainingPages = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, index) =>
+          getProjectList(index + 2, pageSize),
+        ),
+      );
+
+      return [
+        ...firstPageProjects,
+        ...remainingPages.flatMap((response) =>
+          Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response)
+              ? response
+              : [],
+        ),
+      ];
+    },
   });
 
   const queryClient = useQueryClient();
@@ -134,6 +186,38 @@ export default function AnnotationLandingPage() {
     },
   });
 
+  const exportMutation = useMutation({
+    mutationFn: (projectId: number) => exportTrk(projectId),
+    onMutate: (projectId: number) => setExportProjectId(projectId),
+    onSuccess: (
+      response: { data?: { download_url?: string; trk_version?: string | number } },
+      projectId: number,
+    ) => {
+      const downloadUrl = response?.data?.download_url;
+      if (downloadUrl) {
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = `project_${projectId}_v${response?.data?.trk_version ?? "latest"}.trk`;
+        link.click();
+      }
+      toast({
+        title: "Export completed",
+        description: downloadUrl ? "TRK download started." : "TRK export is ready.",
+        duration: 3000,
+        className: "text-green-600",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Export failed",
+        description: error.message,
+        variant: "destructive",
+        duration: 3000,
+      });
+    },
+    onSettled: () => setExportProjectId(null),
+  });
+
   // Add new pending project
   const handlePendingProject = (project: any) => {
     setPendingProjects((prev) => [...prev, project]);
@@ -142,6 +226,7 @@ export default function AnnotationLandingPage() {
   // Remove pending project after successful creation
   const handleProjectCreated = (createdProject: any) => {
     setPendingProjects((prev) => prev.filter((p) => !p._isPending));
+    setPage(1);
     queryClient.invalidateQueries({ queryKey: ["project-list"] });
   };
 
@@ -154,55 +239,35 @@ export default function AnnotationLandingPage() {
     <p className="text-center py-6 text-gray-500">{message}</p>
   );
 
-  const projects = Array.isArray(data?.data)
-    ? data.data
-    : Array.isArray(data)
-      ? data
-      : [];
+  const projects = Array.isArray(data) ? data : [];
 
-  // SAFE: Only filter if projects is array (always true now)
-  const inProgress = [
-    ...projects.filter(
-      (p: any) => p.project_status?.toLowerCase() === "inprogress",
-    ),
-    ...pendingProjects,
-  ]; // <-- merge pending projects
+  const allProjects = [...pendingProjects, ...projects];
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredProjects = allProjects
+    .filter((project: any) => {
+      const searchableText = [
+        project.project_name,
+        project.video_name,
+        project.trk_file_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
 
-  const completed = projects.filter(
-    (p: any) => p.project_status.toLowerCase() === "completed",
-  );
+      return searchableText.includes(normalizedSearch);
+    })
+    .sort((first: any, second: any) => {
+      if (first._isPending !== second._isPending) {
+        return first._isPending ? -1 : 1;
+      }
 
-  const getStatusBadge = (project: any) => {
-    if (project._isPending) {
-      return (
-        <Badge className="bg-gray-100 text-gray-700 hover:bg-gray-100">
-          Creating...
-        </Badge>
-      );
-    }
-
-    const status = project.project_status.toLowerCase();
-
-    if (status === "inprogress")
-      return (
-        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-          In Progress
-        </Badge>
-      );
-
-    if (status === "completed")
-      return (
-        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-          Completed
-        </Badge>
-      );
-
-    return (
-      <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">
-        Archived
-      </Badge>
-    );
-  };
+      const firstCreatedAt = Date.parse(first.created_at ?? "") || 0;
+      const secondCreatedAt = Date.parse(second.created_at ?? "") || 0;
+      return secondCreatedAt - firstCreatedAt;
+    });
+  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / pageSize));
+  const visibleProjects = filteredProjects.slice((page - 1) * pageSize, page * pageSize);
+  const hasNextPage = page < totalPages;
 
   // --------------------------------------------------------------
   // Helper to store project data in sessionStorage and navigate
@@ -218,6 +283,7 @@ export default function AnnotationLandingPage() {
     sessionStorage.setItem("height", project.height);
     sessionStorage.setItem("duration", project.duration);
     sessionStorage.setItem("total_frames", project.total_frames);
+    sessionStorage.setItem("active_object_count", project.active_object_count);
     sessionStorage.setItem("skeleton_graph", JSON.stringify(project.skeleton_graph));
 
     // ✅ Store storage paths for hover and dashboard use
@@ -227,18 +293,30 @@ export default function AnnotationLandingPage() {
     router.push("/dashboard");
   };
 
-  // TABLE WITH TOGGLE (to hide Mark as Complete in Completed tab)
-  const renderTable = (rows: any[], isCompleted: boolean) => (
-    <Table>
-      <TableHeader className="bg-[#3B3B3B] text-white hover:bg-[#3B3B3B]">
-        <TableRow className="hover:bg-[#3B3B3B]">
-          <TableHead className="text-white text-center">Sr No.</TableHead>
-          <TableHead className="text-white text-center">Project Name</TableHead>
-          <TableHead className="text-white text-center">Video File</TableHead>
-          <TableHead className="text-white text-center">TRK File</TableHead>
-          <TableHead className="text-white text-center">Date</TableHead>
-          <TableHead className="text-white text-center">Status</TableHead>
-          <TableHead className="text-white">Action</TableHead>
+  const renderDateTime = (value: unknown) => {
+    const parts = getISTDateTimeParts(value);
+
+    if (!parts) return "—";
+
+    return (
+      <div className="flex flex-col items-start leading-tight">
+        <span className="text-gray-900">{parts.date}</span>
+        <span className="mt-1 text-xs text-gray-500">{parts.time}</span>
+      </div>
+    );
+  };
+
+  const renderTable = (rows: any[]) => (
+    <Table className="text-left">
+      <TableHeader className="bg-[#F1F3F5] text-[#374151]">
+        <TableRow className="border-[#E2E5E9] hover:bg-[#F1F3F5]">
+          <TableHead className="text-left text-[#374151]">Sr No.</TableHead>
+          <TableHead className="text-left text-[#374151]">Project Name</TableHead>
+          <TableHead className="text-left text-[#374151]">Video File</TableHead>
+          <TableHead className="text-left text-[#374151]">TRK File</TableHead>
+          <TableHead className="text-left text-[#374151]">Date &amp; Time</TableHead>
+          <TableHead className="text-left text-[#374151]">Last Updated At</TableHead>
+          <TableHead className="text-center text-[#374151]">Action</TableHead>
         </TableRow>
       </TableHeader>
 
@@ -246,12 +324,19 @@ export default function AnnotationLandingPage() {
         {rows.map((p, index) => {
           const isDeletingRow =
             deleteMutation.isPending && deleteProjectId === p.project_id;
+          const isExportingRow =
+            exportMutation.isPending && exportProjectId === p.project_id;
 
           const isPendingProject = p._isPending;
 
           return (
-            <TableRow key={p.project_id}>
-              <TableCell>{String(index + 1).padStart(2, "0")}</TableCell>
+            <TableRow
+              key={p.project_id}
+              className="hover:bg-[#FAFAF9]"
+            >
+              <TableCell>
+                {String((page - 1) * pageSize + index + 1).padStart(2, "0")}
+              </TableCell>
               <TableCell>
                 <span
                   data-system-guide="project-open"
@@ -278,52 +363,64 @@ export default function AnnotationLandingPage() {
                 {formatFileName(p.trk_file_name)}
               </TableCell>
 
-              <TableCell>{p.created_at.split("T")[0]}</TableCell>
-
-              <TableCell>{getStatusBadge(p)}</TableCell>
+              <TableCell>{renderDateTime(p.created_at)}</TableCell>
+              <TableCell>{renderDateTime(p.last_updated)}</TableCell>
 
               {/* ACTION BUTTONS */}
-              <TableCell className="flex gap-2">
-                {/* Edit */}
-                <Button
-                  data-system-guide="project-edit"
-                  size="sm"
-                  disabled={isDeletingRow || isPendingProject}
-                  className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                  onClick={() => navigateToDashboard(p)} // uses helper
-                >
-                  Edit
-                </Button>
+              <TableCell>
+                <div className="flex items-center justify-center gap-2">
+                  {/* Edit */}
+                  <Button
+                    data-system-guide="project-edit"
+                    size="sm"
+                    disabled={isDeletingRow || isPendingProject}
+                    className="bg-purple-100 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                    onClick={() => navigateToDashboard(p)} // uses helper
+                  >
+                    Edit
+                  </Button>
 
-                {/* Audit */}
-                <Button
-                  data-system-guide="project-audit"
-                  data-project-id={p.project_id}
-                  size="sm"
-                  disabled={isDeletingRow || isPendingProject}
-                  className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
-                  onClick={() => {
-                    auditProjectIdRef.current = p.project_id;
-                    setAuditOpen(true);
-                    setAuditProjectId(p.project_id);
-                  }}
-                >
-                  Audit
-                </Button>
+                  {/* Audit */}
+                  <Button
+                    data-system-guide="project-audit"
+                    data-project-id={p.project_id}
+                    size="sm"
+                    disabled={isDeletingRow || isPendingProject}
+                    className="bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+                    onClick={() => {
+                      auditProjectIdRef.current = p.project_id;
+                      setAuditOpen(true);
+                      setAuditProjectId(p.project_id);
+                    }}
+                  >
+                    Audit
+                  </Button>
 
-                {/* Delete */}
-                <Button
-                  data-system-guide="project-delete"
-                  size="sm"
-                  disabled={deleteMutation.isPending || isPendingProject}
-                  className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
-                  onClick={() => {
-                    setDeleteOpen(true);
-                    setDeleteProjectId(p.project_id);
-                  }}
-                >
-                  {isDeletingRow ? "Deleting..." : "Delete"}
-                </Button>
+                  {/* Delete */}
+                  <Button
+                    data-system-guide="project-delete"
+                    size="sm"
+                    disabled={deleteMutation.isPending || exportMutation.isPending || isPendingProject}
+                    className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
+                    onClick={() => {
+                      setDeleteOpen(true);
+                      setDeleteProjectId(p.project_id);
+                    }}
+                  >
+                    {isDeletingRow ? "Deleting..." : "Delete"}
+                  </Button>
+
+                  {/* Export */}
+                  <Button
+                    data-system-guide="project-export"
+                    size="sm"
+                    disabled={deleteMutation.isPending || exportMutation.isPending || isPendingProject}
+                    className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-50"
+                    onClick={() => exportMutation.mutate(p.project_id)}
+                  >
+                    {isExportingRow ? "Exporting..." : "Export"}
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           );
@@ -334,32 +431,12 @@ export default function AnnotationLandingPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
-      {/* HEADER */}
-      <header data-system-guide="landing-header" className="flex justify-between items-center bg-white h-16 px-7 py-9 shadow-sm">
-        <div className="bg-[#D9D9D9] text-white text-[16px] font-medium px-8 py-[11px] leading-[21px]">
-          Logo
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Avatar className="w-[34px] h-[34px]">
-            <AvatarFallback className="bg-[#F3B56E] text-white text-[16px] font-medium leading-[12px]">
-              M
-            </AvatarFallback>
-          </Avatar>
-
-          <Image
-            src="/images/downArrow.svg"
-            alt="Down Arrow"
-            width={13}
-            height={7}
-            className="opacity-80"
-          />
-        </div>
-      </header>
-
       {/* LANDING CONTENT */}
-      <main className="flex flex-1 flex-col items-center justify-center text-center">
-        <h1 className="text-[24px] font-bold text-black py-4">
+      <main
+        data-system-guide="landing-home"
+        className="flex flex-1 flex-col items-center justify-center text-center"
+      >
+        <h1 className="pt-10 text-[24px] font-bold text-black">
           APT TRACKING SYSTEM
         </h1>
 
@@ -389,32 +466,84 @@ export default function AnnotationLandingPage() {
           Create a new Project
         </Button>
 
-        {/* TABS + TABLE BOX */}
+        {/* PROJECT TABLE */}
         <section data-system-guide="project-list" className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
-          <Tabs defaultValue="inprogress" className="w-full">
-            <TabsList className="grid grid-cols-2 w-1/3 mx-auto mb-4 bg-gray-100">
-              <TabsTrigger value="inprogress">In Progress</TabsTrigger>
-              <TabsTrigger value="completed">Completed</TabsTrigger>
-            </TabsList>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+            <div className="relative w-full sm:max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                data-system-guide="project-search"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search projects..."
+                aria-label="Search projects"
+                className="h-10 pl-9"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <span>Records per page</span>
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="Records per page"
+              >
+                {[5,10,20,50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-            {/* IN PROGRESS TAB */}
-            <TabsContent value="inprogress">
-              {!isLoading && inProgress.length === 0 ? (
-                <NoData message="No in-progress projects found" />
-              ) : (
-                renderTable(inProgress, false)
-              )}
-            </TabsContent>
+          {isLoading ? (
+            <NoData message="Loading projects..." />
+          ) : isError ? (
+            <NoData message="Unable to load projects" />
+          ) : filteredProjects.length === 0 ? (
+            <NoData
+              message={
+                searchQuery
+                  ? "No projects match your search"
+                  : "No projects found"
+              }
+            />
+          ) : (
+            <div className="max-h-[420px] overflow-y-auto rounded-sm">
+              {renderTable(visibleProjects)}
+            </div>
+          )}
 
-            {/* COMPLETED TAB */}
-            <TabsContent value="completed">
-              {!isLoading && completed.length === 0 ? (
-                <NoData message="No completed projects found" />
-              ) : (
-                renderTable(completed, true)
-              )}
-            </TabsContent>
-          </Tabs>
+          {!isError && (
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page === 1 || isLoading}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                Previous
+              </Button>
+              <span className="min-w-24 text-sm text-gray-600">
+                Page {page}{totalPages ? ` of ${totalPages}` : ""}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasNextPage || isLoading}
+                onClick={() => setPage((current) => current + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          )}
         </section>
       </main>
 
