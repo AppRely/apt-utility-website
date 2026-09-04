@@ -27,9 +27,10 @@ import { getProjectList } from "@/lib/api/getProjectList";
 import AuditModal from "@/components/annotation/AuditModal";
 import CreateProjectModal from "@/components/annotation/CreateProjectModal";
 import { deleteProject } from "@/lib/api/deleteProject";
+import { exportTrk } from "@/lib/api/exportTrk";
 import { getISTDateTimeParts } from "@/lib/utils/formatDateTime";
 import { formatFileName } from "@/lib/utils/formatFileName";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import {
   SYSTEM_GUIDE_STEP_EVENT,
   type SystemGuideStepEventDetail,
@@ -42,6 +43,7 @@ export default function AnnotationLandingPage() {
   const [auditProjectId, setAuditProjectId] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
+  const [exportProjectId, setExportProjectId] = useState<number | null>(null);
   const [pendingProjects, setPendingProjects] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -134,6 +136,38 @@ export default function AnnotationLandingPage() {
       setDeleteOpen(false);
       setDeleteProjectId(null);
     },
+  });
+
+  const exportMutation = useMutation({
+    mutationFn: (projectId: number) => exportTrk(projectId),
+    onMutate: (projectId: number) => setExportProjectId(projectId),
+    onSuccess: (
+      response: { data?: { download_url?: string; trk_version?: string | number } },
+      projectId: number,
+    ) => {
+      const downloadUrl = response?.data?.download_url;
+      if (downloadUrl) {
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = `project_${projectId}_v${response?.data?.trk_version ?? "latest"}.trk`;
+        link.click();
+      }
+      toast({
+        title: "Export completed",
+        description: downloadUrl ? "TRK download started." : "TRK export is ready.",
+        duration: 3000,
+        className: "text-green-600",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Export failed",
+        description: error.message,
+        variant: "destructive",
+        duration: 3000,
+      });
+    },
+    onSettled: () => setExportProjectId(null),
   });
 
   // Add new pending project
@@ -267,6 +301,8 @@ export default function AnnotationLandingPage() {
         {rows.map((p, index) => {
           const isDeletingRow =
             deleteMutation.isPending && deleteProjectId === p.project_id;
+          const isExportingRow =
+            exportMutation.isPending && exportProjectId === p.project_id;
 
           const isPendingProject = p._isPending;
 
@@ -341,7 +377,7 @@ export default function AnnotationLandingPage() {
                   <Button
                     data-system-guide="project-delete"
                     size="sm"
-                    disabled={deleteMutation.isPending || isPendingProject}
+                    disabled={deleteMutation.isPending || exportMutation.isPending || isPendingProject}
                     className="bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50"
                     onClick={() => {
                       setDeleteOpen(true);
@@ -349,6 +385,17 @@ export default function AnnotationLandingPage() {
                     }}
                   >
                     {isDeletingRow ? "Deleting..." : "Delete"}
+                  </Button>
+
+                  {/* Export */}
+                  <Button
+                    data-system-guide="project-export"
+                    size="sm"
+                    disabled={deleteMutation.isPending || exportMutation.isPending || isPendingProject}
+                    className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-50"
+                    onClick={() => exportMutation.mutate(p.project_id)}
+                  >
+                    {isExportingRow ? "Exporting..." : "Export"}
                   </Button>
                 </div>
               </TableCell>
