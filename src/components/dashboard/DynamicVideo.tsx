@@ -46,6 +46,7 @@ import {
   NEXT_LINK_MAX_DISTANCE_PX,
   NEXT_LINK_START_THRESHOLD_FRAMES,
 } from "@/lib/trajectoryLinking";
+import { getObjectColor as getSharedObjectColor } from "@/lib/objectColors";
 import { Annotation, TrajectoryFrame, TrajectoryMap, SelectedObjectProps } from "@/types";
 import {
   LineChart, Line as RechartsLine, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
@@ -83,22 +84,6 @@ const sliderPositionToPlaybackRate = (position: number) => {
 };
 
 const formatFps = (value: number) => Number(value.toFixed(2)).toString();
-
-// Darker annotation colors remain visible on white/light video backgrounds.
-const LIGHT_VIDEO_COLORS = [
-  "#B91C1C", "#166534", "#1D4ED8", "#7E22CE", "#BE185D", "#0F766E",
-  "#9A3412", "#4338CA", "#3F6212", "#A21CAF", "#0369A1", "#92400E",
-  "#6B21A8", "#047857", "#C2410C", "#1E40AF", "#9F1239", "#115E59",
-  "#713F12", "#4C1D95", "#065F46", "#991B1B", "#0E7490", "#6D28D9",
-];
-
-// Brighter annotation colors remain visible on dark/gray video backgrounds.
-const DARK_VIDEO_COLORS = [
-  "#FF5252", "#69F0AE", "#40C4FF", "#FFD740", "#E040FB", "#18FFFF",
-  "#FFAB40", "#B388FF", "#CCFF90", "#FF80AB", "#80D8FF", "#FFFF8D",
-  "#EA80FC", "#64FFDA", "#FF9E80", "#8C9EFF", "#FF8A80", "#A7FFEB",
-  "#FFE57F", "#B39DDB", "#00E676", "#FF6E6E", "#84FFFF", "#B2FF59",
-];
 
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
@@ -764,7 +749,6 @@ export default function DynamicVideo({
   const [trajectoryLengthOrdering, setTrajectoryLengthOrdering] = useState<TrajectoryLengthOrdering>("length_desc");
   const [videoColorTheme, setVideoColorTheme] = useState<"light" | "dark">("light");
   const [isVideoColorThemePreferenceLoaded, setIsVideoColorThemePreferenceLoaded] = useState(false);
-  const objectColorSlotsRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
     const handleGuideStep = (event: Event) => {
@@ -814,13 +798,7 @@ export default function DynamicVideo({
   }, []);
 
   const getObjectColor = useCallback((id: number) => {
-    const colors = videoColorTheme === "light" ? LIGHT_VIDEO_COLORS : DARK_VIDEO_COLORS;
-    let colorSlot = objectColorSlotsRef.current.get(id);
-    if (colorSlot === undefined) {
-      colorSlot = objectColorSlotsRef.current.size % colors.length;
-      objectColorSlotsRef.current.set(id, colorSlot);
-    }
-    return colors[colorSlot];
+    return getSharedObjectColor(id, videoColorTheme);
   }, [videoColorTheme]);
 
   const getTotalFrames = useCallback(() => {

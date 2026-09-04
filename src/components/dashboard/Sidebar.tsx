@@ -16,6 +16,7 @@ import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
 import { ArrowLeft, Crop, PawPrint, X } from "lucide-react";
 import { formatFileName } from "@/lib/utils/formatFileName";
+import { getObjectColor } from "@/lib/objectColors";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
 import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
@@ -34,17 +35,6 @@ type SidebarProps = SelectedObjectProps & {
   setClipEndFrame: Dispatch<SetStateAction<number | null>>;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
-};
-
-// Helper to get consistent color per object ID
-const getObjectColor = (id: number) => {
-  const colors = [
-    "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-    "#00FFFF", "#FFA500", "#800080", "#008000", "#000080",
-    "#FF1493", "#00BFFF", "#7CFC00", "#FFD700", "#A52A2A",
-    "#DC143C", "#4B0082", "#8B4513", "#2E8B57", "#4682B4",
-  ];
-  return colors[id % colors.length];
 };
 
 const formatMetadataNumber = (value: string | null) => {
@@ -142,6 +132,7 @@ export default function Sidebar({
   const videoStoragePath = useSessionStorage("video_storage_path");
   const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
+  const videoColorTheme = useSessionStorage("videoColorTheme") === "dark" ? "dark" : "light";
 
   useEffect(() => {
     setDisplayActiveObjectCount(activeObjectCount);
@@ -960,7 +951,7 @@ export default function Sidebar({
           </div>
           {selectedObjects.length === 0 && <p className="text-gray-500">No object selected</p>}
           {selectedObjects.map((obj, i) => {
-            const color = getObjectColor(obj.object_id);
+            const color = getObjectColor(obj.object_id, videoColorTheme);
             return (
               <div key={i} className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start" style={{ borderLeft: `5px solid ${color}` }}>
                 <div>
