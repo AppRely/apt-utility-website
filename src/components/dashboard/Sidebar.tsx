@@ -3,10 +3,11 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useCallback, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
+import { getActiveObjectRange } from "@/lib/api/getObjectData";
 import { linkObjects } from "@/lib/api/linkObjects";
 import { swapObjects } from "@/lib/api/swapObjects";
 import { breakObjects } from "@/lib/api/breakObjects";
@@ -57,7 +58,7 @@ const formatVideoDuration = (value: string | null) => {
 };
 
 export default function Sidebar({
-  selectedObjects,
+  selectedObjects: windowSelectedObjects,
   setSelectedObjects,
   clipStartFrame,
   clipEndFrame,
@@ -133,6 +134,24 @@ export default function Sidebar({
   const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
   const videoColorTheme = useSessionStorage("videoColorTheme") === "dark" ? "dark" : "light";
+
+  const queryClient = useQueryClient();
+  const rangeQueries = useQueries({
+    queries: windowSelectedObjects.map(object => ({
+      queryKey: ["selected-object-lifecycle", projectId, object.object_id, object.start_frame ?? object.frame_id],
+      queryFn: () => getActiveObjectRange(
+        Number(projectId), object.object_id, object.start_frame ?? object.frame_id,
+      ),
+      enabled: !!projectId,
+      staleTime: 0,
+      retry: false,
+    })),
+  });
+  const selectedObjects = windowSelectedObjects.map((object, index) => {
+    const range = rangeQueries[index]?.data;
+    return range ? { ...object, start_frame: range.start_frame, end_frame: range.end_frame } : object;
+  });
+  const rangesReady = rangeQueries.every(query => query.isSuccess && !query.isFetching);
 
   useEffect(() => {
     setDisplayActiveObjectCount(activeObjectCount);
@@ -269,17 +288,18 @@ export default function Sidebar({
   const linkMutation = useMutation({
     mutationFn: (payload: Parameters<typeof linkObjects>[1]) =>
       linkObjects(Number(projectId), payload),
-    onSuccess: () => {
+    onSuccess: (response) => {
       toast({ title: "✅ Success", description: "Objects linked successfully.", duration: 3000, className: "text-green-600" });
       adjustActiveObjectCount(-1);
       setLinkDialogOpen(false);
       if (linkOrderRef.current) {
         const { obj1, obj2 } = linkOrderRef.current;
-        const mergedStart = Math.min(obj1.start_frame, obj2.start_frame);
-        const mergedEnd = Math.max(obj1.end_frame ?? obj1.start_frame, obj2.end_frame ?? obj2.start_frame);
+        const winner = response.data.winner_object ?? response.data.object_track_object_1;
+        const mergedStart = winner.start_frame;
+        const mergedEnd = winner.end_frame;
         const mergedObj = {
-          object_id: obj1.object_id,
-          frame_id: obj1.frame_id,
+          object_id: winner.object_id,
+          frame_id: winner.object_id === obj2.object_id ? obj2.frame_id : obj1.frame_id,
           start_frame: mergedStart,
           end_frame: mergedEnd,
           is_inside: obj1.is_inside,
@@ -398,12 +418,13 @@ export default function Sidebar({
   // Listen for operation complete
   useEffect(() => {
     const handleOperationComplete = (event: any) => {
+      void queryClient.invalidateQueries({ queryKey: ["selected-object-lifecycle", projectId] });
       console.log("📡 Sidebar received operation complete event");
       setTimeout(() => refetch(), 1000);
     };
     window.addEventListener("operationComplete", handleOperationComplete);
     return () => window.removeEventListener("operationComplete", handleOperationComplete);
-  }, [refetch]);
+  }, [refetch, queryClient, projectId]);
 
   useEffect(() => {
     if (data) {
@@ -460,6 +481,10 @@ export default function Sidebar({
   };
 
   const handleLinkObjects = () => {
+    if (!rangesReady) {
+      toast({ title: "Trajectory ranges unavailable", description: "Wait for the actual ranges to load, or refresh the selection if loading failed.", variant: "destructive" });
+      return;
+    }
     if (selectedObjects.length === 1) {
       const candidate = nextLinkCandidates[0];
       if (candidate) {
@@ -950,7 +975,8 @@ export default function Sidebar({
                     <b>Object {i + 1}</b>
                   </p>
                   <p className="flex gap-3 text-sm"><span>ID: {obj.object_id}</span><span>Frame: {obj.frame_id}</span></p>
-                  <p className="flex gap-3 text-xs text-gray-600"><span>Start: {obj.start_frame}</span><span>End: {obj.end_frame}</span></p>
+                  <p className="flex gap-3 text-xs text-gray-600"><span>Start: {rangeQueries[i]?.isSuccess ? obj.start_frame : "—"}</span><span>End: {rangeQueries[i]?.isSuccess ? obj.end_frame : "—"}</span></p>
+                  {!rangeQueries[i]?.isSuccess && <p className="text-xs text-gray-600">{rangeQueries[i]?.isError ? "Could not load actual range. Reselect the object to retry." : "Loading actual range…"}</p>}
                 </div>
                 <button onClick={() => { setSelectedObjects((prev) => prev.filter((o) => o.object_id !== obj.object_id)); toast({ title: "🗑️ Removed", description: `Object ${obj.object_id} removed from selection.`, variant: "default", duration: 3000 }); }} className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">×</button>
               </div>
@@ -987,7 +1013,7 @@ export default function Sidebar({
         <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-amber-600 hover:bg-amber-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
           <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
-        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-teal-700 hover:bg-teal-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
+        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-teal-700 hover:bg-teal-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={!rangesReady || ![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
           <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
         <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
