@@ -44,12 +44,24 @@ export default function AnnotationLandingPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
   const [exportProjectId, setExportProjectId] = useState<number | null>(null);
-  const [pendingProjects, setPendingProjects] = useState<any[]>([]);
+  const [pendingProjects, setPendingProjects] = useState<any[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const storedPendingProjects = sessionStorage.getItem("pendingProjects");
+      return storedPendingProjects ? JSON.parse(storedPendingProjects) : [];
+    } catch {
+      return [];
+    }
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const projectModalOpenedByGuideRef = useRef(false);
   const auditModalUsedByGuideRef = useRef(false);
   const auditProjectIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    sessionStorage.setItem("pendingProjects", JSON.stringify(pendingProjects));
+  }, [pendingProjects]);
 
   useEffect(() => {
     const handleGuideStep = (event: Event) => {
@@ -109,6 +121,7 @@ export default function AnnotationLandingPage() {
   // Fetch project list
   const { data, isLoading, isError } = useQuery({
     queryKey: ["project-list", pageSize],
+    refetchInterval: pendingProjects.length > 0 ? 5000 : false,
     queryFn: async () => {
       const firstPage = await getProjectList(1, pageSize);
       const firstPageProjects = Array.isArray(firstPage?.data)
@@ -225,7 +238,16 @@ export default function AnnotationLandingPage() {
 
   // Remove pending project after successful creation
   const handleProjectCreated = (createdProject: any) => {
-    setPendingProjects((prev) => prev.filter((p) => !p._isPending));
+    const createdProjectData = createdProject?.data ?? createdProject;
+    const createdProjectId = createdProjectData?.project_id ?? createdProjectData?.id;
+    setPendingProjects((prev) => prev.map((project) =>
+      project._isPending && (
+        project.project_name === createdProjectData?.project_name ||
+        !createdProjectId
+      )
+        ? { ...project, ...createdProjectData, project_id: createdProjectId ?? project.project_id, _isPending: true }
+        : project,
+    ));
     setPage(1);
     queryClient.invalidateQueries({ queryKey: ["project-list"] });
   };
@@ -240,6 +262,16 @@ export default function AnnotationLandingPage() {
   );
 
   const projects = Array.isArray(data) ? data : [];
+
+  useEffect(() => {
+    if (pendingProjects.length === 0 || projects.length === 0) return;
+    const completedProjectIds = new Set(projects.map((project: any) => project.project_id));
+    const completedProjectNames = new Set(projects.map((project: any) => project.project_name));
+    setPendingProjects((prev) => prev.filter((project) =>
+      !completedProjectIds.has(project.project_id) &&
+      !completedProjectNames.has(project.project_name),
+    ));
+  }, [pendingProjects.length, projects]);
 
   const allProjects = [...pendingProjects, ...projects];
   const normalizedSearch = searchQuery.trim().toLowerCase();
