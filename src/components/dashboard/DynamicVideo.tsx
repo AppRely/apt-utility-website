@@ -1926,6 +1926,18 @@ export default function DynamicVideo({
     }
   }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom]);
 
+  const handleBreakNavigationJump = useCallback((targetFrame: number) => {
+    handleFrameJump(targetFrame);
+    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1) return;
+
+    // Break navigation can load the target frame asynchronously, so retry after
+    // the frame and its annotation have had a chance to update.
+    window.setTimeout(() => {
+      lastPanFrameRef.current = null;
+      panToSelectedObject();
+    }, 150);
+  }, [autoPanEnabled, currentZoom, handleFrameJump, panToSelectedObject, selectedObjects.length]);
+
   const objectMutation = useMutation({ 
     mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
   });
@@ -2578,7 +2590,7 @@ export default function DynamicVideo({
               ? activeBreak.breakEnd + 1
               : Math.min(activeBreak.breakEnd + 1, objectEnd);
             breakNavigationHistoryRef.current.push(currentFrame);
-            handleFrameJump(breakAfterFrame);
+            handleBreakNavigationJump(breakAfterFrame);
             safeToast({
               title: `After break: ${breakAfterFrame}`,
               description: `Range ${activeBreak.breakStart}–${activeBreak.breakEnd}`,
@@ -2609,7 +2621,7 @@ export default function DynamicVideo({
               if (breakBeforeFrame !== currentFrame) {
                 breakNavigationHistoryRef.current.push(currentFrame);
               }
-              handleFrameJump(breakBeforeFrame);
+              handleBreakNavigationJump(breakBeforeFrame);
               safeToast({
                 title: `Before break: ${breakBeforeFrame}`,
                 description: `Object ${nextBreak.object_id} · Range ${nextBreak.break_start}–${nextBreak.break_end}`,
@@ -2622,7 +2634,7 @@ export default function DynamicVideo({
               if (hasNoMoreBreaks && objectEnd !== undefined && currentFrame !== objectEnd) {
                 breakNavigationHistoryRef.current.push(currentFrame);
                 activeBreakRef.current = null;
-                handleFrameJump(objectEnd);
+                handleBreakNavigationJump(objectEnd);
                 safeToast({
                   title: `Object end: ${objectEnd}`,
                   description: `No more breaks for object ${selected.object_id}`,
@@ -2653,7 +2665,7 @@ export default function DynamicVideo({
             safeToast({ title: "No previous break in this session", duration: 1500 });
             break;
           }
-          handleFrameJump(previousFrame);
+          handleBreakNavigationJump(previousFrame);
           break;
         }
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
@@ -2669,7 +2681,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, handleBreakNavigationJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
