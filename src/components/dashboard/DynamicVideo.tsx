@@ -253,17 +253,16 @@ const ObjectRangesTimeline = ({
             }
             return labels;
           })()}
-          {/* Red current-frame line - solid */}
-          {!compact && (
+          {/* Use the same SVG coordinates for the playhead and frame markers. */}
             <line
               x1={frameToX(currentFrame)}
-              y1={padding.top}
+              y1={compact ? 0 : padding.top}
               x2={frameToX(currentFrame)}
-              y2={padding.top + chartHeight}
+              y2={padding.top + chartHeight + (compact ? padding.bottom : 0)}
               stroke="#ff3333"
-              strokeWidth="1.5"
+              strokeWidth={compact ? 2 : 1.5}
+              pointerEvents="none"
             />
-          )}
           {filteredObjects.map(obj => {
             const color = getObjectColor(obj.id);
             const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
@@ -279,7 +278,7 @@ const ObjectRangesTimeline = ({
               <g key={obj.id}>
                 {showStart && (
                   <rect
-                    x={startX - 5}
+                    x={startX - 1}
                     y={baseY + startOffsetY - 5}
                     width="2"
                     height="10"
@@ -294,7 +293,7 @@ const ObjectRangesTimeline = ({
                 )}
                 {showEnd && (
                   <rect
-                    x={endX - 5}
+                    x={endX - 1}
                     y={baseY + endOffsetY - 5}
                     width="2"
                     height="10"
@@ -311,16 +310,6 @@ const ObjectRangesTimeline = ({
             );
           })}
         </svg>
-        {compact && (
-          <div
-            className="pointer-events-none absolute bottom-0 top-0 z-10 w-[2px] bg-[#ff3333]"
-            style={{
-              left: `calc(${leftPadding}px + (100% - ${leftPadding + rightPadding}px) / 2)`,
-              transform: 'translateX(-1px)',
-            }}
-            aria-hidden="true"
-          />
-        )}
       </div>
     </div>
   );
@@ -910,7 +899,7 @@ export default function DynamicVideo({
     const uniqueMap = new Map<number, any>();
     for (const obj of allObjects) {
       const normalized = {
-        id: obj.object_id,
+        id: obj.id,
         start_frame: obj.start_frame,
         end_frame: obj.end_frame,
         start_coordinate: obj.start_coordinate,
@@ -951,8 +940,9 @@ export default function DynamicVideo({
     const rangeKey = `${startFrame}-${endFrame}`;
     if (isUniqueRangeLoaded(startFrame, endFrame)) return;
     if (isUniqueRangeLoading(startFrame, endFrame)) return;
-    pendingUniqueRangesRef.current.add(rangeKey);
     if (uniqueIdsAbortRef.current) uniqueIdsAbortRef.current.abort();
+    pendingUniqueRangesRef.current.clear();
+    pendingUniqueRangesRef.current.add(rangeKey);
     const controller = new AbortController();
     uniqueIdsAbortRef.current = controller;
     setIsLoadingUnique(true);
@@ -960,6 +950,8 @@ export default function DynamicVideo({
       .then(data => {
         if (controller.signal.aborted) return;
         if (data?.data?.objects) {
+          uniqueDataCacheRef.current.clear();
+          loadedUniqueRangesRef.current = [];
           uniqueDataCacheRef.current.set(rangeKey, data.data.objects);
           addUniqueLoadedRange(startFrame, endFrame);
           mergeUniqueCacheIntoState();
@@ -1193,6 +1185,7 @@ export default function DynamicVideo({
     pendingRangesRef.current.clear();
 
     // Clear unique IDs cache
+    uniqueIdsAbortRef.current?.abort();
     loadedUniqueRangesRef.current = [];
     pendingUniqueRangesRef.current.clear();
     uniqueDataCacheRef.current.clear();
@@ -1221,26 +1214,27 @@ export default function DynamicVideo({
     safeToast({ title: "Data refreshed", duration: 1500 });
   }, [queryClient, projectId, currentFrame, getTotalFrames, chunkMutation, isRangeAlreadyLoading, safeToast, activityLogsQuery, clearLoadedRanges]);
 
-  // ===== Unique IDs effects with refreshKey dependency =====
+  // Reset before fetching when the project or window changes.
+  useEffect(() => {
+    uniqueIdsAbortRef.current?.abort();
+    loadedUniqueRangesRef.current = [];
+    pendingUniqueRangesRef.current.clear();
+    uniqueDataCacheRef.current.clear();
+    setUniqueIdsData(null);
+    return () => { uniqueIdsAbortRef.current?.abort(); };
+  }, [projectId, halfWindow]);
+
   useEffect(() => {
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
     pruneUniqueRanges(currentFrame, halfWindow * 3);
-    const isCovered = loadedUniqueRangesRef.current.some(range => currentFrame >= range.start && currentFrame <= range.end);
-    if (isCovered) return;
+    const visibleStart = Math.max(0, currentFrame - halfWindow);
+    const visibleEnd = Math.min(totalFrames, currentFrame + halfWindow);
+    if (isUniqueRangeLoaded(visibleStart, visibleEnd)) return;
     const buffer = Math.max(250, Math.round(halfWindow * 0.5));
-    let start = Math.max(0, currentFrame - halfWindow - buffer);
-    let end = Math.min(currentFrame + halfWindow + buffer, totalFrames);
-    fetchUniqueRange(start, end);
-  }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange, refreshKey]);
-
-  useEffect(() => {
-    loadedUniqueRangesRef.current = [];
-    pendingUniqueRangesRef.current.clear();
-    uniqueDataCacheRef.current.clear();
-    setUniqueIdsData(null);
-  }, [halfWindow]);
+    fetchUniqueRange(Math.max(0, visibleStart - buffer), Math.min(totalFrames, visibleEnd + buffer));
+  }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange, isUniqueRangeLoaded, refreshKey]);
 
   useEffect(() => {
     const handleOperationComplete = () => {

@@ -30,6 +30,7 @@ export const getUniqueIdsData = async (
   try {
     const response = await fetch(url, {
       method: "GET",
+      cache: "no-store",
       signal,
     });
 
@@ -45,7 +46,16 @@ export const getUniqueIdsData = async (
       throw new Error("Invalid response structure");
     }
 
-    return data as UniqueIdsResponse;
+    return {
+      ...data,
+      data: {
+        ...data.data,
+        objects: data.data.objects.map((object: UniqueIdObject & { object_id?: number }) => ({
+          ...object,
+          id: object.object_id ?? object.id,
+        })),
+      },
+    } as UniqueIdsResponse;
   } catch (err: any) {
     if (err?.name === "AbortError") {
       console.log("Unique IDs request cancelled");

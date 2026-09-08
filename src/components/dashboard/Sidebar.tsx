@@ -319,9 +319,7 @@ export default function Sidebar({
         else setSelectedObjects([]);
       }
       const currentFrameId = Number(frameId);
-      if (currentFrameId) {
-        window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentFrameId } }));
-      }
+      window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentFrameId } }));
       setTimeout(() => { refetch(); }, 500);
     },
     onError: (err: any) => {
