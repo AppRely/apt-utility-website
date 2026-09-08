@@ -516,6 +516,7 @@ export default function AnnotationLandingPage() {
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <span>Records per page</span>
               <select
+                data-system-guide="project-page-size"
                 value={pageSize}
                 onChange={(event) => {
                   setPageSize(Number(event.target.value));
