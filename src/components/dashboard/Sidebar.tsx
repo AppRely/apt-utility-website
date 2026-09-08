@@ -1046,6 +1046,13 @@ export default function Sidebar({
       }} onSuccess={response => {
         adjustActiveObjectCount(-response.data.deactivated_object_ids.length);
         toast({ title: "Bulk link completed", description: `Linked into object ${response.data.master_object_id}.`, duration: 3000 });
+        if (autoInterpolation === "true") {
+          handleInterpolate({
+            object_id: response.data.master_object_id,
+            start_frame: response.interpolationRange.start_frame,
+            end_frame: response.interpolationRange.end_frame,
+          });
+        }
         window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
         void refetch();
       }} />

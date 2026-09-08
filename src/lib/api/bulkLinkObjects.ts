@@ -3,6 +3,7 @@ import { getActiveObjectRange } from './getObjectData';
 export type BulkLinkObject = { object_id: number; start_frame: number; end_frame: number };
 export type BulkLinkResult = {
   status: string;
+  interpolationRange: { start_frame: number; end_frame: number };
   data: { master_object_id: number; start_frame: number; end_frame: number;
     merged_object_ids: number[]; deactivated_object_ids: number[] };
 };
@@ -25,5 +26,11 @@ export async function bulkLinkObjects(projectId: number, objects: BulkLinkObject
       `ID ${item.object_1_id} / ID ${item.object_2_id}: frames ${item.overlap_start}–${item.overlap_end}`).join('; ');
     throw new Error(overlaps || (body.errors ? JSON.stringify(body.errors) : body.message) || 'Bulk linking failed.');
   }
-  return body;
+  return {
+    ...body,
+    interpolationRange: {
+      start_frame: Math.min(...ranges.map(object => object.start_frame)),
+      end_frame: Math.max(...ranges.map(object => object.end_frame)),
+    },
+  };
 }

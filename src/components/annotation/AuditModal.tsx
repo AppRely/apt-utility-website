@@ -272,21 +272,32 @@ export default function AuditModal({
                       log.objects_data
                     );
 
-                    if (log.operation.toLowerCase() === "bulk_delete") {
+                    const operation = log.operation.toLowerCase();
+                    if (operation === "bulk_delete" || operation === "bulk_link") {
+                      const isBulkLink = operation === "bulk_link";
                       const objects = log.objects_data?.objects?.length
                         ? log.objects_data.objects
                         : (log.objects_data?.object_ids ?? []).map((object_id: number) => ({ object_id }));
                       return objects.map((object: { object_id: number; start_frame?: number; end_frame?: number }, objectIndex: number) => (
                         <TableRow key={`${log.activity_id}-${object.object_id}`}>
                           <TableCell>{objectIndex === 0 ? index + 1 : ""}</TableCell>
-                          <TableCell>{object.object_id}</TableCell>
+                          <TableCell>
+                            {object.object_id}
+                            {isBulkLink && object.object_id === log.objects_data.master_object_id && (
+                              <span className="ml-1 text-xs font-medium text-teal-700">(master)</span>
+                            )}
+                          </TableCell>
                           <TableCell>{object.start_frame ?? "-"}</TableCell>
                           <TableCell>{object.end_frame ?? "-"}</TableCell>
                           <TableCell>-</TableCell>
                           <TableCell>-</TableCell>
                           <TableCell>-</TableCell>
                           <TableCell>-</TableCell>
-                          <TableCell>Bulk delete</TableCell>
+                          <TableCell>
+                            {isBulkLink
+                              ? `Bulk link → ${log.objects_data.master_object_id ?? "-"}`
+                              : "Bulk delete"}
+                          </TableCell>
                           <TableCell>{renderDateTime(log.activity_updated_at)}</TableCell>
                         </TableRow>
                       ));
