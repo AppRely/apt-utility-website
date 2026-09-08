@@ -1035,7 +1035,7 @@ export default function Sidebar({
         </Button>
       </CardContent>
 
-      <BulkLinkPanel projectId={Number(projectId)} onDeleteSuccess={response => {
+      <BulkLinkPanel projectId={Number(projectId)} videoColorTheme={videoColorTheme} onDeleteSuccess={response => {
         setSelectedObjects([]);
         adjustActiveObjectCount(-response.data.deleted_object_ids.length);
         toast({ title: "Bulk delete completed", description: response.message, duration: 3000 });

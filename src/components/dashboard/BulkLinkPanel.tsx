@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/Button';
 import { useBulkLinkStore } from '@/store/bulkLinkStore';
 import { bulkDeleteObjects, type BulkDeleteResult } from '@/lib/api/objectDelete';
 import { bulkLinkObjects, type BulkLinkResult } from '@/lib/api/bulkLinkObjects';
+import { getObjectColor, type VideoColorTheme } from '@/lib/objectColors';
 
-export function BulkLinkPanel({ projectId, onSuccess, onDeleteSuccess }: { projectId: number; onSuccess: (result: BulkLinkResult) => void; onDeleteSuccess: (result: BulkDeleteResult) => void }) {
+export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteSuccess }: { projectId: number; videoColorTheme: VideoColorTheme; onSuccess: (result: BulkLinkResult) => void; onDeleteSuccess: (result: BulkDeleteResult) => void }) {
   const state = useBulkLinkStore();
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -52,6 +53,11 @@ export function BulkLinkPanel({ projectId, onSuccess, onDeleteSuccess }: { proje
         {state.objects.map((obj, index) => <li key={obj.object_id} className="text-sm">
           {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
           <div className="flex items-center justify-between gap-2">
+            <span
+              aria-hidden="true"
+              className="h-3 w-3 shrink-0 rounded-full border border-black/20"
+              style={{ backgroundColor: getObjectColor(obj.object_id, videoColorTheme) }}
+            />
             <span>ID {obj.object_id}: start {obj.start_frame} {state.mode === 'link' ? '→' : ','} end {obj.end_frame}{state.selectionOrder[state.selectionOrder.length - 1] === obj.object_id && <strong className="ml-1 text-teal-800">(last selected)</strong>}</span>
             <button disabled={state.busy} onClick={() => state.remove(obj.object_id)} aria-label={`Remove object ${obj.object_id}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-red-200 text-2xl text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50">×</button>
           </div>
