@@ -47,7 +47,7 @@ export function BulkLinkPanel({ projectId, onSuccess, onDeleteSuccess }: { proje
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold">Bulk {state.mode} selection ({state.objects.length})</h3>
       {state.mode === 'delete' && <p className="mt-1 text-xs">Deletes each selected object across its full trajectory.</p>}
-      <p className="mt-1 text-xs">Click objects in the video across frames to add them. The timeline shows {state.mode === 'link' ? 'the two most recently selected objects' : 'the last selected object'}. S / E jumps to the start / end of the last selected object.</p>
+      {/* <p className="mt-1 text-xs">Click objects in the video across frames to add them. The timeline shows {state.mode === 'link' ? 'the two most recently selected objects' : 'the last selected object'}. S / E jumps to the start / end of the last selected object.</p> */}
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
         {state.objects.map((obj, index) => <li key={obj.object_id} className="text-sm">
           {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
