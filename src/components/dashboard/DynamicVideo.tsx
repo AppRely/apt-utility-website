@@ -1,4 +1,5 @@
 'use client';
+import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
@@ -334,6 +335,7 @@ export default function DynamicVideo({
   setClipStartFrame,
   setClipEndFrame,
 }: DynamicVideoProps) {
+  const bulkSelection = useBulkLinkStore();
   const queryClient = useQueryClient(); // for invalidating queries
 
   // All state and refs
@@ -1944,6 +1946,11 @@ export default function DynamicVideo({
 
   const selectObjectForSlot = useCallback((objectId: number, slotIndex: 0 | 1) => {
     if (!projectId) return;
+    const bulk = useBulkLinkStore.getState();
+    if (bulk.active && bulk.projectId === Number(projectId)) {
+      void bulk.select(Number(projectId), objectId, currentFrame);
+      return;
+    }
     if (slotIndex === 1 && selectedObjects.length === 0) {
       safeToast({ title: "Select a first object before selecting a second", duration: 1500 });
       return;
@@ -2415,6 +2422,20 @@ export default function DynamicVideo({
       if (!video) return;
       const activeEl = document.activeElement;
       const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+
+      const bulk = useBulkLinkStore.getState();
+      if (bulk.active && bulk.projectId === Number(projectId) && (e.code === "KeyS" || e.code === "KeyE")) {
+        if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) return;
+        e.preventDefault();
+        const latestId = bulk.selectionOrder[bulk.selectionOrder.length - 1];
+        const latest = bulk.objects.find(object => object.object_id === latestId);
+        if (latest) {
+          handleFrameJump(e.code === "KeyS" ? latest.start_frame : latest.end_frame);
+        } else {
+          safeToast({ title: bulk.pending.length ? "Loading selected object's range…" : "Select an object for bulk linking", duration: 1500 });
+        }
+        return;
+      }
 
       if (e.key === "Backspace") {
         if (isInputFocused) return;
@@ -2936,7 +2957,9 @@ export default function DynamicVideo({
                   .filter(a => a.frame_id === currentFrame)
                   .map((a, annotationIndex) => {
                   const color = getObjectColor(a.object_id);
-                  const isSelected = selectedObjects.some(obj => obj.object_id === a.object_id);
+                  const isSelected = bulkSelection.active && bulkSelection.projectId === Number(projectId)
+                    ? bulkSelection.objects.some(obj => obj.object_id === a.object_id)
+                    : selectedObjects.some(obj => obj.object_id === a.object_id);
                   const xs = a.coordinates.map(([x])=>mapX(x));
                   const ys = a.coordinates.map(([,y])=>mapY(y));
                   const minX = Math.min(...xs), minY = Math.min(...ys), maxX = Math.max(...xs), maxY = Math.max(...ys);
@@ -2954,6 +2977,11 @@ export default function DynamicVideo({
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
                       onClick={(e) => {
                         const objectId = a.object_id;
+                        const bulk = useBulkLinkStore.getState();
+                        if (bulk.active && bulk.projectId === Number(projectId)) {
+                          void bulk.select(Number(projectId), objectId, currentFrame);
+                          return;
+                        }
                         // Check if this object is already selected
                         const existingIndex = selectedObjects.findIndex(obj => obj.object_id === objectId);
                         if (existingIndex !== -1) {
@@ -3114,6 +3142,11 @@ export default function DynamicVideo({
                         key={trajectory.object_id}
                         type="button"
                         onClick={() => {
+                          const bulk = useBulkLinkStore.getState();
+                          if (bulk.active && bulk.projectId === Number(projectId)) {
+                            void bulk.select(Number(projectId), trajectory.object_id, trajectory.first_frame);
+                            return;
+                          }
                           setSelectedObjects([{
                             object_id: trajectory.object_id,
                             frame_id: trajectory.first_frame,

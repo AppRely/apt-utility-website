@@ -1,4 +1,5 @@
 "use client";
+import { BulkLinkPanel } from "./BulkLinkPanel";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/Button";
@@ -1035,6 +1036,13 @@ export default function Sidebar({
           {clipMutation.isPending ? "Clipping..." : "Clip"}
         </Button>
       </CardContent>
+
+      <BulkLinkPanel projectId={Number(projectId)} onSuccess={response => {
+        adjustActiveObjectCount(-response.data.deactivated_object_ids.length);
+        toast({ title: "Bulk link completed", description: `Linked into object ${response.data.master_object_id}.`, duration: 3000 });
+        window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
+        void refetch();
+      }} />
 
       <Separator />
 
