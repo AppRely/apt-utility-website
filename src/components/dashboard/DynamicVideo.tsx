@@ -631,6 +631,8 @@ export default function DynamicVideo({
   }, [nextFrameLinkMatches, safeToast, selectedObjects, setSelectedObjects]);
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
+  const timelineAbortRef = useRef<AbortController | null>(null);
+  const timelineRangeRef = useRef<{ start: number; end: number; key: string } | null>(null);
   const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy">("x");
   const isSkeletonCoordinateMode = coordinateMode.startsWith("skeleton-");
   const [skeletonTimelinePoints, setSkeletonTimelinePoints] = useState<Array<{
@@ -1238,6 +1240,8 @@ export default function DynamicVideo({
 
   useEffect(() => {
     const handleOperationComplete = () => {
+      timelineAbortRef.current?.abort();
+      timelineRangeRef.current = null;
       uniqueIdsAbortRef.current?.abort();
       skeletonTimelineAbortRef.current?.abort();
       skeletonTimelineRangeRef.current = null;
@@ -1260,56 +1264,56 @@ export default function DynamicVideo({
       .map(object_id => ({ object_id }));
   }, [bulkSelection.active, bulkSelection.mode, bulkSelection.projectId, bulkSelection.selectionOrder, projectId, selectedObjects]);
 
-  // ===== Timeline data with refreshKey dependency =====
+  const selectedTimelineObjectIds = useMemo(
+    () => timelineObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
+    [timelineObjects]
+  );
+
+  // A loaded or pending buffered window covers many playback frames.
+  // Only replace it when its visible range or data identity changes.
   useEffect(() => {
-    if (!projectId || timelineObjects.length === 0) {
+    const totalFrames = getTotalFrames();
+    if (!projectId || !selectedTimelineObjectIds || totalFrames <= 0) {
+      timelineAbortRef.current?.abort();
+      timelineRangeRef.current = null;
       setTimelinePoints([]);
       return;
     }
-    let cancelled = false;
-    setTimelinePoints([]);
-    const fetchTimeline = async () => {
-      const totalFrames = getTotalFrames();
-      if (totalFrames <= 0) {
-        setTimelinePoints([]);
-        return;
-      }
-      const buffer = Math.max(250, Math.round(halfWindow * 0.5));
-      let startFrame = Math.max(0, currentFrame - halfWindow - buffer);
-      let endFrame = Math.min(currentFrame + halfWindow + buffer, totalFrames);
-      if (startFrame > endFrame) [startFrame, endFrame] = [endFrame, startFrame];
-      if (startFrame === endFrame) endFrame = Math.min(totalFrames, endFrame + 1);
-      const objectIds = timelineObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
-      if (!objectIds) {
-        setTimelinePoints([]);
-        return;
-      }
-      try {
-        const data = await getTimelineData(projectId, startFrame, endFrame, objectIds);
-        if (cancelled) return;
-        if (data && data.f) {
-          const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
-          Object.entries(data.f).forEach(([frameStr, objects]: any) => {
-            const frame = Number(frameStr);
-            Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
-              if (Array.isArray(coords) && coords.length >= 2) {
-                points.push({ frame, x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
-              }
-            });
+    const key = `${projectId}|${selectedTimelineObjectIds}|${halfWindow}|${refreshKey}`;
+    const visibleStart = Math.max(0, currentFrame - halfWindow);
+    const visibleEnd = Math.min(totalFrames, currentFrame + halfWindow);
+    const loaded = timelineRangeRef.current;
+    if (loaded?.key === key && visibleStart >= loaded.start && visibleEnd <= loaded.end) return;
+
+    timelineAbortRef.current?.abort();
+    const controller = new AbortController();
+    timelineAbortRef.current = controller;
+    if (loaded?.key !== key) setTimelinePoints([]);
+    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    const start = Math.max(0, visibleStart - buffer);
+    const end = Math.min(totalFrames, visibleEnd + buffer);
+    timelineRangeRef.current = { start, end, key };
+    getTimelineData(projectId, start, end, selectedTimelineObjectIds, controller.signal)
+      .then(data => {
+        if (controller.signal.aborted) return;
+        const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
+        Object.entries(data?.f ?? {}).forEach(([frameStr, objects]: any) => {
+          Object.entries(objects).forEach(([objectIdStr, coords]: any) => {
+            if (Array.isArray(coords) && coords.length >= 2) {
+              points.push({ frame: Number(frameStr), x: coords[0], y: coords[1], objectId: Number(objectIdStr) });
+            }
           });
-          setTimelinePoints(points);
-        } else {
-          setTimelinePoints([]);
-        }
-      } catch (err) {
-        if (cancelled) return;
-        console.error("[Timeline] Fetch error:", err);
-        setTimelinePoints([]);
-      }
-    };
-    fetchTimeline();
-    return () => { cancelled = true; };
-  }, [projectId, timelineObjects, currentFrame, getTotalFrames, halfWindow, refreshKey]);
+        });
+        setTimelinePoints(points);
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        timelineRangeRef.current = null;
+        console.error("[Timeline] Fetch error:", error);
+      });
+  }, [projectId, selectedTimelineObjectIds, currentFrame, getTotalFrames, halfWindow, refreshKey]);
+
+  useEffect(() => () => timelineAbortRef.current?.abort(), []);
 
   // ---- MODIFIED: chartData now includes every frame in the visible window with nulls ----
   const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
@@ -1333,11 +1337,6 @@ export default function DynamicVideo({
   const visibleGapEnd = activeTrajectoryGap === null ? null : Math.min(activeTrajectoryGap.end_frame, maxFrame);
   const hasVisibleTrajectoryGap = visibleGapStart !== null && visibleGapEnd !== null && visibleGapStart <= visibleGapEnd;
 
-  const selectedTimelineObjectIds = useMemo(
-    () => timelineObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
-    [timelineObjects]
-  );
-
   // Skeleton coordinates are loaded separately and only while Skeleton mode is active.
   // This keeps the existing mean-coordinate timeline and playback loading untouched.
   useEffect(() => {
@@ -1352,7 +1351,7 @@ export default function DynamicVideo({
 
     const totalFrames = getTotalFrames();
     if (totalFrames <= 0) return;
-    const requestKey = `${selectedTimelineObjectIds}|${refreshKey}`;
+    const requestKey = `${projectId}|${selectedTimelineObjectIds}|${halfWindow}|${refreshKey}`;
     const visibleStart = Math.max(0, Math.floor(minFrame));
     const visibleEnd = Math.min(totalFrames, Math.ceil(maxFrame));
     const loaded = skeletonTimelineRangeRef.current;
@@ -1374,6 +1373,7 @@ export default function DynamicVideo({
       end: requestEnd,
       objectIds: requestKey,
     };
+    if (loaded?.objectIds !== requestKey) setSkeletonTimelinePoints([]);
     setIsSkeletonTimelineLoading(true);
 
     const selectedIdSet = new Set(selectedTimelineObjectIds.split(",").map(Number));
@@ -1406,7 +1406,7 @@ export default function DynamicVideo({
         setSkeletonTimelinePoints(points);
       })
       .catch(error => {
-        if (error?.name !== "AbortError") {
+        if (!controller.signal.aborted && error?.name !== "AbortError") {
           console.error("[Skeleton Timeline] Fetch error:", error);
           setSkeletonTimelinePoints([]);
         }
@@ -3838,7 +3838,7 @@ export default function DynamicVideo({
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {isSkeletonTimelineLoading && isSkeletonCoordinateMode ? (
+                {isSkeletonTimelineLoading && isSkeletonCoordinateMode && skeletonTimelinePoints.length === 0 ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="inline-flex items-center text-xs text-gray-300 bg-slate-900/80 px-3 py-1 rounded">
                       <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading skeleton points…
@@ -3874,7 +3874,7 @@ export default function DynamicVideo({
                 className="w-full min-h-0 shrink-0"
                 style={{ flex: '0 0 25%', minHeight: '28px' }}
               >
-                {isLoadingUnique ? (
+                {isLoadingUnique && !uniqueIdsData ? (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400 bg-slate-900 rounded-md w-full">
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Loading object ranges…
