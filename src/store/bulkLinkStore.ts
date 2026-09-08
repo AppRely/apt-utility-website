@@ -5,22 +5,23 @@ import type { BulkLinkObject } from '@/lib/api/bulkLinkObjects';
 type BulkLinkState = {
   projectId: number | null;
   active: boolean;
+  mode: 'link' | 'delete';
   busy: boolean;
   generation: number;
   objects: BulkLinkObject[];
   pending: number[];
   selectionOrder: number[];
   error: string | null;
-  start: (projectId: number) => void;
+  start: (projectId: number, mode?: 'link' | 'delete') => void;
   reset: () => void;
   remove: (id: number) => void;
   select: (projectId: number, id: number, frame: number) => Promise<void>;
 };
 
 export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
-  projectId: null, active: false, busy: false, generation: 0, objects: [], pending: [], selectionOrder: [], error: null,
-  start: projectId => set(state => ({ projectId, active: true, busy: false, objects: [], pending: [], selectionOrder: [], error: null, generation: state.generation + 1 })),
-  reset: () => set(state => ({ projectId: null, active: false, busy: false, objects: [], pending: [], selectionOrder: [], error: null, generation: state.generation + 1 })),
+  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], pending: [], selectionOrder: [], error: null,
+  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], pending: [], selectionOrder: [], error: null, generation: state.generation + 1 })),
+  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], pending: [], selectionOrder: [], error: null, generation: state.generation + 1 })),
   remove: id => { if (!get().busy) set(state => ({ objects: state.objects.filter(obj => obj.object_id !== id), selectionOrder: state.selectionOrder.filter(value => value !== id) })); },
   select: async (projectId, id, frame) => {
     const state = get();

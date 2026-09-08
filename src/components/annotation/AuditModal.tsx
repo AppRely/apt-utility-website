@@ -34,7 +34,7 @@ function normalizeObjects(
   let obj2: NormalizedObject | null = null;
   let newObjectId: number | null = null;
 
-  switch (operation) {
+  switch (operation.toLowerCase()) {
     case "link":
     case "swap":
       obj1 = {
@@ -52,8 +52,8 @@ function normalizeObjects(
     case "delete":
       obj1 = {
         id: objectsData.object_id,
-        start_frame: objectsData.object_start,
-        end_frame: objectsData.object_end,
+        start_frame: objectsData.object_start ?? objectsData.start_frame,
+        end_frame: objectsData.object_end ?? objectsData.end_frame,
       };
       obj2 = null;
       break;
@@ -97,8 +97,8 @@ function normalizeObjects(
     case "break_object":
       obj1 = {
         id: objectsData.object_id,
-        start_frame: objectsData.object_start,
-        end_frame: objectsData.object_end,
+        start_frame: objectsData.object_start ?? objectsData.start_frame,
+        end_frame: objectsData.object_end ?? objectsData.end_frame,
       };
       obj2 = {
         id: objectsData.new_object_id,
@@ -271,6 +271,26 @@ export default function AuditModal({
                       log.operation,
                       log.objects_data
                     );
+
+                    if (log.operation.toLowerCase() === "bulk_delete") {
+                      const objects = log.objects_data?.objects?.length
+                        ? log.objects_data.objects
+                        : (log.objects_data?.object_ids ?? []).map((object_id: number) => ({ object_id }));
+                      return objects.map((object: { object_id: number; start_frame?: number; end_frame?: number }, objectIndex: number) => (
+                        <TableRow key={`${log.activity_id}-${object.object_id}`}>
+                          <TableCell>{objectIndex === 0 ? index + 1 : ""}</TableCell>
+                          <TableCell>{object.object_id}</TableCell>
+                          <TableCell>{object.start_frame ?? "-"}</TableCell>
+                          <TableCell>{object.end_frame ?? "-"}</TableCell>
+                          <TableCell>-</TableCell>
+                          <TableCell>-</TableCell>
+                          <TableCell>-</TableCell>
+                          <TableCell>-</TableCell>
+                          <TableCell>Bulk delete</TableCell>
+                          <TableCell>{renderDateTime(log.activity_updated_at)}</TableCell>
+                        </TableRow>
+                      ));
+                    }
 
                     return (
                       <TableRow key={log.activity_id}>

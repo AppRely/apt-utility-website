@@ -1037,7 +1037,13 @@ export default function Sidebar({
         </Button>
       </CardContent>
 
-      <BulkLinkPanel projectId={Number(projectId)} onSuccess={response => {
+      <BulkLinkPanel projectId={Number(projectId)} onDeleteSuccess={response => {
+        setSelectedObjects([]);
+        adjustActiveObjectCount(-response.data.deleted_object_ids.length);
+        toast({ title: "Bulk delete completed", description: response.message, duration: 3000 });
+        window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
+        void refetch();
+      }} onSuccess={response => {
         adjustActiveObjectCount(-response.data.deactivated_object_ids.length);
         toast({ title: "Bulk link completed", description: `Linked into object ${response.data.master_object_id}.`, duration: 3000 });
         window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));

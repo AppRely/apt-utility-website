@@ -1011,6 +1011,8 @@ export default function DynamicVideo({
     loadedRangesKeyRef.current.clear();
   }, []);
 
+  const annotationGenerationRef = useRef(0);
+
   // ===== Annotation chunk fetch =====
   const chunkMutation = useMutation({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
@@ -1020,9 +1022,13 @@ export default function DynamicVideo({
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      return getFrameRangeData(projectId, start, end, controller.signal);
+      const generation = annotationGenerationRef.current;
+      const data = await getFrameRangeData(projectId, start, end, controller.signal);
+      return { data, generation, signal: controller.signal };
     },
-    onSuccess: (data, { start, end }) => {
+    onSuccess: (result, { start, end }) => {
+      if (!result || result.signal.aborted || result.generation !== annotationGenerationRef.current) return;
+      const { data } = result;
       if (!data) return;
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
@@ -1238,6 +1244,11 @@ export default function DynamicVideo({
 
   useEffect(() => {
     const handleOperationComplete = () => {
+      uniqueIdsAbortRef.current?.abort();
+      skeletonTimelineAbortRef.current?.abort();
+      skeletonTimelineRangeRef.current = null;
+      setSkeletonTimelinePoints([]);
+      setIsSkeletonTimelineLoading(false);
       loadedUniqueRangesRef.current = [];
       pendingUniqueRangesRef.current.clear();
       uniqueDataCacheRef.current.clear();
@@ -1249,12 +1260,20 @@ export default function DynamicVideo({
     return () => window.removeEventListener("operationComplete", handleOperationComplete);
   }, []);
 
+  const timelineObjects = useMemo(() => {
+    if (!bulkSelection.active || bulkSelection.projectId !== Number(projectId)) return selectedObjects;
+    return bulkSelection.selectionOrder.slice(bulkSelection.mode === 'link' ? -2 : -1)
+      .map(object_id => ({ object_id }));
+  }, [bulkSelection.active, bulkSelection.mode, bulkSelection.projectId, bulkSelection.selectionOrder, projectId, selectedObjects]);
+
   // ===== Timeline data with refreshKey dependency =====
   useEffect(() => {
-    if (!projectId || selectedObjects.length === 0) {
+    if (!projectId || timelineObjects.length === 0) {
       setTimelinePoints([]);
       return;
     }
+    let cancelled = false;
+    setTimelinePoints([]);
     const fetchTimeline = async () => {
       const totalFrames = getTotalFrames();
       if (totalFrames <= 0) {
@@ -1266,13 +1285,14 @@ export default function DynamicVideo({
       let endFrame = Math.min(currentFrame + halfWindow + buffer, totalFrames);
       if (startFrame > endFrame) [startFrame, endFrame] = [endFrame, startFrame];
       if (startFrame === endFrame) endFrame = Math.min(totalFrames, endFrame + 1);
-      const objectIds = selectedObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
+      const objectIds = timelineObjects.map(obj => obj.object_id).filter(id => id != null).join(',');
       if (!objectIds) {
         setTimelinePoints([]);
         return;
       }
       try {
         const data = await getTimelineData(projectId, startFrame, endFrame, objectIds);
+        if (cancelled) return;
         if (data && data.f) {
           const points: Array<{ frame: number; x: number; y: number; objectId: number }> = [];
           Object.entries(data.f).forEach(([frameStr, objects]: any) => {
@@ -1288,12 +1308,14 @@ export default function DynamicVideo({
           setTimelinePoints([]);
         }
       } catch (err) {
+        if (cancelled) return;
         console.error("[Timeline] Fetch error:", err);
         setTimelinePoints([]);
       }
     };
     fetchTimeline();
-  }, [projectId, selectedObjects, currentFrame, getTotalFrames, halfWindow, refreshKey]);
+    return () => { cancelled = true; };
+  }, [projectId, timelineObjects, currentFrame, getTotalFrames, halfWindow, refreshKey]);
 
   // ---- MODIFIED: chartData now includes every frame in the visible window with nulls ----
   const uniqueObjectIds = useMemo(() => Array.from(new Set(timelinePoints.map(p => p.objectId))), [timelinePoints]);
@@ -1318,8 +1340,8 @@ export default function DynamicVideo({
   const hasVisibleTrajectoryGap = visibleGapStart !== null && visibleGapEnd !== null && visibleGapStart <= visibleGapEnd;
 
   const selectedTimelineObjectIds = useMemo(
-    () => selectedObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
-    [selectedObjects]
+    () => timelineObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
+    [timelineObjects]
   );
 
   // Skeleton coordinates are loaded separately and only while Skeleton mode is active.
@@ -1544,8 +1566,13 @@ export default function DynamicVideo({
   useEffect(() => {
     if (!mounted) return;
     const handleLinkingComplete = (event: any) => {
-      const { frameId } = event.detail;
+      const frameId = currentDisplayFrameRef.current;
       if (!video) return;
+      annotationGenerationRef.current += 1;
+      abortRef.current?.abort();
+      pendingRangesRef.current.clear();
+      currentAnnoWindowRef.current = null;
+      setAnnotationsReady(false);
       activityLogsQuery.refetch();
       setAnnotationMap(new Map());
       persistentTrajectoryRef.current = [];
@@ -1558,9 +1585,7 @@ export default function DynamicVideo({
       const totalFrames = Math.floor(video.duration * stableFpsRef.current);
       const windowStart = Math.max(0, frameId);
       const windowEnd = Math.min(frameId + windowFrames, totalFrames);
-      if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
-        chunkMutation.mutate({ start: Math.max(0, windowStart - 600), end: windowEnd });
-      } else setIsLoadingAnnotations(false);
+      chunkMutation.mutate({ start: Math.max(0, windowStart - 600), end: windowEnd });
     };
     window.addEventListener("operationComplete", handleLinkingComplete);
     return () => window.removeEventListener("operationComplete", handleLinkingComplete);
@@ -2432,7 +2457,7 @@ export default function DynamicVideo({
         if (latest) {
           handleFrameJump(e.code === "KeyS" ? latest.start_frame : latest.end_frame);
         } else {
-          safeToast({ title: bulk.pending.length ? "Loading selected object's range…" : "Select an object for bulk linking", duration: 1500 });
+          safeToast({ title: bulk.pending.length ? "Loading selected object's range…" : "Select an object for the bulk operation", duration: 1500 });
         }
         return;
       }
@@ -3622,14 +3647,14 @@ export default function DynamicVideo({
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines
-                {selectedObjects.length > 0 && ` (selected: ${selectedObjects.map(o => o.object_id).join(', ')})`}
+                {timelineObjects.length > 0 && ` (selected: ${timelineObjects.map(o => o.object_id).join(', ')})`}
               </span>
               <div className="flex items-center gap-2">
                 <select
                   value={coordinateMode}
                   onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy")}
                   className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600"
-                  disabled={selectedObjects.length === 0}
+                  disabled={timelineObjects.length === 0}
                 >
                   <option value="x">X Axis</option>
                   <option value="y">Y Axis</option>
@@ -3684,7 +3709,7 @@ export default function DynamicVideo({
                   <div style={{ width: '100%', height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
-                        data={selectedObjects.length === 0
+                        data={timelineObjects.length === 0
                           ? [{ frame: currentFrame }]
                           : isSkeletonCoordinateMode
                             ? (skeletonChartData.length > 0 ? skeletonChartData : [{ frame: currentFrame }])
@@ -3751,7 +3776,7 @@ export default function DynamicVideo({
                             fontSize: 10,
                           }}
                         />
-                        {!isSkeletonCoordinateMode && selectedObjects.length > 0 && uniqueObjectIds.map((objectId) => {
+                        {!isSkeletonCoordinateMode && timelineObjects.length > 0 && uniqueObjectIds.map((objectId) => {
                           const color = getObjectColor(objectId);
                           const lines = [];
                           if (coordinateMode === 'x' || coordinateMode === 'xy') {
@@ -3785,7 +3810,7 @@ export default function DynamicVideo({
                           }
                           return lines;
                         })}
-                        {isSkeletonCoordinateMode && selectedObjects.length > 0 && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
+                        {isSkeletonCoordinateMode && timelineObjects.length > 0 && skeletonSeries.flatMap(({ objectId, pointIndex }) => {
                           const color = `hsl(${(objectId * 47 + pointIndex * 23) % 360} 75% 60%)`;
                           const lines = [];
                           if (coordinateMode === "skeleton-x" || coordinateMode === "skeleton-xy") {
@@ -3825,10 +3850,10 @@ export default function DynamicVideo({
                       <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading skeleton points…
                     </span>
                   </div>
-                ) : selectedObjects.length === 0 || (isSkeletonCoordinateMode ? skeletonChartData.length === 0 : timelinePoints.length === 0) ? (
+                ) : timelineObjects.length === 0 || (isSkeletonCoordinateMode ? skeletonChartData.length === 0 : timelinePoints.length === 0) ? (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-xs text-gray-400 bg-slate-900/80 px-3 py-1 rounded">
-                      {selectedObjects.length === 0
+                      {timelineObjects.length === 0
                         ? 'Select an object to see its trajectory'
                         : 'No trajectory data for selected object(s)'}
                     </span>
