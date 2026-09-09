@@ -525,7 +525,6 @@ export default function DynamicVideo({
   }, [projectId, safeToast, selectedObjects]);
 
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
-  const lastPanFrameRef = useRef<number>(-1);
 
   const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
@@ -1899,16 +1898,52 @@ export default function DynamicVideo({
   }, [stageScale.x, handleResetZoom, showZoomIndicator]);
   // Auto‑pan
   const panToSelectedObject = useCallback(() => {
-    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
-    if (!stageRef.current || !video) return;
-    const selectedObjectId = selectedObjects[0]?.object_id;
-    if (!selectedObjectId) return;
-    const currentAnnotation = Array.from(annotationMap.values()).find(
-      anno => anno.object_id === selectedObjectId && anno.frame_id === currentFrame
+    if (!autoPanEnabled || selectedObjects.length === 0 || isDragging || isPanMode) return;
+    if (!stageRef.current || !video || stageWidth <= 0 || stageHeight <= 0) return;
+    const selectedIds = new Set(selectedObjects.map(object => object.object_id));
+    const visibleAnnotations = Array.from(annotationMap.values()).filter(
+      anno => selectedIds.has(anno.object_id) && anno.frame_id === currentFrame && anno.coordinates.length > 0
     );
-    if (!currentAnnotation?.coordinates?.length) return;
-    if (lastPanFrameRef.current === currentFrame) return;
-    lastPanFrameRef.current = currentFrame;
+    if (visibleAnnotations.length === 0) return;
+
+    if (selectedObjects.length === 2 && visibleAnnotations.length === 2) {
+      // Fit both complete object boxes, rather than following either ID alone.
+      const bounds = visibleAnnotations.map(annotation => {
+        const xs = annotation.coordinates.map(([x]) => offsetX + x * scale);
+        const ys = annotation.coordinates.map(([, y]) => offsetY + y * scale);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
+        const halfWidth = (maxX - minX) * Math.max(1, bboxScale) / 2 + 5;
+        const halfHeight = (maxY - minY) * Math.max(1, bboxScale) / 2 + 5;
+        return { left: centerX - halfWidth, right: centerX + halfWidth,
+          top: centerY - halfHeight, bottom: centerY + halfHeight };
+      });
+      const left = Math.min(...bounds.map(box => box.left));
+      const right = Math.max(...bounds.map(box => box.right));
+      const top = Math.min(...bounds.map(box => box.top));
+      const bottom = Math.max(...bounds.map(box => box.bottom));
+      const marginX = Math.min(80, stageWidth * 0.15);
+      const marginY = Math.min(80, stageHeight * 0.15);
+      const fitZoom = Math.max(1, Math.min(10,
+        (stageWidth - 2 * marginX) / (right - left),
+        (stageHeight - 2 * marginY) / (bottom - top)));
+      const targetPos = {
+        x: stageWidth / 2 - (left + right) / 2 * fitZoom,
+        y: stageHeight / 2 - (top + bottom) / 2 * fitZoom,
+      };
+      setStageScale(previous => previous.x === fitZoom && previous.y === fitZoom
+        ? previous : { x: fitZoom, y: fitZoom });
+      setCurrentZoom(fitZoom);
+      setStagePos(previous => previous.x === targetPos.x && previous.y === targetPos.y
+        ? previous : targetPos);
+      return;
+    }
+
+    // If only one selected object exists in this frame, follow it without
+    // zooming in on the missing object's last known position.
+    if (currentZoom <= 1.1) return;
+    const currentAnnotation = visibleAnnotations[0];
     const objX = currentAnnotation.coordinates[0][0];
     const objY = currentAnnotation.coordinates[0][1];
     const stageObjX = offsetX + objX * scale;
@@ -1943,19 +1978,11 @@ export default function DynamicVideo({
       if (Math.abs(targetStageX - currentStageX) < tolerance && Math.abs(targetStageY - currentStageY) < tolerance) return;
       setStagePos({ x: targetStageX, y: targetStageY });
     }
-  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom]);
+  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom, bboxScale]);
 
   const handleBreakNavigationJump = useCallback((targetFrame: number) => {
     handleFrameJump(targetFrame);
-    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1) return;
-
-    // Break navigation can load the target frame asynchronously, so retry after
-    // the frame and its annotation have had a chance to update.
-    window.setTimeout(() => {
-      lastPanFrameRef.current = null;
-      panToSelectedObject();
-    }, 150);
-  }, [autoPanEnabled, currentZoom, handleFrameJump, panToSelectedObject, selectedObjects.length]);
+  }, [handleFrameJump]);
 
   const objectMutation = useMutation({ 
     mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
@@ -1995,9 +2022,6 @@ export default function DynamicVideo({
             return newSelection.slice(0, 2);
           });
           safeToast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
-          if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
-            setTimeout(() => panToSelectedObject(), 100);
-          }
         },
         onError: () => safeToast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
       }
@@ -2005,25 +2029,8 @@ export default function DynamicVideo({
   }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, safeToast]);
 
   useEffect(() => {
-    if (!video || !mounted) return;
-    const handleTimeUpdate = () => {
-      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-    };
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
-
-  useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) setTimeout(() => panToSelectedObject(), 50);
-  }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
-
-  useEffect(() => {
-    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-  }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
-
-  useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-  }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+    if (mounted && annotationsReady) panToSelectedObject();
+  }, [mounted, annotationsReady, panToSelectedObject]);
 
   // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
@@ -2786,7 +2793,7 @@ export default function DynamicVideo({
                 {isSeekingRef.current && " 🔄 SEEKING"}
                 {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
                 {isLoadingAnnotations && " 📥 LOADING"}
-                {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
+                {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " 🎯 AUTO-PAN"}
                 {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
                 {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
                 {autoInterpolation && " 🔄 AUTO-INTERP"}
