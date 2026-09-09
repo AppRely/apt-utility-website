@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useBulkLinkStore } from '@/store/bulkLinkStore';
@@ -33,20 +33,54 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       if (useBulkLinkStore.getState().projectId === projectId) useBulkLinkStore.setState({ busy: false });
     },
   });
+  const submitBulkAction = useCallback(() => {
+    const current = useBulkLinkStore.getState();
+    if (!current.active || current.projectId !== projectId || current.busy || mutation.isPending ||
+      current.pending.length > 0 || current.objects.length < (current.mode === 'delete' ? 1 : 2)) return;
+    useBulkLinkStore.setState({ busy: true, error: null });
+    mutation.mutate();
+  }, [projectId, mutation]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (sessionStorage.getItem('dialogOpen') === 'true' || document.querySelector('[role="dialog"]')) return;
+      const target = document.activeElement as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      const key = event.key.toLowerCase();
+      const current = useBulkLinkStore.getState();
+      if (key === 'b' || key === 'v') {
+        event.preventDefault();
+        if (!projectId || current.busy || mutation.isPending) return;
+        const mode = key === 'b' ? 'link' : 'delete';
+        if (current.active && current.projectId === projectId && current.mode === mode) current.reset();
+        else current.start(projectId, mode);
+      } else if (key === 'enter' && current.active && current.projectId === projectId) {
+        // Preserve Enter activation for focused controls, such as Remove/Cancel.
+        if (target?.closest('button, a, [role="button"]')) return;
+        event.preventDefault();
+        submitBulkAction();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [projectId, mutation.isPending, submitBulkAction]);
+
   return <div className="p-3 pt-0">
     <div className="grid grid-cols-2 gap-2">
     <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full px-2 text-xs bg-teal-800 hover:bg-teal-900 text-white" disabled={!projectId || mutation.isPending}
       onClick={() => state.active && state.mode === 'link' ? state.reset() : state.start(projectId)} aria-pressed={state.active && state.mode === 'link'}>
-      {state.active && state.mode === 'link' ? 'Cancel Bulk Link' : 'Bulk Link'}
+      {state.active && state.mode === 'link' ? 'Cancel Bulk Link (B)' : 'Bulk Link (B)'}
     </Button>
     <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full px-2 text-xs bg-red-700 hover:bg-red-800 text-white" disabled={!projectId || state.busy || mutation.isPending}
       onClick={() => state.active && state.mode === 'delete' ? state.reset() : state.start(projectId, 'delete')}
       aria-pressed={state.active && state.mode === 'delete'}>
-      {state.active && state.mode === 'delete' ? 'Cancel Bulk Delete' : 'Bulk Delete'}
+      {state.active && state.mode === 'delete' ? 'Cancel Bulk Delete (V)' : 'Bulk Delete (V)'}
     </Button>
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold">Bulk {state.mode} selection ({state.objects.length})</h3>
+      <p className="mt-1 text-xs">Select objects, then press Enter to {state.mode === 'delete' ? 'delete' : 'link'}. S / E jumps to the last selected object's start / end.</p>
       {state.mode === 'delete' && <p className="mt-1 text-xs">Deletes each selected object across its full trajectory.</p>}
       {/* <p className="mt-1 text-xs">Click objects in the video across frames to add them. The timeline shows {state.mode === 'link' ? 'the two most recently selected objects' : 'the last selected object'}. S / E jumps to the start / end of the last selected object.</p> */}
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
@@ -71,7 +105,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading actual trajectory ranges…</p>}
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
       <Button className="mt-3 w-full" disabled={state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
-        onClick={() => { if (useBulkLinkStore.getState().busy) return; useBulkLinkStore.setState({ busy: true, error: null }); mutation.mutate(); }}>
+        onClick={submitBulkAction}>
         {state.busy ? (state.mode === 'delete' ? 'Deleting…' : 'Linking…') : `${state.mode === 'delete' ? 'Delete' : 'Link'} ${state.objects.length} objects`}
       </Button>
     </section>}

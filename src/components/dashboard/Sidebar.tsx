@@ -721,15 +721,17 @@ export default function Sidebar({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isAnyDialogOpen) return;
+      if (isAnyDialogOpen || document.querySelector('[role="dialog"]')) return;
       const activeElement = document.activeElement as HTMLElement | null;
       if (activeElement && (
         activeElement.tagName === "INPUT" ||
         activeElement.tagName === "TEXTAREA" ||
+        activeElement.tagName === "SELECT" ||
         activeElement.isContentEditable
       )) return;
       const key = e.key.toLowerCase();
-      const preventDefaultKeys = ["l", "w", "b", "d", "i", "r"];
+      if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+      const preventDefaultKeys = ["l", "w", "f", "d", "i", "r"];
       const isPlainClipShortcut = key === "x" && !e.ctrlKey && !e.altKey && !e.metaKey;
       if (preventDefaultKeys.includes(key) || isPlainClipShortcut) e.preventDefault();
 
@@ -745,7 +747,7 @@ export default function Sidebar({
           return;
         }
         if (!swapMutation.isPending) setSwapDialogOpen(true);
-      } else if (key === "b") {
+      } else if (key === "f") {
         if (selectedObjects.length !== 1) {
           toast({ title: "⚠️ Invalid Selection", description: "Please select exactly 1 object to break.", variant: "destructive", duration: 3000 });
           return;

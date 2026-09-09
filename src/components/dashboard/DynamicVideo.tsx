@@ -2306,13 +2306,14 @@ export default function DynamicVideo({
     // ===== NEW: General category with Refresh =====
     { category: "General", items: [
       { action: "Refresh Data", key: "Ctrl+R" },
+      { action: "Undo", key: "Ctrl+Z" },
+      { action: "Redo", key: "Ctrl+Y / Ctrl+Shift+Z" },
     ] },
     { category: "Playback", items: [
       { action: "Play / Pause", key: "Space / P" },
       { action: "Next Frame", key: "→" },
       { action: "Previous Frame", key: "←" },
-      { action: "Skip +5 sec", key: "L" },
-      { action: "Skip -5 sec", key: "J" },
+      { action: "Increase / decrease playback speed", key: "Shift+↑ / Shift+↓" },
     ] },
     { category: "Navigation", items: [
       { action: "Jump +10 frames", key: "↑" },
@@ -2327,7 +2328,7 @@ export default function DynamicVideo({
       { action: "Zoom In", key: "=" },
       { action: "Zoom Out", key: "-" },
       { action: "Toggle Trajectory", key: "T" },
-      { action: "Auto Pan (edge only)", key: "A" },
+      { action: "Auto-pan / fit two selected objects", key: "A" },
       { action: "Toggle BBox Scale 3×", key: "Z" },
       { action: "Toggle Skeleton", key: "K" },
       { action: "Toggle Suggestions", key: "Y" },
@@ -2353,12 +2354,26 @@ export default function DynamicVideo({
         { action: "Clip Selected Range", key: "X" },
         { action: "Link Objects", key: "L" },
         { action: "Swap Objects", key: "W" },
-        { action: "Break Object", key: "B" },
+        { action: "Break Object", key: "F" },
         { action: "Delete Object", key: "D" },
         { action: "Interpolate", key: "I" },
         { action: "Recalculate Confusion", key: "R" },
+        { action: "Confirm supported operation dialog", key: "Enter" },
       ]
     },
+    { category: "Bulk operations", items: [
+      { action: "Start / cancel Bulk Link", key: "B" },
+      { action: "Start / cancel Bulk Delete", key: "V" },
+      { action: "Apply active bulk action (once selection is ready)", key: "Enter" },
+      { action: "Add visible object to bulk selection", key: "1–9, 0 / Click" },
+      { action: "Last bulk object's start / end", key: "S / E" },
+    ] },
+    { category: "Suggestions", items: [
+      { action: "Show / hide suggestions", key: "Y" },
+      { action: "Select top continuation at object end", key: "E" },
+      { action: "Link selected object to top continuation", key: "L" },
+      { action: "Choose another trajectory or clip suggestion", key: "Click suggestion" },
+    ] },
   ];
 
   const openUniqueIdsPopup = useCallback(() => {
@@ -3943,7 +3958,7 @@ export default function DynamicVideo({
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowShortcutModal(false)}
           />
-          <div className="relative w-[400px] max-h-[80vh] mr-4 bg-white rounded-xl shadow-xl flex flex-col animate-slide-in">
+          <div role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" className="relative w-[400px] max-h-[80vh] mr-4 bg-white rounded-xl shadow-xl flex flex-col animate-slide-in">
             <div className="flex justify-between items-center p-3 border-b">
               <p className="font-semibold text-sm">Keyboard Shortcuts</p>
               <Button size="sm" onClick={() => setShowShortcutModal(false)}>Close</Button>
@@ -3954,9 +3969,9 @@ export default function DynamicVideo({
                   <p className="text-xs font-semibold text-gray-500 mb-2">{group.category}</p>
                   <div className="space-y-1">
                     {group.items.map((item, j) => (
-                      <div key={j} className="flex justify-between px-3 py-2 bg-gray-50 rounded">
+                      <div key={j} className="flex items-start justify-between gap-3 px-3 py-2 bg-gray-50 rounded">
                         <span className="text-sm">{item.action}</span>
-                        <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">{item.key}</span>
+                        <span className="shrink-0 max-w-[45%] text-xs font-mono bg-gray-200 px-2 py-1 rounded">{item.key}</span>
                       </div>
                     ))}
                   </div>

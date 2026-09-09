@@ -132,7 +132,7 @@ Non-overlapping trajectories link immediately. With one selected object, press `
 4. Choose whether to break before or after the current frame.
 5. Confirm the operation.
 
-**Shortcut:** `B`
+**Shortcut:** `F`
 
 ### Delete
 
@@ -275,6 +275,7 @@ Shortcuts are ignored while typing in inputs, and operation shortcuts are genera
 | `Space` / `P` | Play or pause. |
 | `←` / `→` | Previous or next frame. |
 | `↑` / `↓` | Jump forward or backward ten frames. |
+| `Shift+↑` / `Shift+↓` | Increase or decrease playback speed by 0.1×. |
 | `S` | Go to the selected object’s start. |
 | `E` | Go to its end and select the top continuation. |
 | `G` | Go to the next-largest trajectory gap. |
@@ -298,9 +299,10 @@ Shortcuts are ignored while typing in inputs, and operation shortcuts are genera
 | --- | --- |
 | `=` / `-` | Zoom in or out. |
 | `T` | Toggle trajectory trails. |
-| `A` | Toggle auto-pan. |
+| `A` | Toggle auto-pan; with two selected objects, automatically fit both in view. |
 | `Z` | Toggle 3× bounding-box scale. |
 | `K` | Toggle skeletons. |
+| `Y` | Show or hide suggestions. |
 | `M` | Open Unique IDs. |
 | `C` | Open Confusion. |
 | `O` | Toggle the visible-object selection guide. |
@@ -314,12 +316,32 @@ Shortcuts are ignored while typing in inputs, and operation shortcuts are genera
 | `X` | Open Clip confirmation for the selected range. |
 | `L` | Link selected objects or the top continuation. |
 | `W` | Open Swap confirmation. |
-| `B` | Open Break confirmation. |
+| `F` | Open Break confirmation (previously `B`). |
 | `D` | Open Delete confirmation. |
 | `I` | Interpolate selected object or objects. |
 | `R` | Recalculate confusion. |
 | `Ctrl+R` | Refresh dashboard data. |
 | `Enter` | Confirm a supported open operation dialog. |
+| `Ctrl+Z` | Undo. |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo. |
+
+### Bulk operations
+
+| Shortcut | Action |
+| --- | --- |
+| `B` | Start or cancel Bulk Link. |
+| `V` | Start or cancel Bulk Delete. |
+| `1`–`9`, `0` / click an object | Add to the active bulk selection. |
+| `S` / `E` | Jump to the last bulk-selected object's start or end. |
+| `Enter` | Apply the active bulk action: at least two ready objects for Link, one for Delete. |
+
+Bulk Delete removes each listed object's full trajectory. Review the list before pressing Enter. Bulk shortcuts are ignored while typing, while a dialog is open, or while an operation is running. Enter retains normal activation when a button or link has keyboard focus. Switching bulk modes clears the previous bulk selection.
+
+### Suggestions
+
+Use `Y` to show or hide suggestions, `E` to select the top continuation at the selected object's end, and `L` to link to the selected or suggested continuation. Click a different trajectory or clip suggestion to choose it; individual suggestion ranks do not have number-key shortcuts (numbers select visible objects).
+
+See [shortcut review for Mayank](SHORTCUT_REVIEW.md) for the new mappings awaiting review.
 
 ## Exporting data
 
