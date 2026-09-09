@@ -356,8 +356,6 @@ export default function DynamicVideo({
   const [currentFrame, setCurrentFrame] = useState(0);
   const currentDisplayFrameRef = useRef<number>(0);
 
-  const lastSeekFrameRef = useRef<number>(-1);
-  const lastSeekTimeRef = useRef<number>(-1);
   const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const breakNavigationHistoryRef = useRef<number[]>([]);
   const breakNavigationObjectRef = useRef<number | null>(null);
@@ -1594,7 +1592,9 @@ export default function DynamicVideo({
 
   // ===== Frame stepping =====
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
-    if (!video) return;
+    if (!video || !Number.isFinite(video.duration)) return;
+    video.pause();
+    setIsPlaying(false);
     if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
     isFrameStepRef.current = true;
     isFrameStepSequenceRef.current = true;
@@ -1603,22 +1603,22 @@ export default function DynamicVideo({
       isFrameStepSequenceRef.current = false;
     }, 500);
     const currentFps = stableFpsRef.current;
-    let currentFrameNum = baseFrame !== undefined ? baseFrame : currentDisplayFrameRef.current;
+    const currentFrameNum = baseFrame ?? pendingFrameRef.current ?? currentDisplayFrameRef.current;
+    const lastFrame = Math.max(0, Math.ceil(video.duration * currentFps) - 1);
+    const newFrame = Math.min(Math.max(currentFrameNum + step, 0), lastFrame);
     if (isSeekingRef.current) {
-      setPendingFrameVisual(currentFrameNum + step);
-      setTimeout(() => setPendingFrameVisual(null), 500);
-      pendingFrameRef.current = currentFrameNum + step;
+      setPendingFrameVisual(newFrame);
+      pendingFrameRef.current = newFrame;
       return;
     }
-    const totalFrames = Math.floor(video.duration * currentFps);
-    let newFrame = currentFrameNum + step;
-    newFrame = Math.min(Math.max(newFrame, 0), totalFrames);
     if (newFrame === currentFrameNum) {
       isFrameStepRef.current = false;
       isFrameStepSequenceRef.current = false;
       return;
     }
-    const newTime = newFrame / currentFps;
+    // Seek inside the frame interval to avoid decoding the preceding frame
+    // when a timestamp on the boundary is rounded by the browser.
+    const newTime = Math.min((newFrame + 0.25) / currentFps, video.duration);
     isSeekingRef.current = true;
     pendingFrameRef.current = newFrame;
     currentDisplayFrameRef.current = newFrame;
@@ -1661,19 +1661,17 @@ export default function DynamicVideo({
   };
 
   const handleSeek = async (time: number) => {
-    if (!video) return;
+    if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
+    const safeTime = Math.min(Math.max(time, 0), video.duration);
+    const lastFrame = Math.max(0, Math.ceil(video.duration * stableFpsRef.current) - 1);
+    const targetFrame = Math.min(Math.round(safeTime * stableFpsRef.current), lastFrame);
     if (isSeekingRef.current) {
-      const targetFrame = Math.round(time * stableFpsRef.current);
       setPendingFrameVisual(targetFrame);
       setTimeout(() => setPendingFrameVisual(null), 500);
       pendingFrameRef.current = targetFrame;
       return;
     }
-    const safeTime = Math.min(Math.max(time, 0), video.duration);
-    const targetFrame = Math.round(safeTime * stableFpsRef.current);
-    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) return;
-    lastSeekFrameRef.current = targetFrame;
-    lastSeekTimeRef.current = safeTime;
+    if (currentDisplayFrameRef.current === targetFrame && Math.abs(video.currentTime - safeTime) < 0.001) return;
     isSeekingRef.current = true;
     pendingFrameRef.current = targetFrame;
 
@@ -1699,7 +1697,6 @@ export default function DynamicVideo({
       setDragTime(null);
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      isSeekingRef.current = false;
       return;
     }
 
@@ -2091,10 +2088,18 @@ export default function DynamicVideo({
         const lockedFps = stableFpsRef.current;
         const handleSeeked = () => {
           const targetFrame = pendingFrameRef.current;
+          if (targetFrame !== null && Math.round(vid.currentTime * lockedFps) !== targetFrame) {
+            // A newer request arrived during the previous seek. Actually seek
+            // to it before publishing its frame number and annotations.
+            vid.currentTime = Math.min((targetFrame + 0.25) / lockedFps, vid.duration);
+            return;
+          }
           if (targetFrame !== null) {
             const frame = targetFrame;
             isSeekingRef.current = false;
             pendingFrameRef.current = null;
+            setPendingFrameVisual(null);
+            sessionStorage.setItem("frameId", frame.toString());
             currentDisplayFrameRef.current = frame;
             setCurrentFrame(frame);
             setCurrentTime(vid.currentTime);
@@ -2130,11 +2135,6 @@ export default function DynamicVideo({
           } else {
             setAnnotationsReady(true);
             setIsLoadingAnnotations(false);
-          }
-          if (pendingFrameRef.current !== null) {
-            const queuedFrame = pendingFrameRef.current;
-            pendingFrameRef.current = null;
-            setTimeout(() => handleSeek(queuedFrame / lockedFps), 10);
           }
         };
         vid.addEventListener('seeked', handleSeeked);
