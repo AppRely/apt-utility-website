@@ -462,24 +462,25 @@ export default function AnnotationLandingPage() {
   );
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#F8F9FB] font-sans">
+    <div className="flex h-dvh flex-col overflow-hidden bg-[#F8F9FB] font-sans">
       {/* LANDING CONTENT */}
       <main
         data-system-guide="landing-home"
-        className="flex flex-1 flex-col items-center justify-center text-center"
+        className="flex min-h-0 flex-1 flex-col items-center text-center"
       >
-        <h1 className="pt-10 text-[24px] font-bold text-black">
+        <h1 className="shrink-0 pt-10 text-[24px] font-bold text-black">
           APT TRACKING SYSTEM
         </h1>
 
         <Image
           src="/images/landingPageIcon.svg"
           alt="Annotation Icon"
+          className="shrink-0"
           width={125}
           height={125}
         />
 
-        <p className="text-[#7B7B7B] text-[24px] font-normal pt-2 pb-3">
+        <p className="shrink-0 text-[#7B7B7B] text-[24px] font-normal pt-2 pb-3">
           To get started with your annotation project
         </p>
 
@@ -487,7 +488,7 @@ export default function AnnotationLandingPage() {
           data-system-guide="create-project"
           size={null}
           onClick={() => setModalOpen(true)}
-          className="bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]"
+          className="shrink-0 bg-[#3B46A0] hover:bg-[#3B46A0] text-[20px] font-normal px-7 py-[11px]"
         >
           <Image
             src="/images/create.svg"
@@ -499,8 +500,8 @@ export default function AnnotationLandingPage() {
         </Button>
 
         {/* PROJECT TABLE */}
-        <section data-system-guide="project-list" className="w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+        <section data-system-guide="project-list" className="flex min-h-0 flex-1 flex-col w-[85%] mx-auto bg-white shadow rounded-md p-10 mb-5 mt-14 overflow-hidden">
+          <div className="mb-5 flex shrink-0 flex-wrap items-center justify-between gap-4">
             <div className="relative w-full sm:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
@@ -547,13 +548,13 @@ export default function AnnotationLandingPage() {
               }
             />
           ) : (
-            <div className="max-h-[420px] overflow-y-auto rounded-sm">
+            <div className="min-h-0 flex-1 overflow-auto rounded-sm">
               {renderTable(visibleProjects)}
             </div>
           )}
 
           {!isError && (
-            <div className="mt-5 flex items-center justify-center gap-3">
+            <div className="mt-5 flex shrink-0 items-center justify-center gap-3">
               <Button
                 type="button"
                 variant="outline"
