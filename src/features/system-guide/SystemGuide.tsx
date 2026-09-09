@@ -186,12 +186,30 @@ export default function SystemGuide() {
     else setStepIndex((index) => index + 1);
   }, [closeGuide, stepIndex, steps.length]);
 
+  const previousStep = useCallback(() => {
+    if (stepIndex === 0) setMode("map");
+    else setStepIndex((index) => index - 1);
+  }, [stepIndex]);
+
   useEffect(() => {
     if (mode === "closed") return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
-      if (mode === "tour" && event.key === "Enter") {
+      if (event.key.startsWith("Arrow")) {
+        // Own arrow keys in both guide modes so the video cannot also step.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+        if (mode === "tour") {
+          if (event.key === "ArrowRight") advanceStep();
+          else if (event.key === "ArrowLeft") previousStep();
+        } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          const sections: SystemMapSectionId[] = ["projects", "workspace", "review"];
+          const direction = event.key === "ArrowRight" ? 1 : -1;
+          setSystemMapSection(current => sections[(sections.indexOf(current) + direction + sections.length) % sections.length]);
+        }
+      } else if (mode === "tour" && event.key === "Enter") {
         // Capture before inputs, dialogs, or dashboard shortcuts can act.
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -205,7 +223,7 @@ export default function SystemGuide() {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [advanceStep, closeGuide, mode]);
+  }, [advanceStep, previousStep, closeGuide, mode]);
 
   const panelPosition = useMemo<CSSProperties>(() => {
     if (!highlightRect || typeof window === "undefined") {
@@ -293,7 +311,7 @@ export default function SystemGuide() {
           <div className="border-t border-indigo-100 p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Choose a section</p>
-              <span className="text-xs text-slate-400">One section at a time</span>
+              <span className="text-xs text-slate-400">← / → to choose</span>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3" role="tablist" aria-label="System guide sections">
@@ -397,19 +415,16 @@ export default function SystemGuide() {
             This control is not currently visible. Go back and open the form or menu described in the previous step, or continue to read the explanation.
           </p>
         )}
-        <p className="mt-3 text-xs text-slate-500">Press Enter for the next step; Escape exits the tour.</p>
+        <p className="mt-3 text-xs text-slate-500">← Back · → / Enter Next · Escape Exit. Video frame shortcuts are paused while the guide is open.</p>
         <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
           <div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: `${((stepIndex + 1) / Math.max(steps.length, 1)) * 100}%` }} />
         </div>
         <div className="mt-5 flex items-center justify-between gap-3">
-          <Button type="button" variant="outline" onClick={() => {
-            if (stepIndex === 0) setMode("map");
-            else setStepIndex((index) => index - 1);
-          }}>
+          <Button type="button" variant="outline" onClick={previousStep} aria-keyshortcuts="ArrowLeft">
             <ArrowLeft className="h-4 w-4" />
             {stepIndex === 0 ? "System map" : "Back"}
           </Button>
-          <Button type="button" onClick={advanceStep} aria-keyshortcuts="Enter" className="bg-[#3B46A0] text-white hover:bg-[#303a8b]">
+          <Button type="button" onClick={advanceStep} aria-keyshortcuts="Enter ArrowRight" className="bg-[#3B46A0] text-white hover:bg-[#303a8b]">
             {stepIndex === steps.length - 1 ? "Finish" : "Next"}
             {stepIndex < steps.length - 1 && <ArrowRight className="h-4 w-4" />}
           </Button>
