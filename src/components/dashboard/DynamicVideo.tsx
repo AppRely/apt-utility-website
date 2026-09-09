@@ -63,6 +63,7 @@ type DynamicVideoProps = SelectedObjectProps & {
 
 const MIN_PLAYBACK_RATE = 0.1;
 const MAX_PLAYBACK_RATE = 16;
+const PLAYBACK_RATE_PRESETS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 const DEFAULT_TIMELINE_HEIGHT = 176;
 const MIN_TIMELINE_HEIGHT = 140;
 const MIN_VIDEO_HEIGHT = 180;
@@ -78,6 +79,10 @@ const playbackRateToSliderPosition = (rate: number) => {
 
 const sliderPositionToPlaybackRate = (position: number) => {
   const clampedPosition = Math.min(Math.max(position, 0), 100);
+  const nearbyPreset = PLAYBACK_RATE_PRESETS.find(
+    rate => Math.abs(playbackRateToSliderPosition(rate) - clampedPosition) <= 1.5
+  );
+  if (nearbyPreset !== undefined) return nearbyPreset;
   const rate = clampedPosition <= 50
     ? MIN_PLAYBACK_RATE * Math.pow(1 / MIN_PLAYBACK_RATE, clampedPosition / 50)
     : Math.pow(MAX_PLAYBACK_RATE, (clampedPosition - 50) / 50);
@@ -3530,34 +3535,42 @@ export default function DynamicVideo({
               </button>
               {showSpeed && (
                 <div
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Escape') setShowSpeed(false);
+                  }}
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#212121] border border-[#3a3a3a] rounded-xl px-5 py-4 shadow-2xl z-50"
-                  style={{ width: '280px' }}
+                  style={{ width: '380px', maxWidth: 'calc(100vw - 2rem)' }}
                 >
-                  <div className="flex justify-between items-start mb-1">
+                  <div className="flex justify-between items-start gap-2 mb-1">
                     <span className="text-white text-xs font-medium">Playback speed</span>
-                    <div className="text-right">
+                    <div className="ml-auto text-right">
                       <div className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</div>
                       <div className="text-blue-300 text-[10px]">{formatFps(fps * playbackRate)} FPS</div>
                     </div>
+                    <button type="button" aria-label="Close playback speed" onClick={() => setShowSpeed(false)} className="flex h-6 w-6 items-center justify-center rounded text-lg text-gray-300 hover:bg-white/10 hover:text-white">×</button>
                   </div>
                   <div className="mb-3 text-[10px] text-gray-400">Source: {formatFps(fps)} FPS</div>
-
-                  <div className="relative w-full h-10 flex items-start pt-2">
+                  <div className="flex items-start gap-4">
+                    <button type="button" aria-label="Decrease playback speed" disabled={playbackRate <= MIN_PLAYBACK_RATE} onClick={() => setPlaybackRate(rate => Math.max(MIN_PLAYBACK_RATE, Number((rate - 0.1).toFixed(2))))} className="mt-1 h-8 w-8 shrink-0 rounded bg-[#3a3a3a] text-lg text-white disabled:opacity-40">−</button>
+                  <div className="relative mt-[9px] min-w-0 flex-1 h-10 flex items-start pt-2">
                     <div className="absolute left-0 right-0 top-2 h-1.5 bg-[#3a3a3a] rounded-full" />
                     <div
-                      className="absolute left-0 top-2 h-1.5 bg-blue-500 rounded-full transition-all"
+                      className="absolute left-0 top-2 h-1.5 bg-blue-500 rounded-full"
                       style={{
                         width: `${playbackRateToSliderPosition(playbackRate)}%`,
                       }}
                     />
                     <input
                       type="range"
+                      aria-label="Playback speed"
+                      aria-valuetext={`${playbackRate} times`}
                       min="0"
                       max="100"
                       step="0.1"
                       value={playbackRateToSliderPosition(playbackRate)}
                       onChange={(e) => setPlaybackRate(sliderPositionToPlaybackRate(parseFloat(e.target.value)))}
-                      className="playback-speed-range absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer"
+                      className="playback-speed-range absolute -left-2.5 top-0 h-[22px] w-[calc(100%+1.25rem)] appearance-none bg-transparent cursor-pointer"
                       style={{ margin: 0, padding: 0 }}
                     />
                     <div
@@ -3565,12 +3578,12 @@ export default function DynamicVideo({
                       style={{
                         left: `${playbackRateToSliderPosition(playbackRate)}%`,
                         transform: 'translateX(-50%)',
-                        top: '0.5rem',
+                        top: '11px',
                         marginTop: '-10px',
                       }}
                     />
                     <div className="absolute left-0 right-0 top-2 pointer-events-none">
-                      {[0.1, 0.25, 0.5, 1, 2, 4, 8, 16].map((speed, index, speeds) => (
+                      {PLAYBACK_RATE_PRESETS.map((speed, index, speeds) => (
                         <div
                           key={speed}
                           className="absolute top-0"
@@ -3579,8 +3592,11 @@ export default function DynamicVideo({
                           }}
                         >
                           <span className="block h-2 w-px bg-gray-500" />
-                          <span
-                            className="absolute top-2 whitespace-nowrap text-[9px] text-gray-400"
+                          <button
+                            type="button"
+                            aria-label={`Set playback speed to ${speed} times`}
+                            onClick={() => setPlaybackRate(speed)}
+                            className="pointer-events-auto absolute top-2 whitespace-nowrap text-[9px] text-gray-400 hover:text-white"
                             style={{
                               transform: index === 0
                                 ? 'translateX(0)'
@@ -3590,15 +3606,18 @@ export default function DynamicVideo({
                             }}
                           >
                             {speed}x
-                          </span>
+                          </button>
                         </div>
                       ))}
                     </div>
                   </div>
 
+                    <button type="button" aria-label="Increase playback speed" disabled={playbackRate >= MAX_PLAYBACK_RATE} onClick={() => setPlaybackRate(rate => Math.min(MAX_PLAYBACK_RATE, Number((rate + 0.1).toFixed(2))))} className="mt-1 h-8 w-8 shrink-0 rounded bg-[#3a3a3a] text-lg text-white disabled:opacity-40">+</button>
+                  </div>
+
                   <div className="grid grid-cols-4 mt-4 gap-2">
-                    {[0.1, 0.25, 0.5, 1, 2, 4, 8, 16].map((speed) => {
-                      const isActive = Math.abs(playbackRate - speed) < 0.05;
+                    {PLAYBACK_RATE_PRESETS.map((speed) => {
+                      const isActive = playbackRate === speed;
                       return (
                         <button
                           key={speed}
