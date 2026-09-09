@@ -838,7 +838,7 @@ export default function Sidebar({
       );
     }
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-2">
+      <div className="max-h-[50dvh] overflow-y-auto space-y-3 pr-2">
         {data.data.objects.map((obj: any, index: number) => {
           const isExpanded = expandedIds.has(obj.object_id);
           return (
@@ -915,7 +915,7 @@ export default function Sidebar({
   // -------------------- MAIN RENDER --------------------
   return (
     <Card
-      className="flex w-full h-full min-h-0 flex-col bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-hidden"
+      className="w-full h-full min-h-0 bg-slate-50 border border-slate-200 rounded-xl shadow-sm text-sm overflow-x-hidden overflow-y-auto"
       style={{ containerType: "inline-size" }}
     >
       <CardHeader data-system-guide="sidebar-project" className="flex flex-row items-center gap-3 p-3 pb-0">
@@ -1057,7 +1057,7 @@ export default function Sidebar({
 
       <Separator />
 
-      <CardContent className="p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
+      <CardContent className="p-3 flex flex-col">
         <div className="flex-shrink-0 pt-2">
           <button
             data-system-guide="sidebar-video-information"
