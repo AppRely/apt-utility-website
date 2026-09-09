@@ -775,6 +775,7 @@ export default function DynamicVideo({
   }, [videoColorTheme, isVideoColorThemePreferenceLoaded]);
 
   const [trajectoryFrames, setTrajectoryFrames] = useState(100);
+  const [trajectoryFramesInput, setTrajectoryFramesInput] = useState("100");
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
   const [textSizeScale, setTextSizeScale] = useState(1);
 
@@ -3342,8 +3343,26 @@ export default function DynamicVideo({
                       min="1"
                       max="5000"
                       step="1"
-                      value={trajectoryFrames}
-                      onChange={(e) => setTrajectoryFrames(Number(e.target.value))}
+                      aria-label="Trajectory frames"
+                      value={trajectoryFramesInput}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => setTrajectoryFramesInput(event.target.value)}
+                      onBlur={(event) => {
+                        const rawValue = event.currentTarget.value.trim();
+                        const parsedValue = Number(rawValue);
+                        const nextFrames = rawValue !== "" && Number.isFinite(parsedValue)
+                          ? Math.min(5000, Math.max(1, Math.trunc(parsedValue)))
+                          : trajectoryFrames;
+                        setTrajectoryFrames(nextFrames);
+                        setTrajectoryFramesInput(String(nextFrames));
+                      }}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }}
                       className="w-16 h-7 bg-white border border-slate-300 rounded text-xs px-2"
                     />
                   </div>
