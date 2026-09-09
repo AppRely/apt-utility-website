@@ -861,9 +861,10 @@ export default function DynamicVideo({
 
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
-  const getIdFontSize = () => (14 * textSizeScale) * (1 / currentZoom);
+  // Keep text readable at the menu size while the stage zoom scales its offset.
+  const getIdFontSize = () => (14 * textSizeScale) / currentZoom;
   const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
-  const getLabelOffset = () => (8 * labelOffsetScale) * (1 / currentZoom);
+  const getLabelOffset = () => 8 * labelOffsetScale;
   const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
 
   // Unique IDs helpers
@@ -2983,6 +2984,9 @@ export default function DynamicVideo({
                   const ys = a.coordinates.map(([,y])=>mapY(y));
                   const minX = Math.min(...xs), minY = Math.min(...ys), maxX = Math.max(...xs), maxY = Math.max(...ys);
                   const boxWidth = maxX-minX, boxHeight = maxY-minY;
+                  const boxLeft = (minX + maxX) / 2 - (boxWidth / 2) * bboxScale - 5;
+                  const boxTop = (minY + maxY) / 2 - (boxHeight / 2) * bboxScale - 5;
+                  const labelBottom = boxTop - getBBoxStrokeWidth() / 2 - getLabelOffset();
                   const shortcutKey = shortcutMap.get(a.object_id);
                   const labelText = `${a.object_id}${!isPlaying && shortcutKey ? ` : (${shortcutKey})` : ''}`;
 
@@ -3047,9 +3051,20 @@ export default function DynamicVideo({
                         />
                       ))}
 
+                      <Line
+                        points={[
+                          boxLeft, labelBottom,
+                          (minX + maxX) / 2, (minY + maxY) / 2,
+                        ]}
+                        stroke={color}
+                        strokeWidth={1 / currentZoom}
+                        opacity={0.75}
+                        listening={false}
+                      />
+
                       <Text 
-                        x={mapX(a.coordinates[0][0])+getLabelOffset()} 
-                        y={mapY(a.coordinates[0][1])-getLabelOffset()} 
+                        x={boxLeft}
+                        y={labelBottom - getIdFontSize()}
                         text={labelText}
                         fontSize={getIdFontSize()} 
                         fill={color} 
@@ -3058,15 +3073,13 @@ export default function DynamicVideo({
                       />
 
                       {isSelected && (() => {
-                        const centerX = (minX + maxX) / 2;
-                        const centerY = (minY + maxY) / 2;
                         const halfWidth = (boxWidth / 2) * bboxScale;
                         const halfHeight = (boxHeight / 2) * bboxScale;
                         const pad = 5;
                         return (
                           <Rect 
-                            x={centerX - halfWidth - pad} 
-                            y={centerY - halfHeight - pad} 
+                            x={boxLeft}
+                            y={boxTop}
                             width={halfWidth * 2 + 2 * pad} 
                             height={halfHeight * 2 + 2 * pad} 
                             stroke={color} 
