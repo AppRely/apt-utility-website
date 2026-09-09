@@ -3749,9 +3749,9 @@ export default function DynamicVideo({
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-hidden" ref={timelineContainerRef}>
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-x-hidden overflow-y-auto" ref={timelineContainerRef}>
               {/* Trajectory chart */}
-              <div className="flex-1 min-h-0 relative w-full">
+              <div className="flex-1 min-h-[140px] relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   {/* FIX: removed minWidth so both charts share exact pixel width */}
                   <div style={{ width: '100%', height: '100%' }}>
@@ -3796,6 +3796,7 @@ export default function DynamicVideo({
                           x={currentFrame}
                           stroke="#ff3333"
                           strokeWidth={2}
+                          zIndex={1000}
                         />
                         <XAxis
                           type="number"
@@ -3868,7 +3869,7 @@ export default function DynamicVideo({
                               dataKey={`obj_${objectId}_point_${pointIndex}_x`}
                               name={`Object ${objectId} Point ${pointIndex + 1} X`}
                               stroke={color}
-                              strokeWidth={1}
+                              strokeWidth={1.5}
                               dot={false}
                               isAnimationActive={false}
                             />);
@@ -3880,7 +3881,7 @@ export default function DynamicVideo({
                               dataKey={`obj_${objectId}_point_${pointIndex}_y`}
                               name={`Object ${objectId} Point ${pointIndex + 1} Y`}
                               stroke={color}
-                              strokeWidth={1}
+                              strokeWidth={1.5}
                               strokeDasharray="3 2"
                               dot={false}
                               isAnimationActive={false}
