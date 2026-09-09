@@ -140,7 +140,7 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
       selector: '[data-system-guide="sidebar-break"]',
       title: "Break",
       description:
-        "Use Break with exactly one selected object at the desired frame. A dialog asks whether to split before or after the current frame.",
+        "Use Break (F) with exactly one selected object at the desired frame. A dialog asks whether to split before or after the current frame.",
     },
     {
       selector: '[data-system-guide="sidebar-link"]',
@@ -175,12 +175,12 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
     {
       selector: '[data-system-guide="sidebar-bulk-link"]',
       title: "Bulk link",
-      description: "Enable Bulk Link, then select objects across video frames. The list shows their colors, IDs, and start/end frames in start-frame order. Remove an entry with \u00d7, then use Link objects once at least two trajectories are ready. Cancel Bulk Link clears the selection.",
+      description: "Press B to enable or cancel Bulk Link, then select objects across video frames. The list shows their colors, IDs, and start/end frames in start-frame order. Remove an entry with \u00d7, then press Enter or use Link objects once at least two trajectories are ready. S / E jumps to the last selected object's start / end. Cancel Bulk Link clears the selection.",
     },
     {
       selector: '[data-system-guide="sidebar-bulk-delete"]',
       title: "Bulk delete",
-      description: "Enable Bulk Delete and select the objects to remove. Review their colors, IDs, and full trajectory ranges in the list; use \u00d7 to remove an entry. Delete objects removes all listed trajectories. Cancel Bulk Delete clears the selection.",
+      description: "Press V to enable or cancel Bulk Delete and select the objects to remove. Review their colors, IDs, and full trajectory ranges in the list; use \u00d7 to remove an entry. Press Enter or Delete objects to remove all listed trajectories. S / E jumps to the last selected object's start / end. Cancel Bulk Delete clears the selection.",
     },
     {
       selector: '[data-system-guide="sidebar-video-information"]',

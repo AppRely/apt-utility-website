@@ -63,6 +63,7 @@ type DynamicVideoProps = SelectedObjectProps & {
 
 const MIN_PLAYBACK_RATE = 0.1;
 const MAX_PLAYBACK_RATE = 16;
+const PLAYBACK_RATE_PRESETS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 const DEFAULT_TIMELINE_HEIGHT = 176;
 const MIN_TIMELINE_HEIGHT = 140;
 const MIN_VIDEO_HEIGHT = 180;
@@ -78,6 +79,10 @@ const playbackRateToSliderPosition = (rate: number) => {
 
 const sliderPositionToPlaybackRate = (position: number) => {
   const clampedPosition = Math.min(Math.max(position, 0), 100);
+  const nearbyPreset = PLAYBACK_RATE_PRESETS.find(
+    rate => Math.abs(playbackRateToSliderPosition(rate) - clampedPosition) <= 1.5
+  );
+  if (nearbyPreset !== undefined) return nearbyPreset;
   const rate = clampedPosition <= 50
     ? MIN_PLAYBACK_RATE * Math.pow(1 / MIN_PLAYBACK_RATE, clampedPosition / 50)
     : Math.pow(MAX_PLAYBACK_RATE, (clampedPosition - 50) / 50);
@@ -356,8 +361,6 @@ export default function DynamicVideo({
   const [currentFrame, setCurrentFrame] = useState(0);
   const currentDisplayFrameRef = useRef<number>(0);
 
-  const lastSeekFrameRef = useRef<number>(-1);
-  const lastSeekTimeRef = useRef<number>(-1);
   const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const breakNavigationHistoryRef = useRef<number[]>([]);
   const breakNavigationObjectRef = useRef<number | null>(null);
@@ -527,7 +530,6 @@ export default function DynamicVideo({
   }, [projectId, safeToast, selectedObjects]);
 
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
-  const lastPanFrameRef = useRef<number>(-1);
 
   const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
@@ -773,6 +775,7 @@ export default function DynamicVideo({
   }, [videoColorTheme, isVideoColorThemePreferenceLoaded]);
 
   const [trajectoryFrames, setTrajectoryFrames] = useState(100);
+  const [trajectoryFramesInput, setTrajectoryFramesInput] = useState("100");
   const [labelOffsetScale, setLabelOffsetScale] = useState(1);
   const [textSizeScale, setTextSizeScale] = useState(1);
 
@@ -861,9 +864,10 @@ export default function DynamicVideo({
 
   const getCircleRadius = () => Math.max(0.5, 1*(1/currentZoom));
   const getTrajectoryWidth = () => Math.max(0.5, 2*(1/currentZoom));
-  const getIdFontSize = () => (14 * textSizeScale) * (1 / currentZoom);
+  // Keep text readable at the menu size while the stage zoom scales its offset.
+  const getIdFontSize = () => (14 * textSizeScale) / currentZoom;
   const getBBoxStrokeWidth = () => Math.max(1, 4*(1/currentZoom));
-  const getLabelOffset = () => (8 * labelOffsetScale) * (1 / currentZoom);
+  const getLabelOffset = () => 8 * labelOffsetScale;
   const getSkeletonWidth = () => Math.max(0.8, 0.8 * (1 / currentZoom));
 
   // Unique IDs helpers
@@ -1593,7 +1597,9 @@ export default function DynamicVideo({
 
   // ===== Frame stepping =====
   const handleFrameStep = useCallback((step: number, baseFrame?: number) => {
-    if (!video) return;
+    if (!video || !Number.isFinite(video.duration)) return;
+    video.pause();
+    setIsPlaying(false);
     if (frameStepTimerRef.current) clearTimeout(frameStepTimerRef.current);
     isFrameStepRef.current = true;
     isFrameStepSequenceRef.current = true;
@@ -1602,22 +1608,22 @@ export default function DynamicVideo({
       isFrameStepSequenceRef.current = false;
     }, 500);
     const currentFps = stableFpsRef.current;
-    let currentFrameNum = baseFrame !== undefined ? baseFrame : currentDisplayFrameRef.current;
+    const currentFrameNum = baseFrame ?? pendingFrameRef.current ?? currentDisplayFrameRef.current;
+    const lastFrame = Math.max(0, Math.ceil(video.duration * currentFps) - 1);
+    const newFrame = Math.min(Math.max(currentFrameNum + step, 0), lastFrame);
     if (isSeekingRef.current) {
-      setPendingFrameVisual(currentFrameNum + step);
-      setTimeout(() => setPendingFrameVisual(null), 500);
-      pendingFrameRef.current = currentFrameNum + step;
+      setPendingFrameVisual(newFrame);
+      pendingFrameRef.current = newFrame;
       return;
     }
-    const totalFrames = Math.floor(video.duration * currentFps);
-    let newFrame = currentFrameNum + step;
-    newFrame = Math.min(Math.max(newFrame, 0), totalFrames);
     if (newFrame === currentFrameNum) {
       isFrameStepRef.current = false;
       isFrameStepSequenceRef.current = false;
       return;
     }
-    const newTime = newFrame / currentFps;
+    // Seek inside the frame interval to avoid decoding the preceding frame
+    // when a timestamp on the boundary is rounded by the browser.
+    const newTime = Math.min((newFrame + 0.25) / currentFps, video.duration);
     isSeekingRef.current = true;
     pendingFrameRef.current = newFrame;
     currentDisplayFrameRef.current = newFrame;
@@ -1660,19 +1666,17 @@ export default function DynamicVideo({
   };
 
   const handleSeek = async (time: number) => {
-    if (!video) return;
+    if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
+    const safeTime = Math.min(Math.max(time, 0), video.duration);
+    const lastFrame = Math.max(0, Math.ceil(video.duration * stableFpsRef.current) - 1);
+    const targetFrame = Math.min(Math.round(safeTime * stableFpsRef.current), lastFrame);
     if (isSeekingRef.current) {
-      const targetFrame = Math.round(time * stableFpsRef.current);
       setPendingFrameVisual(targetFrame);
       setTimeout(() => setPendingFrameVisual(null), 500);
       pendingFrameRef.current = targetFrame;
       return;
     }
-    const safeTime = Math.min(Math.max(time, 0), video.duration);
-    const targetFrame = Math.round(safeTime * stableFpsRef.current);
-    if (lastSeekFrameRef.current === targetFrame && Math.abs(lastSeekTimeRef.current - safeTime) < 0.01) return;
-    lastSeekFrameRef.current = targetFrame;
-    lastSeekTimeRef.current = safeTime;
+    if (currentDisplayFrameRef.current === targetFrame && Math.abs(video.currentTime - safeTime) < 0.001) return;
     isSeekingRef.current = true;
     pendingFrameRef.current = targetFrame;
 
@@ -1698,7 +1702,6 @@ export default function DynamicVideo({
       setDragTime(null);
       setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
-      isSeekingRef.current = false;
       return;
     }
 
@@ -1901,16 +1904,52 @@ export default function DynamicVideo({
   }, [stageScale.x, handleResetZoom, showZoomIndicator]);
   // Auto‑pan
   const panToSelectedObject = useCallback(() => {
-    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1 || isDragging || isPanMode) return;
-    if (!stageRef.current || !video) return;
-    const selectedObjectId = selectedObjects[0]?.object_id;
-    if (!selectedObjectId) return;
-    const currentAnnotation = Array.from(annotationMap.values()).find(
-      anno => anno.object_id === selectedObjectId && anno.frame_id === currentFrame
+    if (!autoPanEnabled || selectedObjects.length === 0 || isDragging || isPanMode) return;
+    if (!stageRef.current || !video || stageWidth <= 0 || stageHeight <= 0) return;
+    const selectedIds = new Set(selectedObjects.map(object => object.object_id));
+    const visibleAnnotations = Array.from(annotationMap.values()).filter(
+      anno => selectedIds.has(anno.object_id) && anno.frame_id === currentFrame && anno.coordinates.length > 0
     );
-    if (!currentAnnotation?.coordinates?.length) return;
-    if (lastPanFrameRef.current === currentFrame) return;
-    lastPanFrameRef.current = currentFrame;
+    if (visibleAnnotations.length === 0) return;
+
+    if (selectedObjects.length === 2 && visibleAnnotations.length === 2) {
+      // Fit both complete object boxes, rather than following either ID alone.
+      const bounds = visibleAnnotations.map(annotation => {
+        const xs = annotation.coordinates.map(([x]) => offsetX + x * scale);
+        const ys = annotation.coordinates.map(([, y]) => offsetY + y * scale);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
+        const halfWidth = (maxX - minX) * Math.max(1, bboxScale) / 2 + 5;
+        const halfHeight = (maxY - minY) * Math.max(1, bboxScale) / 2 + 5;
+        return { left: centerX - halfWidth, right: centerX + halfWidth,
+          top: centerY - halfHeight, bottom: centerY + halfHeight };
+      });
+      const left = Math.min(...bounds.map(box => box.left));
+      const right = Math.max(...bounds.map(box => box.right));
+      const top = Math.min(...bounds.map(box => box.top));
+      const bottom = Math.max(...bounds.map(box => box.bottom));
+      const marginX = Math.min(80, stageWidth * 0.15);
+      const marginY = Math.min(80, stageHeight * 0.15);
+      const fitZoom = Math.max(1, Math.min(10,
+        (stageWidth - 2 * marginX) / (right - left),
+        (stageHeight - 2 * marginY) / (bottom - top)));
+      const targetPos = {
+        x: stageWidth / 2 - (left + right) / 2 * fitZoom,
+        y: stageHeight / 2 - (top + bottom) / 2 * fitZoom,
+      };
+      setStageScale(previous => previous.x === fitZoom && previous.y === fitZoom
+        ? previous : { x: fitZoom, y: fitZoom });
+      setCurrentZoom(fitZoom);
+      setStagePos(previous => previous.x === targetPos.x && previous.y === targetPos.y
+        ? previous : targetPos);
+      return;
+    }
+
+    // If only one selected object exists in this frame, follow it without
+    // zooming in on the missing object's last known position.
+    if (currentZoom <= 1.1) return;
+    const currentAnnotation = visibleAnnotations[0];
     const objX = currentAnnotation.coordinates[0][0];
     const objY = currentAnnotation.coordinates[0][1];
     const stageObjX = offsetX + objX * scale;
@@ -1945,19 +1984,11 @@ export default function DynamicVideo({
       if (Math.abs(targetStageX - currentStageX) < tolerance && Math.abs(targetStageY - currentStageY) < tolerance) return;
       setStagePos({ x: targetStageX, y: targetStageY });
     }
-  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom]);
+  }, [selectedObjects, currentFrame, annotationMap, autoPanEnabled, isDragging, isPanMode, video, offsetX, offsetY, scale, stageWidth, stageHeight, currentZoom, bboxScale]);
 
   const handleBreakNavigationJump = useCallback((targetFrame: number) => {
     handleFrameJump(targetFrame);
-    if (!autoPanEnabled || selectedObjects.length !== 1 || currentZoom <= 1.1) return;
-
-    // Break navigation can load the target frame asynchronously, so retry after
-    // the frame and its annotation have had a chance to update.
-    window.setTimeout(() => {
-      lastPanFrameRef.current = null;
-      panToSelectedObject();
-    }, 150);
-  }, [autoPanEnabled, currentZoom, handleFrameJump, panToSelectedObject, selectedObjects.length]);
+  }, [handleFrameJump]);
 
   const objectMutation = useMutation({ 
     mutationFn: ({ projectId, objectId, frameId }: any) => getObjectData(projectId, objectId, frameId) 
@@ -1997,9 +2028,6 @@ export default function DynamicVideo({
             return newSelection.slice(0, 2);
           });
           safeToast({ title: `Object ${objectId} set as ${slotIndex === 0 ? 'primary' : 'secondary'} selection`, duration: 1500 });
-          if (autoPanEnabled && currentZoom > 1.1 && slotIndex === 0) {
-            setTimeout(() => panToSelectedObject(), 100);
-          }
         },
         onError: () => safeToast({ title: `Failed to select object ${objectId}`, variant: "destructive", duration: 1500 })
       }
@@ -2007,25 +2035,8 @@ export default function DynamicVideo({
   }, [selectedObjects, projectId, currentFrame, objectMutation, setSelectedObjects, autoPanEnabled, currentZoom, panToSelectedObject, safeToast]);
 
   useEffect(() => {
-    if (!video || !mounted) return;
-    const handleTimeUpdate = () => {
-      if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-    };
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [video, mounted, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
-
-  useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) setTimeout(() => panToSelectedObject(), 50);
-  }, [currentZoom, autoPanEnabled, selectedObjects.length, isDragging, isPanMode, panToSelectedObject]);
-
-  useEffect(() => {
-    if (annotationsReady && autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-  }, [annotationsReady, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
-
-  useEffect(() => {
-    if (autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && !isDragging && !isPanMode) panToSelectedObject();
-  }, [currentFrame, autoPanEnabled, selectedObjects.length, currentZoom, isDragging, isPanMode, panToSelectedObject]);
+    if (mounted && annotationsReady) panToSelectedObject();
+  }, [mounted, annotationsReady, panToSelectedObject]);
 
   // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
@@ -2090,10 +2101,18 @@ export default function DynamicVideo({
         const lockedFps = stableFpsRef.current;
         const handleSeeked = () => {
           const targetFrame = pendingFrameRef.current;
+          if (targetFrame !== null && Math.round(vid.currentTime * lockedFps) !== targetFrame) {
+            // A newer request arrived during the previous seek. Actually seek
+            // to it before publishing its frame number and annotations.
+            vid.currentTime = Math.min((targetFrame + 0.25) / lockedFps, vid.duration);
+            return;
+          }
           if (targetFrame !== null) {
             const frame = targetFrame;
             isSeekingRef.current = false;
             pendingFrameRef.current = null;
+            setPendingFrameVisual(null);
+            sessionStorage.setItem("frameId", frame.toString());
             currentDisplayFrameRef.current = frame;
             setCurrentFrame(frame);
             setCurrentTime(vid.currentTime);
@@ -2129,11 +2148,6 @@ export default function DynamicVideo({
           } else {
             setAnnotationsReady(true);
             setIsLoadingAnnotations(false);
-          }
-          if (pendingFrameRef.current !== null) {
-            const queuedFrame = pendingFrameRef.current;
-            pendingFrameRef.current = null;
-            setTimeout(() => handleSeek(queuedFrame / lockedFps), 10);
           }
         };
         vid.addEventListener('seeked', handleSeeked);
@@ -2298,13 +2312,14 @@ export default function DynamicVideo({
     // ===== NEW: General category with Refresh =====
     { category: "General", items: [
       { action: "Refresh Data", key: "Ctrl+R" },
+      { action: "Undo", key: "Ctrl+Z" },
+      { action: "Redo", key: "Ctrl+Y / Ctrl+Shift+Z" },
     ] },
     { category: "Playback", items: [
       { action: "Play / Pause", key: "Space / P" },
       { action: "Next Frame", key: "→" },
       { action: "Previous Frame", key: "←" },
-      { action: "Skip +5 sec", key: "L" },
-      { action: "Skip -5 sec", key: "J" },
+      { action: "Increase / decrease playback speed", key: "Shift+↑ / Shift+↓" },
     ] },
     { category: "Navigation", items: [
       { action: "Jump +10 frames", key: "↑" },
@@ -2319,7 +2334,7 @@ export default function DynamicVideo({
       { action: "Zoom In", key: "=" },
       { action: "Zoom Out", key: "-" },
       { action: "Toggle Trajectory", key: "T" },
-      { action: "Auto Pan (edge only)", key: "A" },
+      { action: "Auto-pan / fit two selected objects", key: "A" },
       { action: "Toggle BBox Scale 3×", key: "Z" },
       { action: "Toggle Skeleton", key: "K" },
       { action: "Toggle Suggestions", key: "Y" },
@@ -2345,12 +2360,26 @@ export default function DynamicVideo({
         { action: "Clip Selected Range", key: "X" },
         { action: "Link Objects", key: "L" },
         { action: "Swap Objects", key: "W" },
-        { action: "Break Object", key: "B" },
+        { action: "Break Object", key: "F" },
         { action: "Delete Object", key: "D" },
         { action: "Interpolate", key: "I" },
         { action: "Recalculate Confusion", key: "R" },
+        { action: "Confirm supported operation dialog", key: "Enter" },
       ]
     },
+    { category: "Bulk operations", items: [
+      { action: "Start / cancel Bulk Link", key: "B" },
+      { action: "Start / cancel Bulk Delete", key: "V" },
+      { action: "Apply active bulk action (once selection is ready)", key: "Enter" },
+      { action: "Add visible object to bulk selection", key: "1–9, 0 / Click" },
+      { action: "Last bulk object's start / end", key: "S / E" },
+    ] },
+    { category: "Suggestions", items: [
+      { action: "Show / hide suggestions", key: "Y" },
+      { action: "Select top continuation at object end", key: "E" },
+      { action: "Link selected object to top continuation", key: "L" },
+      { action: "Choose another trajectory or clip suggestion", key: "Click suggestion" },
+    ] },
   ];
 
   const openUniqueIdsPopup = useCallback(() => {
@@ -2785,7 +2814,7 @@ export default function DynamicVideo({
                 {isSeekingRef.current && " 🔄 SEEKING"}
                 {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
                 {isLoadingAnnotations && " 📥 LOADING"}
-                {autoPanEnabled && selectedObjects.length === 1 && currentZoom > 1.1 && " 🎯 AUTO-PAN"}
+                {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " 🎯 AUTO-PAN"}
                 {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
                 {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
                 {autoInterpolation && " 🔄 AUTO-INTERP"}
@@ -2983,6 +3012,9 @@ export default function DynamicVideo({
                   const ys = a.coordinates.map(([,y])=>mapY(y));
                   const minX = Math.min(...xs), minY = Math.min(...ys), maxX = Math.max(...xs), maxY = Math.max(...ys);
                   const boxWidth = maxX-minX, boxHeight = maxY-minY;
+                  const boxLeft = (minX + maxX) / 2 - (boxWidth / 2) * bboxScale - 5;
+                  const boxTop = (minY + maxY) / 2 - (boxHeight / 2) * bboxScale - 5;
+                  const labelBottom = boxTop - getBBoxStrokeWidth() / 2 - getLabelOffset();
                   const shortcutKey = shortcutMap.get(a.object_id);
                   const labelText = `${a.object_id}${!isPlaying && shortcutKey ? ` : (${shortcutKey})` : ''}`;
 
@@ -3047,9 +3079,20 @@ export default function DynamicVideo({
                         />
                       ))}
 
+                      <Line
+                        points={[
+                          boxLeft, labelBottom,
+                          (minX + maxX) / 2, (minY + maxY) / 2,
+                        ]}
+                        stroke={color}
+                        strokeWidth={1 / currentZoom}
+                        opacity={0.75}
+                        listening={false}
+                      />
+
                       <Text 
-                        x={mapX(a.coordinates[0][0])+getLabelOffset()} 
-                        y={mapY(a.coordinates[0][1])-getLabelOffset()} 
+                        x={boxLeft}
+                        y={labelBottom - getIdFontSize()}
                         text={labelText}
                         fontSize={getIdFontSize()} 
                         fill={color} 
@@ -3058,15 +3101,13 @@ export default function DynamicVideo({
                       />
 
                       {isSelected && (() => {
-                        const centerX = (minX + maxX) / 2;
-                        const centerY = (minY + maxY) / 2;
                         const halfWidth = (boxWidth / 2) * bboxScale;
                         const halfHeight = (boxHeight / 2) * bboxScale;
                         const pad = 5;
                         return (
                           <Rect 
-                            x={centerX - halfWidth - pad} 
-                            y={centerY - halfHeight - pad} 
+                            x={boxLeft}
+                            y={boxTop}
                             width={halfWidth * 2 + 2 * pad} 
                             height={halfHeight * 2 + 2 * pad} 
                             stroke={color} 
@@ -3302,8 +3343,26 @@ export default function DynamicVideo({
                       min="1"
                       max="5000"
                       step="1"
-                      value={trajectoryFrames}
-                      onChange={(e) => setTrajectoryFrames(Number(e.target.value))}
+                      aria-label="Trajectory frames"
+                      value={trajectoryFramesInput}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => setTrajectoryFramesInput(event.target.value)}
+                      onBlur={(event) => {
+                        const rawValue = event.currentTarget.value.trim();
+                        const parsedValue = Number(rawValue);
+                        const nextFrames = rawValue !== "" && Number.isFinite(parsedValue)
+                          ? Math.min(5000, Math.max(1, Math.trunc(parsedValue)))
+                          : trajectoryFrames;
+                        setTrajectoryFrames(nextFrames);
+                        setTrajectoryFramesInput(String(nextFrames));
+                      }}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }}
                       className="w-16 h-7 bg-white border border-slate-300 rounded text-xs px-2"
                     />
                   </div>
@@ -3495,34 +3554,42 @@ export default function DynamicVideo({
               </button>
               {showSpeed && (
                 <div
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Escape') setShowSpeed(false);
+                  }}
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#212121] border border-[#3a3a3a] rounded-xl px-5 py-4 shadow-2xl z-50"
-                  style={{ width: '280px' }}
+                  style={{ width: '380px', maxWidth: 'calc(100vw - 2rem)' }}
                 >
-                  <div className="flex justify-between items-start mb-1">
+                  <div className="flex justify-between items-start gap-2 mb-1">
                     <span className="text-white text-xs font-medium">Playback speed</span>
-                    <div className="text-right">
+                    <div className="ml-auto text-right">
                       <div className="text-white text-xs font-bold">{playbackRate.toFixed(2).replace(/\.00$/, '')}x</div>
                       <div className="text-blue-300 text-[10px]">{formatFps(fps * playbackRate)} FPS</div>
                     </div>
+                    <button type="button" aria-label="Close playback speed" onClick={() => setShowSpeed(false)} className="flex h-6 w-6 items-center justify-center rounded text-lg text-gray-300 hover:bg-white/10 hover:text-white">×</button>
                   </div>
                   <div className="mb-3 text-[10px] text-gray-400">Source: {formatFps(fps)} FPS</div>
-
-                  <div className="relative w-full h-10 flex items-start pt-2">
+                  <div className="flex items-start gap-4">
+                    <button type="button" aria-label="Decrease playback speed" disabled={playbackRate <= MIN_PLAYBACK_RATE} onClick={() => setPlaybackRate(rate => Math.max(MIN_PLAYBACK_RATE, Number((rate - 0.1).toFixed(2))))} className="mt-1 h-8 w-8 shrink-0 rounded bg-[#3a3a3a] text-lg text-white disabled:opacity-40">−</button>
+                  <div className="relative mt-[9px] min-w-0 flex-1 h-10 flex items-start pt-2">
                     <div className="absolute left-0 right-0 top-2 h-1.5 bg-[#3a3a3a] rounded-full" />
                     <div
-                      className="absolute left-0 top-2 h-1.5 bg-blue-500 rounded-full transition-all"
+                      className="absolute left-0 top-2 h-1.5 bg-blue-500 rounded-full"
                       style={{
                         width: `${playbackRateToSliderPosition(playbackRate)}%`,
                       }}
                     />
                     <input
                       type="range"
+                      aria-label="Playback speed"
+                      aria-valuetext={`${playbackRate} times`}
                       min="0"
                       max="100"
                       step="0.1"
                       value={playbackRateToSliderPosition(playbackRate)}
                       onChange={(e) => setPlaybackRate(sliderPositionToPlaybackRate(parseFloat(e.target.value)))}
-                      className="playback-speed-range absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer"
+                      className="playback-speed-range absolute -left-2.5 top-0 h-[22px] w-[calc(100%+1.25rem)] appearance-none bg-transparent cursor-pointer"
                       style={{ margin: 0, padding: 0 }}
                     />
                     <div
@@ -3530,12 +3597,12 @@ export default function DynamicVideo({
                       style={{
                         left: `${playbackRateToSliderPosition(playbackRate)}%`,
                         transform: 'translateX(-50%)',
-                        top: '0.5rem',
+                        top: '11px',
                         marginTop: '-10px',
                       }}
                     />
                     <div className="absolute left-0 right-0 top-2 pointer-events-none">
-                      {[0.1, 0.25, 0.5, 1, 2, 4, 8, 16].map((speed, index, speeds) => (
+                      {PLAYBACK_RATE_PRESETS.map((speed, index, speeds) => (
                         <div
                           key={speed}
                           className="absolute top-0"
@@ -3544,8 +3611,11 @@ export default function DynamicVideo({
                           }}
                         >
                           <span className="block h-2 w-px bg-gray-500" />
-                          <span
-                            className="absolute top-2 whitespace-nowrap text-[9px] text-gray-400"
+                          <button
+                            type="button"
+                            aria-label={`Set playback speed to ${speed} times`}
+                            onClick={() => setPlaybackRate(speed)}
+                            className="pointer-events-auto absolute top-2 whitespace-nowrap text-[9px] text-gray-400 hover:text-white"
                             style={{
                               transform: index === 0
                                 ? 'translateX(0)'
@@ -3555,15 +3625,18 @@ export default function DynamicVideo({
                             }}
                           >
                             {speed}x
-                          </span>
+                          </button>
                         </div>
                       ))}
                     </div>
                   </div>
 
+                    <button type="button" aria-label="Increase playback speed" disabled={playbackRate >= MAX_PLAYBACK_RATE} onClick={() => setPlaybackRate(rate => Math.min(MAX_PLAYBACK_RATE, Number((rate + 0.1).toFixed(2))))} className="mt-1 h-8 w-8 shrink-0 rounded bg-[#3a3a3a] text-lg text-white disabled:opacity-40">+</button>
+                  </div>
+
                   <div className="grid grid-cols-4 mt-4 gap-2">
-                    {[0.1, 0.25, 0.5, 1, 2, 4, 8, 16].map((speed) => {
-                      const isActive = Math.abs(playbackRate - speed) < 0.05;
+                    {PLAYBACK_RATE_PRESETS.map((speed) => {
+                      const isActive = playbackRate === speed;
                       return (
                         <button
                           key={speed}
@@ -3695,9 +3768,9 @@ export default function DynamicVideo({
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-hidden" ref={timelineContainerRef}>
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-x-hidden overflow-y-auto" ref={timelineContainerRef}>
               {/* Trajectory chart */}
-              <div className="flex-1 min-h-0 relative w-full">
+              <div className="flex-1 min-h-[140px] relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   {/* FIX: removed minWidth so both charts share exact pixel width */}
                   <div style={{ width: '100%', height: '100%' }}>
@@ -3742,6 +3815,7 @@ export default function DynamicVideo({
                           x={currentFrame}
                           stroke="#ff3333"
                           strokeWidth={2}
+                          zIndex={1000}
                         />
                         <XAxis
                           type="number"
@@ -3814,7 +3888,7 @@ export default function DynamicVideo({
                               dataKey={`obj_${objectId}_point_${pointIndex}_x`}
                               name={`Object ${objectId} Point ${pointIndex + 1} X`}
                               stroke={color}
-                              strokeWidth={1}
+                              strokeWidth={1.5}
                               dot={false}
                               isAnimationActive={false}
                             />);
@@ -3826,7 +3900,7 @@ export default function DynamicVideo({
                               dataKey={`obj_${objectId}_point_${pointIndex}_y`}
                               name={`Object ${objectId} Point ${pointIndex + 1} Y`}
                               stroke={color}
-                              strokeWidth={1}
+                              strokeWidth={1.5}
                               strokeDasharray="3 2"
                               dot={false}
                               isAnimationActive={false}
@@ -3923,7 +3997,7 @@ export default function DynamicVideo({
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowShortcutModal(false)}
           />
-          <div className="relative w-[400px] max-h-[80vh] mr-4 bg-white rounded-xl shadow-xl flex flex-col animate-slide-in">
+          <div role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" className="relative w-[400px] max-h-[80vh] mr-4 bg-white rounded-xl shadow-xl flex flex-col animate-slide-in">
             <div className="flex justify-between items-center p-3 border-b">
               <p className="font-semibold text-sm">Keyboard Shortcuts</p>
               <Button size="sm" onClick={() => setShowShortcutModal(false)}>Close</Button>
@@ -3934,9 +4008,9 @@ export default function DynamicVideo({
                   <p className="text-xs font-semibold text-gray-500 mb-2">{group.category}</p>
                   <div className="space-y-1">
                     {group.items.map((item, j) => (
-                      <div key={j} className="flex justify-between px-3 py-2 bg-gray-50 rounded">
+                      <div key={j} className="flex items-start justify-between gap-3 px-3 py-2 bg-gray-50 rounded">
                         <span className="text-sm">{item.action}</span>
-                        <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">{item.key}</span>
+                        <span className="shrink-0 max-w-[45%] text-xs font-mono bg-gray-200 px-2 py-1 rounded">{item.key}</span>
                       </div>
                     ))}
                   </div>
