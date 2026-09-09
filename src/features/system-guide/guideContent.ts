@@ -8,10 +8,10 @@ export type SystemGuideStep = {
 export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
   "/": [
     {
-      selector: '[data-system-guide="landing-header"]',
+      selector: '[data-system-guide="landing-home"]',
       title: "Project home",
       description:
-        "This is the starting point for APT Vision. Create a project here or return to a project that is already being processed or reviewed.",
+        "This is the starting point for APT Vision. Create a project here or browse the project list below.",
     },
     {
       selector: '[data-system-guide="create-project"]',
@@ -52,9 +52,21 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
     },
     {
       selector: '[data-system-guide="project-list"]',
-      title: "Follow processing status",
+      title: "Browse your projects",
       description:
-        "In Progress and Completed tabs organize projects by backend status. After processing, use the project row to continue into the annotation workspace.",
+        "All projects appear in one table. Use search to find a project, then use its row to continue into the annotation workspace.",
+    },
+    {
+      selector: '[data-system-guide="project-search"]',
+      title: "Search projects",
+      allowInteraction: true,
+      description: "Type a project name, video filename, or tracking filename to filter the table as you type. Search ignores letter case. Clear the search to show all projects again.",
+    },
+    {
+      selector: '[data-system-guide="project-page-size"]',
+      title: "Records per page",
+      allowInteraction: true,
+      description: "Choose 5, 10, 20, or 50 records per page. Changing this returns the table to its first page.",
     },
     {
       selector: '[data-system-guide="project-open"]',
@@ -67,6 +79,11 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
       title: "Edit an existing project",
       description:
         "Edit opens the selected project's existing annotation workspace. It uses the same safe navigation as the project name; it does not change project files or metadata from this screen.",
+    },
+    {
+      selector: '[data-system-guide="project-export"]',
+      title: "Export project tracking data",
+      description: "Export prepares the corrected TRK file for this project and starts its download when ready. The button shows Exporting while the request runs and is unavailable while the project is pending.",
     },
     {
       selector: '[data-system-guide="project-audit"]',
@@ -156,6 +173,23 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
         "Select one object and capture two frame boundaries with Ctrl+C. Clip becomes available for a valid range and asks for confirmation before removing that interval.",
     },
     {
+      selector: '[data-system-guide="sidebar-bulk-link"]',
+      title: "Bulk link",
+      description: "Enable Bulk Link, then select objects across video frames. The list shows their colors, IDs, and start/end frames in start-frame order. Remove an entry with \u00d7, then use Link objects once at least two trajectories are ready. Cancel Bulk Link clears the selection.",
+    },
+    {
+      selector: '[data-system-guide="sidebar-bulk-delete"]',
+      title: "Bulk delete",
+      description: "Enable Bulk Delete and select the objects to remove. Review their colors, IDs, and full trajectory ranges in the list; use \u00d7 to remove an entry. Delete objects removes all listed trajectories. Cancel Bulk Delete clears the selection.",
+    },
+    {
+      selector: '[data-system-guide="sidebar-video-information"]',
+      title: "Video information",
+      allowInteraction: true,
+      description:
+        "Expand this section to review the active video's FPS, resolution, duration, total frame count, and active object count.",
+    },
+    {
       selector: '[data-system-guide="sidebar-object-list"]',
       title: "Object list",
       description:
@@ -185,6 +219,11 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
       title: "Annotation color palette",
       description:
         "Switch between colors intended for lighter or darker source video so annotations remain visible.",
+    },
+    {
+      selector: '[data-system-guide="menu-suggestions"]',
+      title: "Linking suggestions",
+      description: "Toggle suggested trajectory continuations on the video while reviewing possible links. This controls their visibility.",
     },
     {
       selector: '[data-system-guide="menu-skeleton"]',
@@ -334,7 +373,7 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
       selector: '[data-system-guide="trajectory-timeline"]',
       title: "Trajectory timeline",
       description:
-        "Compare object or skeleton coordinates and ranges around the current frame. Purple marks a clip range, amber marks a selected gap, and red marks the current frame.",
+        "Compare object or skeleton coordinates and ranges around the current frame. Purple marks a clip range, amber marks a selected gap, and red marks the current frame. Colored markers in the second timeline mark object start/end frames; click one to jump to that boundary. Its marker aligns with the red playhead at that frame. In bulk mode, the coordinate chart shows the two most recently selected objects for linking, or the last selected object for deletion.",
     },
   ],
   "/popup/unique-ids": [

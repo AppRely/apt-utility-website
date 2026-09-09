@@ -29,16 +29,16 @@ const SYSTEM_MAP_SECTIONS = {
     title: "Projects & upload",
     summary: "Prepare source files and manage projects.",
     description: "Start here to create the project that supplies the annotation workspace.",
-    items: ["Unique project name", "Required source video", "Optional tracking file", "Processing status", "Open, Audit, and Delete"],
+    items: ["Unique project name", "Required source video", "Optional tracking file", "Processing status", "Search and records per page", "Open, Audit, Export, and Delete"],
     actionLabel: "Tour projects",
     path: "/" as const,
-    startSelector: '[data-system-guide="landing-header"]',
+    startSelector: '[data-system-guide="landing-home"]',
   },
   workspace: {
     title: "Annotation workspace",
     summary: "Inspect video and correct trajectories.",
     description: "Learn the complete review and correction workspace for an active project.",
-    items: ["Project and selection sidebar", "Swap, Break, Link, and Delete", "Interpolate, Confusion, and Clip", "Video and playback controls", "Coordinate and range timeline"],
+    items: ["Project and selection sidebar", "Swap, Break, Link, and Delete", "Bulk Link and Bulk Delete", "Interpolate, Confusion, and Clip", "Video and playback controls", "Coordinate and range timeline"],
     actionLabel: "Tour workspace",
     path: "/dashboard" as const,
     startSelector: '[data-system-guide="sidebar-project"]',
@@ -181,16 +181,31 @@ export default function SystemGuide() {
     };
   }, [mode, step]);
 
+  const advanceStep = useCallback(() => {
+    if (stepIndex >= steps.length - 1) closeGuide();
+    else setStepIndex((index) => index + 1);
+  }, [closeGuide, stepIndex, steps.length]);
+
   useEffect(() => {
     if (mode === "closed") return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeGuide();
+      if (event.isComposing) return;
+      if (mode === "tour" && event.key === "Enter") {
+        // Capture before inputs, dialogs, or dashboard shortcuts can act.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!event.repeat) advanceStep();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeGuide();
+      }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [closeGuide, mode]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [advanceStep, closeGuide, mode]);
 
   const panelPosition = useMemo<CSSProperties>(() => {
     if (!highlightRect || typeof window === "undefined") {
@@ -382,6 +397,7 @@ export default function SystemGuide() {
             This control is not currently visible. Go back and open the form or menu described in the previous step, or continue to read the explanation.
           </p>
         )}
+        <p className="mt-3 text-xs text-slate-500">Press Enter for the next step; Escape exits the tour.</p>
         <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
           <div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: `${((stepIndex + 1) / Math.max(steps.length, 1)) * 100}%` }} />
         </div>
@@ -393,10 +409,7 @@ export default function SystemGuide() {
             <ArrowLeft className="h-4 w-4" />
             {stepIndex === 0 ? "System map" : "Back"}
           </Button>
-          <Button type="button" onClick={() => {
-            if (stepIndex === steps.length - 1) closeGuide();
-            else setStepIndex((index) => index + 1);
-          }} className="bg-[#3B46A0] text-white hover:bg-[#303a8b]">
+          <Button type="button" onClick={advanceStep} aria-keyshortcuts="Enter" className="bg-[#3B46A0] text-white hover:bg-[#303a8b]">
             {stepIndex === steps.length - 1 ? "Finish" : "Next"}
             {stepIndex < steps.length - 1 && <ArrowRight className="h-4 w-4" />}
           </Button>
