@@ -332,11 +332,17 @@ export default function Sidebar({
   const breakMutation = useMutation({
     mutationFn: ({ formData, breakType }: { formData: FormData; breakType: 'before' | 'after' }) =>
       breakObjects(Number(projectId), formData, breakType),
-    onSuccess: () => {
+    onSuccess: (response, { formData }) => {
       toast({ title: "Break", description: "Object broken successfully", duration: 3000, className: "text-green-600" });
       adjustActiveObjectCount(1);
       setBreakDialogOpen(false);
-      setSelectedObjects([]);
+      const [startFrame, endFrame] = response.data.new_range.split('-').map(Number);
+      setSelectedObjects([{
+        object_id: response.data.new_object_id,
+        frame_id: Number(formData.get('break_frame')),
+        start_frame: startFrame,
+        end_frame: endFrame,
+      }]);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
     },
   });
@@ -1044,6 +1050,12 @@ export default function Sidebar({
         window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
         void refetch();
       }} onSuccess={response => {
+        setSelectedObjects([{
+          object_id: response.data.master_object_id,
+          frame_id: Number(frameId),
+          start_frame: response.data.start_frame,
+          end_frame: response.data.end_frame,
+        }]);
         adjustActiveObjectCount(-response.data.deactivated_object_ids.length);
         toast({ title: "Bulk link completed", description: `Linked into object ${response.data.master_object_id}.`, duration: 3000 });
         if (autoInterpolation === "true") {
