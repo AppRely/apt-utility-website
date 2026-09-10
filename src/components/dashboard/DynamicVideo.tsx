@@ -559,9 +559,16 @@ export default function DynamicVideo({
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
+  const isBulkSelectionActive = bulkSelection.active && bulkSelection.projectId === Number(projectId);
+  const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
+  const linkSuggestionSource = isBulkSelectionActive
+    ? isBulkLinkActive
+      ? bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1])
+      : undefined
+    : selectedObjects.length === 1 ? selectedObjects[0] : undefined;
   const nextFrameLinkMatches = useMemo(() => {
-    if (selectedObjects.length !== 1) return [];
-    const selected = selectedObjects[0];
+    const selected = linkSuggestionSource;
+    if (!selected) return [];
     const selectedEnd = selected.end_frame ?? selected.start_frame;
     if (selectedEnd === undefined) return [];
     const windowStart = selectedEnd + 1;
@@ -575,6 +582,7 @@ export default function DynamicVideo({
       }))
       .filter(object =>
         object.id !== selected.object_id &&
+        (!isBulkLinkActive || !bulkSelection.selectionOrder.includes(object.id)) &&
         object.start_frame >= windowStart &&
         object.start_frame <= windowEnd &&
         object.linkDistance !== null &&
@@ -586,26 +594,30 @@ export default function DynamicVideo({
         a.id - b.id
       )
       .slice(0, 5);
-  }, [selectedObjects, uniqueIdsData]);
+  }, [linkSuggestionSource, isBulkLinkActive, bulkSelection.selectionOrder, uniqueIdsData]);
 
   useEffect(() => {
-    if (selectedObjects.length === 1 && nextFrameLinkMatches.length > 0) {
+    if (!isBulkSelectionActive && selectedObjects.length === 1 && nextFrameLinkMatches.length > 0) {
       nextFrameLinkMatchesRef.current = {
         sourceObjectId: selectedObjects[0].object_id,
         matches: nextFrameLinkMatches,
       };
     }
-  }, [nextFrameLinkMatches, selectedObjects]);
+  }, [isBulkSelectionActive, nextFrameLinkMatches, selectedObjects]);
 
   const visibleNextFrameLinkMatches = nextFrameLinkMatches.length > 0
     ? nextFrameLinkMatches
-    : selectedObjects.length === 2 &&
+    : !isBulkSelectionActive && selectedObjects.length === 2 &&
         nextFrameLinkMatchesRef.current?.sourceObjectId === selectedObjects[0].object_id &&
         nextFrameLinkMatchesRef.current.matches.some(match => match.id === selectedObjects[1].object_id)
       ? nextFrameLinkMatchesRef.current.matches
       : [];
 
   useEffect(() => {
+    if (isBulkSelectionActive) {
+      pendingEndMatchObjectRef.current = null;
+      return;
+    }
     const selected = selectedObjects[0];
     const candidate = nextFrameLinkMatches[0];
     if (
@@ -630,7 +642,7 @@ export default function DynamicVideo({
       description: `Top next match · starts at frame ${candidate.start_frame}`,
       duration: 1800,
     });
-  }, [nextFrameLinkMatches, safeToast, selectedObjects, setSelectedObjects]);
+  }, [isBulkSelectionActive, nextFrameLinkMatches, safeToast, selectedObjects, setSelectedObjects]);
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const timelineAbortRef = useRef<AbortController | null>(null);
@@ -2827,7 +2839,7 @@ export default function DynamicVideo({
                 {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
                 {autoInterpolation && " 🔄 AUTO-INTERP"}
               </div>
-              {showSuggestions && linkingSuggestions &&
+              {showSuggestions && !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd && (
                   <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
@@ -2869,7 +2881,7 @@ export default function DynamicVideo({
                   </div>
                 )}
               {showSuggestions && visibleNextFrameLinkMatches.length > 0 && !(
-                linkingSuggestions &&
+                !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd
               ) && (
@@ -2877,14 +2889,19 @@ export default function DynamicVideo({
                   <div className="mb-1.5 text-xs font-semibold text-white">Next Link Matches</div>
                   <div className="space-y-0.5">
                     {visibleNextFrameLinkMatches.map((candidate, index) => {
-                      const isSelectedMatch = selectedObjects[1]?.object_id === candidate.id;
+                      const isSelectedMatch = !isBulkLinkActive && selectedObjects[1]?.object_id === candidate.id;
                       return (
                         <button
                           key={candidate.id}
                           type="button"
-                          aria-label={`Select object ${candidate.id} as Object 2`}
+                          aria-label={isBulkLinkActive ? `Add object ${candidate.id} to bulk link` : `Select object ${candidate.id} as Object 2`}
                           aria-pressed={isSelectedMatch}
+                          disabled={isBulkLinkActive && bulkSelection.busy}
                           onClick={() => {
+                            if (isBulkLinkActive) {
+                              void bulkSelection.select(Number(projectId), candidate.id, candidate.start_frame);
+                              return;
+                            }
                             const primaryObject = selectedObjects[0];
                             if (!primaryObject) return;
                             setSelectedObjects([
@@ -2917,7 +2934,7 @@ export default function DynamicVideo({
                       );
                     })}
                   </div>
-                  <div className="mt-1.5 text-[11px] text-white/60">Select a match, then press L to link</div>
+                  <div className="mt-1.5 text-[11px] text-white/60">{isBulkLinkActive ? 'Add matches, then press Enter to bulk link' : 'Select a match, then press L to link'}</div>
                 </div>
               )}
               {showSuggestions && selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
