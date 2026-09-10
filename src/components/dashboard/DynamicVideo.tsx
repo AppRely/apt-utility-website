@@ -1253,11 +1253,12 @@ export default function DynamicVideo({
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
-    pruneUniqueRanges(currentFrame, halfWindow * 3);
-    const visibleStart = Math.max(0, currentFrame - halfWindow);
-    const visibleEnd = Math.min(totalFrames, currentFrame + halfWindow);
+    const uniqueHalfWindow = Math.min(halfWindow, 100);
+    pruneUniqueRanges(currentFrame, 375);
+    const visibleStart = Math.max(0, currentFrame - uniqueHalfWindow);
+    const visibleEnd = Math.min(totalFrames, currentFrame + uniqueHalfWindow);
     if (isUniqueRangeLoaded(visibleStart, visibleEnd)) return;
-    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    const buffer = 25;
     fetchUniqueRange(Math.max(0, visibleStart - buffer), Math.min(totalFrames, visibleEnd + buffer));
   }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange, isUniqueRangeLoaded, refreshKey]);
 
