@@ -531,11 +531,9 @@ export default function DynamicVideo({
 
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
 
-  const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
   const trajectoriesRef = useRef<TrajectoryMap>(new Map());
   const [showTrajectory, setShowTrajectory] = useState(true);
-  const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
 
   const [frameInput, setFrameInput] = useState("");
   const [showSpeed, setShowSpeed] = useState(false);
@@ -1053,6 +1051,8 @@ export default function DynamicVideo({
     onSuccess: (result, { start, end }) => {
       if (!result || result.signal.aborted || result.generation !== annotationGenerationRef.current) return;
       const { data } = result;
+      // Keep normalized annotations only, not the full response in mutation state.
+      result.data = null;
       if (!data) return;
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
@@ -1137,17 +1137,12 @@ export default function DynamicVideo({
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
     const currentFrameNum = currentDisplayFrameRef.current;
     const cutoff = Math.max(0, currentFrameNum - trajectoryFrames);
-    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
     newTrajectoryFrames.forEach(traj => {
       if (traj.frame_id >= cutoff) {
         if (!trajectoriesRef.current.has(traj.object_id)) trajectoriesRef.current.set(traj.object_id, new Map());
-        if (!trajectoriesRef.current.get(traj.object_id)!.has(traj.frame_id)) {
-          persistentTrajectoryRef.current.push(traj);
-        }
         trajectoriesRef.current.get(traj.object_id)!.set(traj.frame_id, traj.coordinate);
       }
     });
-    setTrajectoryPointCount(persistentTrajectoryRef.current.length);
   }, [trajectoryFrames]);
 
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
@@ -1207,10 +1202,8 @@ export default function DynamicVideo({
 
     // Clear annotations and trajectories
     setAnnotationMap(new Map());
-    persistentTrajectoryRef.current = [];
     trajectoriesRef.current = new Map();
     setTrajectoryMap(new Map());
-    setTrajectoryPointCount(0);
     clearLoadedRanges();
     loadedRangesKeyRef.current.clear();
     pendingRangesRef.current.clear();
@@ -1558,9 +1551,9 @@ export default function DynamicVideo({
   const annotationCleanupFrame = Math.floor(currentFrame / Math.max(1, Math.round(fps))) * Math.max(1, Math.round(fps));
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
-    const keepBehind = Math.max(trajectoryFrames, Math.round(12 * stableFpsRef.current));
+    const keepBehind = Math.max(trajectoryFrames, Math.round(6 * stableFpsRef.current));
     const minFrame = Math.max(0, annotationCleanupFrame - keepBehind);
-    const maxFrame = annotationCleanupFrame + Math.round(12 * stableFpsRef.current);
+    const maxFrame = annotationCleanupFrame + Math.round(6 * stableFpsRef.current);
     let newMap: Map<string, Annotation> | null = null;
     for (const [key, anno] of annotationMap.entries()) {
       if (anno.frame_id < minFrame || anno.frame_id > maxFrame) {
@@ -1579,16 +1572,14 @@ export default function DynamicVideo({
   useEffect(() => {
     if (!mounted) return;
     const cutoffFrame = Math.max(0, currentFrame - trajectoryFrames);
-    const lastKeptFrame = currentFrame + Math.round(12 * stableFpsRef.current);
+    const lastKeptFrame = currentFrame + Math.round(6 * stableFpsRef.current);
     let prunedAny = false;
-    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame && t.frame_id <= lastKeptFrame);
     for (const [objId, frameMap] of trajectoriesRef.current.entries()) {
       for (const frameId of frameMap.keys()) if (frameId < cutoffFrame || frameId > lastKeptFrame) { frameMap.delete(frameId); prunedAny = true; }
       if (frameMap.size === 0) trajectoriesRef.current.delete(objId);
     }
     if (prunedAny) {
       setTrajectoryMap(new Map(trajectoriesRef.current));
-      setTrajectoryPointCount(persistentTrajectoryRef.current.length);
     }
   }, [currentFrame, mounted, trajectoryFrames]);
 
@@ -1605,10 +1596,8 @@ export default function DynamicVideo({
       setAnnotationsReady(false);
       activityLogsQuery.refetch();
       setAnnotationMap(new Map());
-      persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
       setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
       clearLoadedRanges();
       setIsLoadingAnnotations(true);
       const windowFrames = Math.round(6 * stableFpsRef.current);
@@ -1720,10 +1709,8 @@ export default function DynamicVideo({
     const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
     if (!isWithinLoadedRange) {
       setAnnotationMap(new Map());
-      persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
       setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
       clearLoadedRanges();
     }
 
