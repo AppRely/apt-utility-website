@@ -2347,8 +2347,8 @@ export default function DynamicVideo({
       { action: "Go to Start", key: "S" },
       { action: "Go to End / select next link match", key: "E" },
       { action: "Next largest trajectory gap", key: "G" },
-      { action: "Previous break boundary", key: "," },
-      { action: "Next break boundary", key: "." },
+      { action: "Previous break boundary, then object start", key: "," },
+      { action: "Next break boundary, then object end", key: "." },
     ] },
     { category: "View", items: [
       { action: "Zoom In", key: "=" },
@@ -2492,6 +2492,23 @@ export default function DynamicVideo({
       const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
 
       const bulk = useBulkLinkStore.getState();
+      const isBulkNavigation = bulk.active && bulk.projectId === Number(projectId);
+      const bulkNavigationObject = isBulkNavigation
+        ? bulk.objects.find(object => object.object_id === bulk.selectionOrder[bulk.selectionOrder.length - 1])
+        : undefined;
+      const breakNavigationObject = isBulkNavigation ? bulkNavigationObject : selectedObjects[0];
+      if (isBulkNavigation && (e.code === "Comma" || e.code === "Period")) {
+        if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) return;
+        if (bulk.busy) {
+          e.preventDefault();
+          return;
+        }
+        if (!bulkNavigationObject) {
+          e.preventDefault();
+          safeToast({ title: bulk.pending.length ? "Loading selected object's range…" : "Select an object for the bulk operation", duration: 1500 });
+          return;
+        }
+      }
       if (bulk.active && bulk.projectId === Number(projectId) && (e.code === "KeyS" || e.code === "KeyE")) {
         if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) return;
         e.preventDefault();
@@ -2657,7 +2674,7 @@ export default function DynamicVideo({
         case "Period": {
           if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
           e.preventDefault();
-          const selected = selectedObjects[0];
+          const selected = breakNavigationObject;
           if (!selected || !projectId) {
             safeToast({ title: "Select an object to find its next break", duration: 1500 });
             break;
@@ -2694,6 +2711,11 @@ export default function DynamicVideo({
             : currentFrame;
           getNextBreak(projectId, selected.object_id, breakSearchFrame)
             .then(nextBreak => {
+              if (isBulkNavigation) {
+                const latestBulk = useBulkLinkStore.getState();
+                if (latestBulk.generation !== bulk.generation || latestBulk.busy ||
+                  latestBulk.selectionOrder[latestBulk.selectionOrder.length - 1] !== selected.object_id) return;
+              }
               activeBreakRef.current = {
                 selectedObjectId: selected.object_id,
                 breakStart: nextBreak.break_start,
@@ -2718,10 +2740,17 @@ export default function DynamicVideo({
               });
             })
             .catch((error: Error) => {
+              if (isBulkNavigation) {
+                const latestBulk = useBulkLinkStore.getState();
+                if (latestBulk.generation !== bulk.generation || latestBulk.busy ||
+                  latestBulk.selectionOrder[latestBulk.selectionOrder.length - 1] !== selected.object_id) return;
+              }
               const objectEnd = selected.end_frame;
-              const hasNoMoreBreaks = error instanceof NextBreakError && error.status < 500;
+              const hasNoMoreBreaks = error instanceof NextBreakError && error.status === 404;
               if (hasNoMoreBreaks && objectEnd !== undefined && currentFrame !== objectEnd) {
-                breakNavigationHistoryRef.current.push(currentFrame);
+                if (activeBreakRef.current?.selectedObjectId === selected.object_id) {
+                  breakNavigationHistoryRef.current.push(currentFrame);
+                }
                 activeBreakRef.current = null;
                 handleBreakNavigationJump(objectEnd);
                 safeToast({
@@ -2744,14 +2773,30 @@ export default function DynamicVideo({
         case "Comma": {
           if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
           e.preventDefault();
-          const selected = selectedObjects[0];
-          if (!selected || breakNavigationObjectRef.current !== selected.object_id) {
-            safeToast({ title: "No previous break in this session", duration: 1500 });
+          const selected = breakNavigationObject;
+          if (!selected) {
+            safeToast({ title: "Select an object to navigate its breaks", duration: 1500 });
             break;
+          }
+          if (isBreakNavigationPendingRef.current) break;
+          if (breakNavigationObjectRef.current !== selected.object_id) {
+            breakNavigationHistoryRef.current = [];
+            breakNavigationObjectRef.current = selected.object_id;
+            activeBreakRef.current = null;
           }
           const previousFrame = breakNavigationHistoryRef.current.pop();
           if (previousFrame === undefined) {
-            safeToast({ title: "No previous break in this session", duration: 1500 });
+            if (selected.start_frame === undefined) {
+              safeToast({ title: "Start frame not available", duration: 1500 });
+              break;
+            }
+            activeBreakRef.current = null;
+            handleBreakNavigationJump(selected.start_frame);
+            safeToast({
+              title: `Object start: ${selected.start_frame}`,
+              description: `No previous break for object ${selected.object_id}`,
+              duration: 1500,
+            });
             break;
           }
           handleBreakNavigationJump(previousFrame);

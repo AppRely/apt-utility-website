@@ -32,5 +32,9 @@ export const getNextBreak = async (
       response.ok ? 404 : response.status,
     );
   }
+  // The API returns HTTP 200 with null boundaries when no runtime gap remains.
+  if (result.data.break_start === null && result.data.break_end === null) {
+    throw new NextBreakError("No next break was found", 404);
+  }
   return result.data;
 };
