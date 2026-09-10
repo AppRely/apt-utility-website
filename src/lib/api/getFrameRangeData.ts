@@ -8,7 +8,6 @@ export const getFrameRangeData = async (
   endFrame: number,
  signal?: AbortSignal
 ) => {
-  console.log("ProjectID:", projectId, "Sending chunk:", startFrame, endFrame);
   const url = `${API_BASE}/api/v1/videos/${projectId}/frame-object-range-no-fallback/?start=${startFrame}&end=${endFrame}`;
   
   try {
@@ -22,12 +21,12 @@ export const getFrameRangeData = async (
 
     if (data.compressed && data.data) {
       try {
-        const binaryString = Array.from(
-          new Uint8Array(data.data.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)))
-        ).map(byte => String.fromCharCode(byte)).join('');
-        const decompressed = pako.inflate(
-          new Uint8Array(binaryString.split('').map(c => c.charCodeAt(0)))
-        );
+        const hex: string = data.data;
+        const compressed = new Uint8Array(hex.length / 2);
+        for (let index = 0; index < compressed.length; index++) {
+          compressed[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+        }
+        const decompressed = pako.inflate(compressed);
         return JSON.parse(new TextDecoder().decode(decompressed));
       } catch (error) {
         console.error("Decompression failed:", error);
@@ -45,4 +44,3 @@ export const getFrameRangeData = async (
     throw err;
   }
 }
-

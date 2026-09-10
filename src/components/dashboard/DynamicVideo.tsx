@@ -1032,6 +1032,7 @@ export default function DynamicVideo({
 
   // ===== Annotation chunk fetch =====
   const chunkMutation = useMutation({
+    gcTime: 0,
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
       const key = `${start}-${end}`;
@@ -1139,8 +1140,10 @@ export default function DynamicVideo({
     persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
     newTrajectoryFrames.forEach(traj => {
       if (traj.frame_id >= cutoff) {
-        persistentTrajectoryRef.current.push(traj);
         if (!trajectoriesRef.current.has(traj.object_id)) trajectoriesRef.current.set(traj.object_id, new Map());
+        if (!trajectoriesRef.current.get(traj.object_id)!.has(traj.frame_id)) {
+          persistentTrajectoryRef.current.push(traj);
+        }
         trajectoriesRef.current.get(traj.object_id)!.set(traj.frame_id, traj.coordinate);
       }
     });
@@ -1551,31 +1554,36 @@ export default function DynamicVideo({
     };
   }, [timelineContainer, timelineWidth, currentFrame, halfWindow]); // re-measure when the frame range changes
 
-  // ===== Cleanup old annotations =====
+  // Prune once per playback second, rather than copying the cache every frame.
+  const annotationCleanupFrame = Math.floor(currentFrame / Math.max(1, Math.round(fps))) * Math.max(1, Math.round(fps));
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
-    const maxFrames = 120 * stableFpsRef.current;
-    const minFrame = currentFrame - maxFrames;
-    const maxFrame = currentFrame + maxFrames;
-    let removedCount = 0;
-    const newMap = new Map(annotationMap);
+    const keepBehind = Math.max(trajectoryFrames, Math.round(12 * stableFpsRef.current));
+    const minFrame = Math.max(0, annotationCleanupFrame - keepBehind);
+    const maxFrame = annotationCleanupFrame + Math.round(12 * stableFpsRef.current);
+    let newMap: Map<string, Annotation> | null = null;
     for (const [key, anno] of annotationMap.entries()) {
       if (anno.frame_id < minFrame || anno.frame_id > maxFrame) {
+        if (!newMap) newMap = new Map(annotationMap);
         newMap.delete(key);
-        removedCount++;
       }
     }
-    if (removedCount > 0) setAnnotationMap(newMap);
-  }, [currentFrame, annotationMap, mounted]);
+    loadedRangesListRef.current = loadedRangesListRef.current
+      .filter(range => range.end >= minFrame && range.start <= maxFrame)
+      .map(range => ({ start: Math.max(range.start, minFrame), end: Math.min(range.end, maxFrame) }));
+    loadedRangesKeyRef.current.clear();
+    if (newMap) setAnnotationMap(newMap);
+  }, [annotationCleanupFrame, annotationMap, mounted, trajectoryFrames]);
 
   // Keep only the configured trailing trajectory window cached.
   useEffect(() => {
     if (!mounted) return;
     const cutoffFrame = Math.max(0, currentFrame - trajectoryFrames);
+    const lastKeptFrame = currentFrame + Math.round(12 * stableFpsRef.current);
     let prunedAny = false;
-    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame);
+    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame && t.frame_id <= lastKeptFrame);
     for (const [objId, frameMap] of trajectoriesRef.current.entries()) {
-      for (const frameId of frameMap.keys()) if (frameId < cutoffFrame) { frameMap.delete(frameId); prunedAny = true; }
+      for (const frameId of frameMap.keys()) if (frameId < cutoffFrame || frameId > lastKeptFrame) { frameMap.delete(frameId); prunedAny = true; }
       if (frameMap.size === 0) trajectoriesRef.current.delete(objId);
     }
     if (prunedAny) {
@@ -1738,9 +1746,9 @@ export default function DynamicVideo({
     if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
     const windowFrames = Math.round(6 * stableFpsRef.current);
     const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
+    const TRAJECTORY_BUFFER = Math.max(trajectoryFrames, Math.round(stableFpsRef.current * 6));
     const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
-    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
+    const windowEnd = Math.min(targetFrame + windowFrames, totalFrames);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     } else {
@@ -2112,6 +2120,7 @@ export default function DynamicVideo({
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
+    let disposeVideo: (() => void) | undefined;
     const loadVideo = async () => {
       const pid = sessionStorage.getItem("projectId");
       if (!pid) return;
@@ -2175,6 +2184,14 @@ export default function DynamicVideo({
           }
         };
         vid.addEventListener('seeked', handleSeeked);
+        disposeVideo = () => {
+          vid.pause();
+          vid.removeEventListener('seeked', handleSeeked);
+          vid.onloadedmetadata = null;
+          vid.onerror = null;
+          vid.removeAttribute('src');
+          vid.load();
+        };
         vid.onloadedmetadata = async () => {
           setIsLoadingAnnotations(true);
           setInitialLoadComplete(false);
@@ -2191,6 +2208,14 @@ export default function DynamicVideo({
       }
     };
     loadVideo();
+    return () => {
+      disposeVideo?.();
+      annotationGenerationRef.current += 1;
+      abortRef.current?.abort();
+      uniqueIdsAbortRef.current?.abort();
+      skeletonTimelineAbortRef.current?.abort();
+      pendingRangesRef.current.clear();
+    };
   }, [mounted, originalFpsLoadedRef.current]);
 
   // ===== NEW: undo/redo mutations moved up, but we keep the keyboard shortcuts here =====
