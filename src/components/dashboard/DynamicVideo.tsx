@@ -646,6 +646,11 @@ export default function DynamicVideo({
   const skeletonTimelineAbortRef = useRef<AbortController | null>(null);
   const skeletonTimelineRangeRef = useRef<{ start: number; end: number; objectIds: string } | null>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineContainer, setTimelineContainer] = useState<HTMLDivElement | null>(null);
+  const attachTimelineContainer = useCallback((node: HTMLDivElement | null) => {
+    timelineContainerRef.current = node;
+    setTimelineContainer(node);
+  }, []);
   const [isChartDragging, setIsChartDragging] = useState(false);
 
   const [hoverFrame, setHoverFrame] = useState<number | null>(null);
@@ -783,16 +788,18 @@ export default function DynamicVideo({
   const [timelineWidth, setTimelineWidth] = useState(800);
   const [measuredPadding, setMeasuredPadding] = useState({ left: 60, right: 30 });
 
-  // Measure timeline container width
-  useEffect(() => {
-    if (!timelineContainerRef.current) return;
-    const ro = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
+  // The timeline mounts after loading; observe the actual node when it appears.
+  useLayoutEffect(() => {
+    if (!timelineContainer) return;
+    const measure = () => {
+      const width = timelineContainer.clientWidth;
       if (width) setTimelineWidth(width);
-    });
-    ro.observe(timelineContainerRef.current);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(timelineContainer);
     return () => ro.disconnect();
-  }, []);
+  }, [timelineContainer]);
 
   const getObjectColor = useCallback((id: number) => {
     return getSharedObjectColor(id, videoColorTheme);
@@ -1500,7 +1507,8 @@ export default function DynamicVideo({
       const axisRect = (axisLine as SVGLineElement).getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
       const left = axisRect.left - containerRect.left;
-      const right = containerRect.right - axisRect.right;
+      // Match the content width used by both charts, excluding the scrollbar.
+      const right = container.clientWidth - (axisRect.right - containerRect.left);
 
       // Uncomment for debugging:
       // console.log('Measured padding:', { left, right, containerWidth: containerRect.width });
@@ -1525,7 +1533,7 @@ export default function DynamicVideo({
       ro.disconnect();
       mo.disconnect();
     };
-  }, [timelineWidth, currentFrame, halfWindow]); // re-measure when the frame range changes
+  }, [timelineContainer, timelineWidth, currentFrame, halfWindow]); // re-measure when the frame range changes
 
   // ===== Cleanup old annotations =====
   useEffect(() => {
@@ -1732,7 +1740,7 @@ export default function DynamicVideo({
     const mouseX = clientX - containerRect.left;
     const renderedPlotWidth = Math.max(
       1,
-      containerRect.width - measuredPadding.left - measuredPadding.right
+      container.clientWidth - measuredPadding.left - measuredPadding.right
     );
     const clampedX = Math.min(
       Math.max(mouseX, measuredPadding.left),
@@ -3768,9 +3776,9 @@ export default function DynamicVideo({
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-x-hidden overflow-y-auto" ref={timelineContainerRef}>
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-x-hidden overflow-y-auto" ref={attachTimelineContainer}>
               {/* Trajectory chart */}
-              <div className="flex-1 min-h-[140px] relative w-full">
+              <div className="flex-1 min-h-[100px] relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   {/* FIX: removed minWidth so both charts share exact pixel width */}
                   <div style={{ width: '100%', height: '100%' }}>
