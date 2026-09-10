@@ -1035,13 +1035,19 @@ export default function DynamicVideo({
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
       const key = `${start}-${end}`;
-      pendingRangesRef.current.add(key);
       if (abortRef.current) abortRef.current.abort();
+      pendingRangesRef.current.clear();
+      pendingRangesRef.current.add(key);
       const controller = new AbortController();
       abortRef.current = controller;
       const generation = annotationGenerationRef.current;
-      const data = await getFrameRangeData(projectId, start, end, controller.signal);
-      return { data, generation, signal: controller.signal };
+      try {
+        const data = await getFrameRangeData(projectId, start, end, controller.signal);
+        return { data, generation, signal: controller.signal };
+      } finally {
+        // An older cancelled request must not clear its replacement's entry.
+        if (abortRef.current === controller) pendingRangesRef.current.delete(key);
+      }
     },
     onSuccess: (result, { start, end }) => {
       if (!result || result.signal.aborted || result.generation !== annotationGenerationRef.current) return;
@@ -1073,9 +1079,7 @@ export default function DynamicVideo({
       if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
     },
-    onError: (_, { start, end }) => {
-      const key = `${start}-${end}`;
-      pendingRangesRef.current.delete(key);
+    onError: () => {
       if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
     },
   });
@@ -1083,7 +1087,6 @@ export default function DynamicVideo({
   const abortRef = useRef<AbortController | null>(null);
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
-  const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
 
   // ===== Other effects =====
   useEffect(() => {
@@ -2236,18 +2239,19 @@ export default function DynamicVideo({
         setCurrentTime(vid.currentTime);
       }
       const now = performance.now();
-      if (isPlaying && now - lastAnnoLoadTs.current > 500) {
-        if (currentAnnoWindowRef.current) {
-          const totalFrames = Math.floor(duration * stableFpsRef.current);
-          const windowSize = Math.round(6 * stableFpsRef.current);
-          const prefetchPoint = currentAnnoWindowRef.current.start + ANNO_PREFETCH_THRESHOLD;
-          const nextStart = newFrame;
-          const nextEnd = Math.min(newFrame + windowSize, totalFrames);
-          if (newFrame >= prefetchPoint && newFrame + windowSize <= totalFrames && !isRangeAlreadyLoading(nextStart, nextEnd)) {
-            if (!loadedRangesKeyRef.current.has(`${nextStart}-${nextEnd}`)) {
-              chunkMutation.mutate({ start: Math.max(0, nextStart), end: nextEnd });
-              lastAnnoLoadTs.current = now;
-            }
+      if (!vid.paused && !isSeekingRef.current && now - lastAnnoLoadTs.current > 500 && pendingRangesRef.current.size === 0) {
+        const lastFrame = Math.max(0, Math.ceil(vid.duration * stableFpsRef.current) - 1);
+        if (!Number.isFinite(lastFrame)) return;
+        const frame = Math.min(newFrame, lastFrame);
+        const loadedRange = loadedRangesListRef.current.find(range => frame >= range.start && frame <= range.end);
+        const windowSize = Math.max(1, Math.round(6 * stableFpsRef.current));
+        const prefetchFrames = Math.max(1, Math.round(2 * stableFpsRef.current * vid.playbackRate));
+        if (!loadedRange || loadedRange.end - frame <= prefetchFrames) {
+          const nextStart = loadedRange ? loadedRange.end + 1 : Math.max(0, frame);
+          const nextEnd = Math.min(nextStart + windowSize - 1, lastFrame);
+          if (nextStart <= nextEnd && !isRangeAlreadyLoading(nextStart, nextEnd)) {
+            chunkMutation.mutate({ start: nextStart, end: nextEnd });
+            lastAnnoLoadTs.current = now;
           }
         }
       }
@@ -2262,7 +2266,7 @@ export default function DynamicVideo({
       vid.removeEventListener("play", handlePlay);
       vid.removeEventListener("pause", handlePause);
     };
-  }, [video, isPlaying, duration, mounted, ANNO_PREFETCH_THRESHOLD]);
+  }, [video, isPlaying, duration, mounted]);
 
   const allObjectIds = getAllObjectIds();
 
