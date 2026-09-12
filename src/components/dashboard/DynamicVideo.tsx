@@ -531,11 +531,9 @@ export default function DynamicVideo({
 
   const [autoPanEnabled, setAutoPanEnabled] = useState(true);
 
-  const persistentTrajectoryRef = useRef<TrajectoryFrame[]>([]);
   const [trajectoryMap, setTrajectoryMap] = useState<TrajectoryMap>(new Map());
   const trajectoriesRef = useRef<TrajectoryMap>(new Map());
   const [showTrajectory, setShowTrajectory] = useState(true);
-  const [trajectoryPointCount, setTrajectoryPointCount] = useState(0);
 
   const [frameInput, setFrameInput] = useState("");
   const [showSpeed, setShowSpeed] = useState(false);
@@ -559,9 +557,16 @@ export default function DynamicVideo({
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
+  const isBulkSelectionActive = bulkSelection.active && bulkSelection.projectId === Number(projectId);
+  const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
+  const linkSuggestionSource = isBulkSelectionActive
+    ? isBulkLinkActive
+      ? bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1])
+      : undefined
+    : selectedObjects.length === 1 ? selectedObjects[0] : undefined;
   const nextFrameLinkMatches = useMemo(() => {
-    if (selectedObjects.length !== 1) return [];
-    const selected = selectedObjects[0];
+    const selected = linkSuggestionSource;
+    if (!selected) return [];
     const selectedEnd = selected.end_frame ?? selected.start_frame;
     if (selectedEnd === undefined) return [];
     const windowStart = selectedEnd + 1;
@@ -575,6 +580,7 @@ export default function DynamicVideo({
       }))
       .filter(object =>
         object.id !== selected.object_id &&
+        (!isBulkLinkActive || !bulkSelection.selectionOrder.includes(object.id)) &&
         object.start_frame >= windowStart &&
         object.start_frame <= windowEnd &&
         object.linkDistance !== null &&
@@ -586,26 +592,30 @@ export default function DynamicVideo({
         a.id - b.id
       )
       .slice(0, 5);
-  }, [selectedObjects, uniqueIdsData]);
+  }, [linkSuggestionSource, isBulkLinkActive, bulkSelection.selectionOrder, uniqueIdsData]);
 
   useEffect(() => {
-    if (selectedObjects.length === 1 && nextFrameLinkMatches.length > 0) {
+    if (!isBulkSelectionActive && selectedObjects.length === 1 && nextFrameLinkMatches.length > 0) {
       nextFrameLinkMatchesRef.current = {
         sourceObjectId: selectedObjects[0].object_id,
         matches: nextFrameLinkMatches,
       };
     }
-  }, [nextFrameLinkMatches, selectedObjects]);
+  }, [isBulkSelectionActive, nextFrameLinkMatches, selectedObjects]);
 
   const visibleNextFrameLinkMatches = nextFrameLinkMatches.length > 0
     ? nextFrameLinkMatches
-    : selectedObjects.length === 2 &&
+    : !isBulkSelectionActive && selectedObjects.length === 2 &&
         nextFrameLinkMatchesRef.current?.sourceObjectId === selectedObjects[0].object_id &&
         nextFrameLinkMatchesRef.current.matches.some(match => match.id === selectedObjects[1].object_id)
       ? nextFrameLinkMatchesRef.current.matches
       : [];
 
   useEffect(() => {
+    if (isBulkSelectionActive) {
+      pendingEndMatchObjectRef.current = null;
+      return;
+    }
     const selected = selectedObjects[0];
     const candidate = nextFrameLinkMatches[0];
     if (
@@ -630,7 +640,7 @@ export default function DynamicVideo({
       description: `Top next match · starts at frame ${candidate.start_frame}`,
       duration: 1800,
     });
-  }, [nextFrameLinkMatches, safeToast, selectedObjects, setSelectedObjects]);
+  }, [isBulkSelectionActive, nextFrameLinkMatches, safeToast, selectedObjects, setSelectedObjects]);
 
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const timelineAbortRef = useRef<AbortController | null>(null);
@@ -646,6 +656,11 @@ export default function DynamicVideo({
   const skeletonTimelineAbortRef = useRef<AbortController | null>(null);
   const skeletonTimelineRangeRef = useRef<{ start: number; end: number; objectIds: string } | null>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineContainer, setTimelineContainer] = useState<HTMLDivElement | null>(null);
+  const attachTimelineContainer = useCallback((node: HTMLDivElement | null) => {
+    timelineContainerRef.current = node;
+    setTimelineContainer(node);
+  }, []);
   const [isChartDragging, setIsChartDragging] = useState(false);
 
   const [hoverFrame, setHoverFrame] = useState<number | null>(null);
@@ -783,16 +798,18 @@ export default function DynamicVideo({
   const [timelineWidth, setTimelineWidth] = useState(800);
   const [measuredPadding, setMeasuredPadding] = useState({ left: 60, right: 30 });
 
-  // Measure timeline container width
-  useEffect(() => {
-    if (!timelineContainerRef.current) return;
-    const ro = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
+  // The timeline mounts after loading; observe the actual node when it appears.
+  useLayoutEffect(() => {
+    if (!timelineContainer) return;
+    const measure = () => {
+      const width = timelineContainer.clientWidth;
       if (width) setTimelineWidth(width);
-    });
-    ro.observe(timelineContainerRef.current);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(timelineContainer);
     return () => ro.disconnect();
-  }, []);
+  }, [timelineContainer]);
 
   const getObjectColor = useCallback((id: number) => {
     return getSharedObjectColor(id, videoColorTheme);
@@ -1013,20 +1030,29 @@ export default function DynamicVideo({
 
   // ===== Annotation chunk fetch =====
   const chunkMutation = useMutation({
+    gcTime: 0,
     mutationFn: async ({ start, end }: { start: number; end: number }) => {
       if (!projectId) return null;
       const key = `${start}-${end}`;
-      pendingRangesRef.current.add(key);
       if (abortRef.current) abortRef.current.abort();
+      pendingRangesRef.current.clear();
+      pendingRangesRef.current.add(key);
       const controller = new AbortController();
       abortRef.current = controller;
       const generation = annotationGenerationRef.current;
-      const data = await getFrameRangeData(projectId, start, end, controller.signal);
-      return { data, generation, signal: controller.signal };
+      try {
+        const data = await getFrameRangeData(projectId, start, end, controller.signal);
+        return { data, generation, signal: controller.signal };
+      } finally {
+        // An older cancelled request must not clear its replacement's entry.
+        if (abortRef.current === controller) pendingRangesRef.current.delete(key);
+      }
     },
     onSuccess: (result, { start, end }) => {
       if (!result || result.signal.aborted || result.generation !== annotationGenerationRef.current) return;
       const { data } = result;
+      // Keep normalized annotations only, not the full response in mutation state.
+      result.data = null;
       if (!data) return;
       const key = `${start}-${end}`;
       pendingRangesRef.current.delete(key);
@@ -1054,9 +1080,7 @@ export default function DynamicVideo({
       if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
       setAnnotationsReady(true);
     },
-    onError: (_, { start, end }) => {
-      const key = `${start}-${end}`;
-      pendingRangesRef.current.delete(key);
+    onError: () => {
       if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(false);
     },
   });
@@ -1064,7 +1088,6 @@ export default function DynamicVideo({
   const abortRef = useRef<AbortController | null>(null);
   const currentAnnoWindowRef = useRef<{ start: number; end: number } | null>(null);
   const lastAnnoLoadTs = useRef<number>(0);
-  const ANNO_PREFETCH_THRESHOLD = useMemo(() => Math.round((stableFpsRef.current / 100) * 6 * stableFpsRef.current), []);
 
   // ===== Other effects =====
   useEffect(() => {
@@ -1114,15 +1137,12 @@ export default function DynamicVideo({
   const addTrajectoryPoints = useCallback((newTrajectoryFrames: TrajectoryFrame[]) => {
     const currentFrameNum = currentDisplayFrameRef.current;
     const cutoff = Math.max(0, currentFrameNum - trajectoryFrames);
-    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoff);
     newTrajectoryFrames.forEach(traj => {
       if (traj.frame_id >= cutoff) {
-        persistentTrajectoryRef.current.push(traj);
         if (!trajectoriesRef.current.has(traj.object_id)) trajectoriesRef.current.set(traj.object_id, new Map());
         trajectoriesRef.current.get(traj.object_id)!.set(traj.frame_id, traj.coordinate);
       }
     });
-    setTrajectoryPointCount(persistentTrajectoryRef.current.length);
   }, [trajectoryFrames]);
 
   const getTrajectoryPointsUpToCurrent = useCallback((objectId: number, upToFrame: number): number[] => {
@@ -1182,10 +1202,8 @@ export default function DynamicVideo({
 
     // Clear annotations and trajectories
     setAnnotationMap(new Map());
-    persistentTrajectoryRef.current = [];
     trajectoriesRef.current = new Map();
     setTrajectoryMap(new Map());
-    setTrajectoryPointCount(0);
     clearLoadedRanges();
     loadedRangesKeyRef.current.clear();
     pendingRangesRef.current.clear();
@@ -1234,11 +1252,12 @@ export default function DynamicVideo({
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
-    pruneUniqueRanges(currentFrame, halfWindow * 3);
-    const visibleStart = Math.max(0, currentFrame - halfWindow);
-    const visibleEnd = Math.min(totalFrames, currentFrame + halfWindow);
+    const uniqueHalfWindow = Math.min(halfWindow, 100);
+    pruneUniqueRanges(currentFrame, 375);
+    const visibleStart = Math.max(0, currentFrame - uniqueHalfWindow);
+    const visibleEnd = Math.min(totalFrames, currentFrame + uniqueHalfWindow);
     if (isUniqueRangeLoaded(visibleStart, visibleEnd)) return;
-    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    const buffer = 25;
     fetchUniqueRange(Math.max(0, visibleStart - buffer), Math.min(totalFrames, visibleEnd + buffer));
   }, [projectId, currentFrame, getTotalFrames, halfWindow, pruneUniqueRanges, fetchUniqueRange, isUniqueRangeLoaded, refreshKey]);
 
@@ -1500,7 +1519,8 @@ export default function DynamicVideo({
       const axisRect = (axisLine as SVGLineElement).getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
       const left = axisRect.left - containerRect.left;
-      const right = containerRect.right - axisRect.right;
+      // Match the content width used by both charts, excluding the scrollbar.
+      const right = container.clientWidth - (axisRect.right - containerRect.left);
 
       // Uncomment for debugging:
       // console.log('Measured padding:', { left, right, containerWidth: containerRect.width });
@@ -1525,38 +1545,41 @@ export default function DynamicVideo({
       ro.disconnect();
       mo.disconnect();
     };
-  }, [timelineWidth, currentFrame, halfWindow]); // re-measure when the frame range changes
+  }, [timelineContainer, timelineWidth, currentFrame, halfWindow]); // re-measure when the frame range changes
 
-  // ===== Cleanup old annotations =====
+  // Prune once per playback second, rather than copying the cache every frame.
+  const annotationCleanupFrame = Math.floor(currentFrame / Math.max(1, Math.round(fps))) * Math.max(1, Math.round(fps));
   useEffect(() => {
     if (!mounted || annotationMap.size === 0) return;
-    const maxFrames = 120 * stableFpsRef.current;
-    const minFrame = currentFrame - maxFrames;
-    const maxFrame = currentFrame + maxFrames;
-    let removedCount = 0;
-    const newMap = new Map(annotationMap);
+    const keepBehind = Math.max(trajectoryFrames, Math.round(6 * stableFpsRef.current));
+    const minFrame = Math.max(0, annotationCleanupFrame - keepBehind);
+    const maxFrame = annotationCleanupFrame + Math.round(6 * stableFpsRef.current);
+    let newMap: Map<string, Annotation> | null = null;
     for (const [key, anno] of annotationMap.entries()) {
       if (anno.frame_id < minFrame || anno.frame_id > maxFrame) {
+        if (!newMap) newMap = new Map(annotationMap);
         newMap.delete(key);
-        removedCount++;
       }
     }
-    if (removedCount > 0) setAnnotationMap(newMap);
-  }, [currentFrame, annotationMap, mounted]);
+    loadedRangesListRef.current = loadedRangesListRef.current
+      .filter(range => range.end >= minFrame && range.start <= maxFrame)
+      .map(range => ({ start: Math.max(range.start, minFrame), end: Math.min(range.end, maxFrame) }));
+    loadedRangesKeyRef.current.clear();
+    if (newMap) setAnnotationMap(newMap);
+  }, [annotationCleanupFrame, annotationMap, mounted, trajectoryFrames]);
 
   // Keep only the configured trailing trajectory window cached.
   useEffect(() => {
     if (!mounted) return;
     const cutoffFrame = Math.max(0, currentFrame - trajectoryFrames);
+    const lastKeptFrame = currentFrame + Math.round(6 * stableFpsRef.current);
     let prunedAny = false;
-    persistentTrajectoryRef.current = persistentTrajectoryRef.current.filter(t => t.frame_id >= cutoffFrame);
     for (const [objId, frameMap] of trajectoriesRef.current.entries()) {
-      for (const frameId of frameMap.keys()) if (frameId < cutoffFrame) { frameMap.delete(frameId); prunedAny = true; }
+      for (const frameId of frameMap.keys()) if (frameId < cutoffFrame || frameId > lastKeptFrame) { frameMap.delete(frameId); prunedAny = true; }
       if (frameMap.size === 0) trajectoriesRef.current.delete(objId);
     }
     if (prunedAny) {
       setTrajectoryMap(new Map(trajectoriesRef.current));
-      setTrajectoryPointCount(persistentTrajectoryRef.current.length);
     }
   }, [currentFrame, mounted, trajectoryFrames]);
 
@@ -1573,10 +1596,8 @@ export default function DynamicVideo({
       setAnnotationsReady(false);
       activityLogsQuery.refetch();
       setAnnotationMap(new Map());
-      persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
       setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
       clearLoadedRanges();
       setIsLoadingAnnotations(true);
       const windowFrames = Math.round(6 * stableFpsRef.current);
@@ -1688,10 +1709,8 @@ export default function DynamicVideo({
     const isWithinLoadedRange = loadedRangesListRef.current.some(range => targetFrame >= range.start && range.end >= targetFrame);
     if (!isWithinLoadedRange) {
       setAnnotationMap(new Map());
-      persistentTrajectoryRef.current = [];
       trajectoriesRef.current = new Map();
       setTrajectoryMap(new Map());
-      setTrajectoryPointCount(0);
       clearLoadedRanges();
     }
 
@@ -1714,9 +1733,9 @@ export default function DynamicVideo({
     if (!isFrameStepSequenceRef.current) setIsLoadingAnnotations(true);
     const windowFrames = Math.round(6 * stableFpsRef.current);
     const totalFrames = Math.floor(video.duration * stableFpsRef.current);
-    const TRAJECTORY_BUFFER = stableFpsRef.current * 30;
+    const TRAJECTORY_BUFFER = Math.max(trajectoryFrames, Math.round(stableFpsRef.current * 6));
     const windowStart = Math.max(0, targetFrame - TRAJECTORY_BUFFER);
-    const windowEnd = Math.min(targetFrame + windowFrames + TRAJECTORY_BUFFER, totalFrames);
+    const windowEnd = Math.min(targetFrame + windowFrames, totalFrames);
     if (!isRangeAlreadyLoading(windowStart, windowEnd)) {
       chunkMutation.mutate({ start: windowStart, end: windowEnd });
     } else {
@@ -1732,7 +1751,7 @@ export default function DynamicVideo({
     const mouseX = clientX - containerRect.left;
     const renderedPlotWidth = Math.max(
       1,
-      containerRect.width - measuredPadding.left - measuredPadding.right
+      container.clientWidth - measuredPadding.left - measuredPadding.right
     );
     const clampedX = Math.min(
       Math.max(mouseX, measuredPadding.left),
@@ -2088,6 +2107,7 @@ export default function DynamicVideo({
   const API_BASE = process.env.NEXT_PUBLIC_SERVER_ENDPOINT;
   useEffect(() => {
     if (!mounted || !originalFpsLoadedRef.current) return;
+    let disposeVideo: (() => void) | undefined;
     const loadVideo = async () => {
       const pid = sessionStorage.getItem("projectId");
       if (!pid) return;
@@ -2151,6 +2171,14 @@ export default function DynamicVideo({
           }
         };
         vid.addEventListener('seeked', handleSeeked);
+        disposeVideo = () => {
+          vid.pause();
+          vid.removeEventListener('seeked', handleSeeked);
+          vid.onloadedmetadata = null;
+          vid.onerror = null;
+          vid.removeAttribute('src');
+          vid.load();
+        };
         vid.onloadedmetadata = async () => {
           setIsLoadingAnnotations(true);
           setInitialLoadComplete(false);
@@ -2167,6 +2195,14 @@ export default function DynamicVideo({
       }
     };
     loadVideo();
+    return () => {
+      disposeVideo?.();
+      annotationGenerationRef.current += 1;
+      abortRef.current?.abort();
+      uniqueIdsAbortRef.current?.abort();
+      skeletonTimelineAbortRef.current?.abort();
+      pendingRangesRef.current.clear();
+    };
   }, [mounted, originalFpsLoadedRef.current]);
 
   // ===== NEW: undo/redo mutations moved up, but we keep the keyboard shortcuts here =====
@@ -2215,18 +2251,19 @@ export default function DynamicVideo({
         setCurrentTime(vid.currentTime);
       }
       const now = performance.now();
-      if (isPlaying && now - lastAnnoLoadTs.current > 500) {
-        if (currentAnnoWindowRef.current) {
-          const totalFrames = Math.floor(duration * stableFpsRef.current);
-          const windowSize = Math.round(6 * stableFpsRef.current);
-          const prefetchPoint = currentAnnoWindowRef.current.start + ANNO_PREFETCH_THRESHOLD;
-          const nextStart = newFrame;
-          const nextEnd = Math.min(newFrame + windowSize, totalFrames);
-          if (newFrame >= prefetchPoint && newFrame + windowSize <= totalFrames && !isRangeAlreadyLoading(nextStart, nextEnd)) {
-            if (!loadedRangesKeyRef.current.has(`${nextStart}-${nextEnd}`)) {
-              chunkMutation.mutate({ start: Math.max(0, nextStart), end: nextEnd });
-              lastAnnoLoadTs.current = now;
-            }
+      if (!vid.paused && !isSeekingRef.current && now - lastAnnoLoadTs.current > 500 && pendingRangesRef.current.size === 0) {
+        const lastFrame = Math.max(0, Math.ceil(vid.duration * stableFpsRef.current) - 1);
+        if (!Number.isFinite(lastFrame)) return;
+        const frame = Math.min(newFrame, lastFrame);
+        const loadedRange = loadedRangesListRef.current.find(range => frame >= range.start && frame <= range.end);
+        const windowSize = Math.max(1, Math.round(6 * stableFpsRef.current));
+        const prefetchFrames = Math.max(1, Math.round(2 * stableFpsRef.current * vid.playbackRate));
+        if (!loadedRange || loadedRange.end - frame <= prefetchFrames) {
+          const nextStart = loadedRange ? loadedRange.end + 1 : Math.max(0, frame);
+          const nextEnd = Math.min(nextStart + windowSize - 1, lastFrame);
+          if (nextStart <= nextEnd && !isRangeAlreadyLoading(nextStart, nextEnd)) {
+            chunkMutation.mutate({ start: nextStart, end: nextEnd });
+            lastAnnoLoadTs.current = now;
           }
         }
       }
@@ -2241,7 +2278,7 @@ export default function DynamicVideo({
       vid.removeEventListener("play", handlePlay);
       vid.removeEventListener("pause", handlePause);
     };
-  }, [video, isPlaying, duration, mounted, ANNO_PREFETCH_THRESHOLD]);
+  }, [video, isPlaying, duration, mounted]);
 
   const allObjectIds = getAllObjectIds();
 
@@ -2327,8 +2364,8 @@ export default function DynamicVideo({
       { action: "Go to Start", key: "S" },
       { action: "Go to End / select next link match", key: "E" },
       { action: "Next largest trajectory gap", key: "G" },
-      { action: "Previous break boundary", key: "," },
-      { action: "Next break boundary", key: "." },
+      { action: "Previous break boundary, then object start", key: "," },
+      { action: "Next break boundary, then object end", key: "." },
     ] },
     { category: "View", items: [
       { action: "Zoom In", key: "=" },
@@ -2472,6 +2509,23 @@ export default function DynamicVideo({
       const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
 
       const bulk = useBulkLinkStore.getState();
+      const isBulkNavigation = bulk.active && bulk.projectId === Number(projectId);
+      const bulkNavigationObject = isBulkNavigation
+        ? bulk.objects.find(object => object.object_id === bulk.selectionOrder[bulk.selectionOrder.length - 1])
+        : undefined;
+      const breakNavigationObject = isBulkNavigation ? bulkNavigationObject : selectedObjects[0];
+      if (isBulkNavigation && (e.code === "Comma" || e.code === "Period")) {
+        if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) return;
+        if (bulk.busy) {
+          e.preventDefault();
+          return;
+        }
+        if (!bulkNavigationObject) {
+          e.preventDefault();
+          safeToast({ title: bulk.pending.length ? "Loading selected object's range…" : "Select an object for the bulk operation", duration: 1500 });
+          return;
+        }
+      }
       if (bulk.active && bulk.projectId === Number(projectId) && (e.code === "KeyS" || e.code === "KeyE")) {
         if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) return;
         e.preventDefault();
@@ -2637,7 +2691,7 @@ export default function DynamicVideo({
         case "Period": {
           if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
           e.preventDefault();
-          const selected = selectedObjects[0];
+          const selected = breakNavigationObject;
           if (!selected || !projectId) {
             safeToast({ title: "Select an object to find its next break", duration: 1500 });
             break;
@@ -2674,6 +2728,11 @@ export default function DynamicVideo({
             : currentFrame;
           getNextBreak(projectId, selected.object_id, breakSearchFrame)
             .then(nextBreak => {
+              if (isBulkNavigation) {
+                const latestBulk = useBulkLinkStore.getState();
+                if (latestBulk.generation !== bulk.generation || latestBulk.busy ||
+                  latestBulk.selectionOrder[latestBulk.selectionOrder.length - 1] !== selected.object_id) return;
+              }
               activeBreakRef.current = {
                 selectedObjectId: selected.object_id,
                 breakStart: nextBreak.break_start,
@@ -2698,10 +2757,17 @@ export default function DynamicVideo({
               });
             })
             .catch((error: Error) => {
+              if (isBulkNavigation) {
+                const latestBulk = useBulkLinkStore.getState();
+                if (latestBulk.generation !== bulk.generation || latestBulk.busy ||
+                  latestBulk.selectionOrder[latestBulk.selectionOrder.length - 1] !== selected.object_id) return;
+              }
               const objectEnd = selected.end_frame;
-              const hasNoMoreBreaks = error instanceof NextBreakError && error.status < 500;
+              const hasNoMoreBreaks = error instanceof NextBreakError && error.status === 404;
               if (hasNoMoreBreaks && objectEnd !== undefined && currentFrame !== objectEnd) {
-                breakNavigationHistoryRef.current.push(currentFrame);
+                if (activeBreakRef.current?.selectedObjectId === selected.object_id) {
+                  breakNavigationHistoryRef.current.push(currentFrame);
+                }
                 activeBreakRef.current = null;
                 handleBreakNavigationJump(objectEnd);
                 safeToast({
@@ -2724,14 +2790,30 @@ export default function DynamicVideo({
         case "Comma": {
           if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
           e.preventDefault();
-          const selected = selectedObjects[0];
-          if (!selected || breakNavigationObjectRef.current !== selected.object_id) {
-            safeToast({ title: "No previous break in this session", duration: 1500 });
+          const selected = breakNavigationObject;
+          if (!selected) {
+            safeToast({ title: "Select an object to navigate its breaks", duration: 1500 });
             break;
+          }
+          if (isBreakNavigationPendingRef.current) break;
+          if (breakNavigationObjectRef.current !== selected.object_id) {
+            breakNavigationHistoryRef.current = [];
+            breakNavigationObjectRef.current = selected.object_id;
+            activeBreakRef.current = null;
           }
           const previousFrame = breakNavigationHistoryRef.current.pop();
           if (previousFrame === undefined) {
-            safeToast({ title: "No previous break in this session", duration: 1500 });
+            if (selected.start_frame === undefined) {
+              safeToast({ title: "Start frame not available", duration: 1500 });
+              break;
+            }
+            activeBreakRef.current = null;
+            handleBreakNavigationJump(selected.start_frame);
+            safeToast({
+              title: `Object start: ${selected.start_frame}`,
+              description: `No previous break for object ${selected.object_id}`,
+              duration: 1500,
+            });
             break;
           }
           handleBreakNavigationJump(previousFrame);
@@ -2819,7 +2901,7 @@ export default function DynamicVideo({
                 {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
                 {autoInterpolation && " 🔄 AUTO-INTERP"}
               </div>
-              {showSuggestions && linkingSuggestions &&
+              {showSuggestions && !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd && (
                   <div className="mt-2 w-72 rounded-xl border border-white/10 bg-black/75 px-3 py-2 font-sans text-white shadow-md">
@@ -2861,7 +2943,7 @@ export default function DynamicVideo({
                   </div>
                 )}
               {showSuggestions && visibleNextFrameLinkMatches.length > 0 && !(
-                linkingSuggestions &&
+                !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
                 currentFrame < linkingSuggestions.breakEnd
               ) && (
@@ -2869,14 +2951,19 @@ export default function DynamicVideo({
                   <div className="mb-1.5 text-xs font-semibold text-white">Next Link Matches</div>
                   <div className="space-y-0.5">
                     {visibleNextFrameLinkMatches.map((candidate, index) => {
-                      const isSelectedMatch = selectedObjects[1]?.object_id === candidate.id;
+                      const isSelectedMatch = !isBulkLinkActive && selectedObjects[1]?.object_id === candidate.id;
                       return (
                         <button
                           key={candidate.id}
                           type="button"
-                          aria-label={`Select object ${candidate.id} as Object 2`}
+                          aria-label={isBulkLinkActive ? `Add object ${candidate.id} to bulk link` : `Select object ${candidate.id} as Object 2`}
                           aria-pressed={isSelectedMatch}
+                          disabled={isBulkLinkActive && bulkSelection.busy}
                           onClick={() => {
+                            if (isBulkLinkActive) {
+                              void bulkSelection.select(Number(projectId), candidate.id, candidate.start_frame);
+                              return;
+                            }
                             const primaryObject = selectedObjects[0];
                             if (!primaryObject) return;
                             setSelectedObjects([
@@ -2909,7 +2996,7 @@ export default function DynamicVideo({
                       );
                     })}
                   </div>
-                  <div className="mt-1.5 text-[11px] text-white/60">Select a match, then press L to link</div>
+                  <div className="mt-1.5 text-[11px] text-white/60">{isBulkLinkActive ? 'Add matches, then press Enter to bulk link' : 'Select a match, then press L to link'}</div>
                 </div>
               )}
               {showSuggestions && selectedObjects.length === 1 && (areClipSuggestionsLoading || clipSuggestions.length > 0) && (
@@ -3768,9 +3855,9 @@ export default function DynamicVideo({
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-x-hidden overflow-y-auto" ref={timelineContainerRef}>
+            <div className="flex flex-col flex-1 min-h-0 gap-0 w-full overflow-x-hidden overflow-y-auto" ref={attachTimelineContainer}>
               {/* Trajectory chart */}
-              <div className="flex-1 min-h-[140px] relative w-full">
+              <div className="flex-1 min-h-[100px] relative w-full">
                 <div className="w-full h-full cursor-grab active:cursor-grabbing">
                   {/* FIX: removed minWidth so both charts share exact pixel width */}
                   <div style={{ width: '100%', height: '100%' }}>

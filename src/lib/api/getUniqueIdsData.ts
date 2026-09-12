@@ -25,6 +25,20 @@ export const getUniqueIdsData = async (
   endFrame: number,
   signal?: AbortSignal
 ): Promise<UniqueIdsResponse | null> => {
+  if (!Number.isInteger(startFrame) || !Number.isInteger(endFrame) || startFrame < 0 || endFrame < startFrame) {
+    throw new Error("Invalid unique IDs frame range");
+  }
+  // Skip oversized requests entirely; callers should request a local window.
+  if (endFrame - startFrame + 1 > 251 || signal?.aborted) return null;
+  return fetchUniqueIdsRange(projectId, startFrame, endFrame, signal);
+};
+
+const fetchUniqueIdsRange = async (
+  projectId: number,
+  startFrame: number,
+  endFrame: number,
+  signal?: AbortSignal
+): Promise<UniqueIdsResponse | null> => {
   const url = `${API_BASE}/api/v1/videos/${projectId}/unique-ids/?start_frame=${startFrame}&end_frame=${endFrame}`;
 
   try {
@@ -35,11 +49,13 @@ export const getUniqueIdsData = async (
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch unique IDs: ${response.statusText}`);
+      const details = await response.json().catch(() => null);
+      throw new Error(`Failed to fetch unique IDs (HTTP ${response.status}): ${
+        details?.errors ? JSON.stringify(details.errors) : details?.message || response.statusText
+      }`);
     }
 
     const data = await response.json();
-    console.log("[UniqueIds] Raw response:", data); // debug
 
     // Optional: validate shape
     if (data?.status !== "success" || !data?.data?.objects) {
