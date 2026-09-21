@@ -3320,6 +3320,7 @@ export default function DynamicVideo({
                         ]}
                         stroke={color}
                         strokeWidth={1 / currentZoom}
+                        dash={[3 / currentZoom, 3 / currentZoom]}
                         opacity={0.75}
                         listening={false}
                       />
