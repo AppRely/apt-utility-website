@@ -343,7 +343,7 @@ export default function DynamicVideo({
   const [annotationMap, setAnnotationMap] = useState<Map<string, Annotation>>(new Map());
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
-  // The saved Bulk Link rectangle is held in stage/content coordinates, so it
+  // The saved bulk-operation rectangle is held in stage/content coordinates, so it
   // remains aligned with annotations while the video plays, zooms, or pans.
   const [bulkSelectionRect, setBulkSelectionRect] = useState<{
     startX: number;
@@ -569,10 +569,11 @@ export default function DynamicVideo({
   const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
 
   useEffect(() => {
-    // A rectangle only applies to an active Bulk Link session.  Cancelling
-    // Bulk Link also clears the visual selection area.
-    if (!isBulkLinkActive) setBulkSelectionRect(null);
-  }, [isBulkLinkActive]);
+    // Starting, switching, or cancelling a bulk operation creates a new
+    // generation and clears the previous operation's selection area.
+    bulkSelectionRectRef.current = null;
+    setBulkSelectionRect(null);
+  }, [bulkSelection.generation]);
 
   const linkSuggestionSource = isBulkSelectionActive
     ? isBulkLinkActive
@@ -864,9 +865,9 @@ export default function DynamicVideo({
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
   // A saved rectangle is a live selection area. When playback reaches a
-  // later frame, newly visible objects inside it join the same Bulk Link list.
+  // later frame, newly visible objects inside it join the active bulk list.
   useEffect(() => {
-    if (bulkSelectionRectRef.current || !bulkSelectionRect || !isBulkLinkActive || bulkSelection.busy || !projectId) return;
+    if (bulkSelectionRectRef.current || !bulkSelectionRect || !isBulkSelectionActive || bulkSelection.busy || !projectId) return;
 
     const left = Math.min(bulkSelectionRect.startX, bulkSelectionRect.endX);
     const right = Math.max(bulkSelectionRect.startX, bulkSelectionRect.endX);
@@ -896,7 +897,7 @@ export default function DynamicVideo({
       .forEach(annotation => {
         void bulkSelection.select(projectId, annotation.object_id, currentFrame);
       });
-  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkLinkActive, mapX, mapY, projectId]);
+  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
 
   // Numeric shortcuts apply only to objects whose transformed bounding box is
   // currently visible after zooming and panning the stage.
@@ -1927,10 +1928,10 @@ export default function DynamicVideo({
   }, [handleResetZoom, showZoomIndicator]);
 
   const handleMouseDown = (e: any) => {
-    // In Bulk Link mode, a left-button drag selects every visible object
+    // In Bulk Link or Bulk Delete mode, a left-button drag selects every visible object
     // whose annotation intersects the rectangle.  This deliberately runs
     // before normal panning, including when the drag starts on an annotation.
-    if (isBulkLinkActive && !bulkSelection.busy && e.evt.button === 0 && stageRef.current) {
+    if (isBulkSelectionActive && !bulkSelection.busy && e.evt.button === 0 && stageRef.current) {
       const pointer = stageRef.current.getPointerPosition();
       if (!pointer) return;
       const point = {
@@ -1983,7 +1984,7 @@ export default function DynamicVideo({
   const finishBulkRectangleSelection = useCallback(() => {
     const rect = bulkSelectionRectRef.current;
     bulkSelectionRectRef.current = null;
-    if (!rect || !isBulkLinkActive || bulkSelection.busy || !projectId) return;
+    if (!rect || !isBulkSelectionActive || bulkSelection.busy || !projectId) return;
 
     const left = Math.min(rect.startX, rect.endX);
     const right = Math.max(rect.startX, rect.endX);
@@ -2016,11 +2017,11 @@ export default function DynamicVideo({
       void bulkSelection.select(projectId, objectId, currentFrame);
     });
     safeToast({
-      title: `${objectIds.length} object${objectIds.length === 1 ? "" : "s"} added to Bulk Link`,
+      title: `${objectIds.length} object${objectIds.length === 1 ? "" : "s"} added to Bulk ${bulkSelection.mode === "delete" ? "Delete" : "Link"}`,
       description: "Trajectory ranges are loading in the sidebar.",
       duration: 1800,
     });
-  }, [annotationMap, bulkSelection, currentFrame, isBulkLinkActive, mapX, mapY, projectId, safeToast]);
+  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast]);
 
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
@@ -3239,8 +3240,8 @@ export default function DynamicVideo({
                     y={Math.min(bulkSelectionRect.startY, bulkSelectionRect.endY)}
                     width={Math.abs(bulkSelectionRect.endX - bulkSelectionRect.startX)}
                     height={Math.abs(bulkSelectionRect.endY - bulkSelectionRect.startY)}
-                    fill="rgba(13, 148, 136, 0.18)"
-                    stroke="#0f766e"
+                    fill={bulkSelection.mode === "delete" ? "rgba(220, 38, 38, 0.16)" : "rgba(13, 148, 136, 0.18)"}
+                    stroke={bulkSelection.mode === "delete" ? "#b91c1c" : "#0f766e"}
                     strokeWidth={2 / currentZoom}
                     dash={[8 / currentZoom, 5 / currentZoom]}
                     listening={false}
