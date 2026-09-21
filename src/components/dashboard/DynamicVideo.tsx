@@ -272,44 +272,38 @@ const ObjectRangesTimeline = ({
             const color = getObjectColor(obj.id);
             const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
             const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
-            const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
             const startX = frameToX(obj.start_frame);
             const endX = frameToX(obj.end_frame);
-            const baseY = markerY;
-            const startOffsetY = isOverlap ? -8 : 0;
-            const endOffsetY = isOverlap ? 8 : 0;
 
             return (
               <g key={obj.id}>
                 {showStart && (
-                  <rect
-                    x={startX - 1}
-                    y={baseY + startOffsetY - 5}
-                    width="2"
-                    height="10"
-                    rx="2"
-                    ry="2"
-                    fill={color}
+                  <line
+                    x1={startX}
+                    y1={padding.top}
+                    x2={startX}
+                    y2={markerY}
+                    stroke={color}
+                    strokeWidth="2"
                     style={{ cursor: "pointer" }}
                     onClick={() => handlePointClick(obj.start_frame)}
                   >
                     <title>Object {obj.id} - Start frame: {obj.start_frame}</title>
-                  </rect>
+                  </line>
                 )}
                 {showEnd && (
-                  <rect
-                    x={endX - 1}
-                    y={baseY + endOffsetY - 5}
-                    width="2"
-                    height="10"
-                    rx="2"
-                    ry="2"
-                    fill={color}
+                  <line
+                    x1={endX}
+                    y1={markerY}
+                    x2={endX}
+                    y2={padding.top + chartHeight}
+                    stroke={color}
+                    strokeWidth="2"
                     style={{ cursor: "pointer" }}
                     onClick={() => handlePointClick(obj.end_frame)}
                   >
                     <title>Object {obj.id} - End frame: {obj.end_frame}</title>
-                  </rect>
+                  </line>
                 )}
               </g>
             );
@@ -2500,6 +2494,8 @@ export default function DynamicVideo({
       { action: "Next largest trajectory gap", key: "G" },
       { action: "Previous break boundary, then object start", key: "," },
       { action: "Next break boundary, then object end", key: "." },
+      { action: "Previous start/end marker on timeline", key: "[" },
+      { action: "Next start/end marker on timeline", key: "]" },
     ] },
     { category: "View", items: [
       { action: "Zoom In", key: "=" },
@@ -2953,6 +2949,36 @@ export default function DynamicVideo({
           handleBreakNavigationJump(previousFrame);
           break;
         }
+        case "BracketLeft":
+        case "BracketRight": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          const boundaryFrames = Array.from(new Set(
+            (uniqueIdsData?.data?.objects ?? []).flatMap(object => [
+              object.start_frame,
+              object.end_frame,
+            ])
+          )).sort((a, b) => a - b);
+          const targetFrame = e.code === "BracketLeft"
+            ? [...boundaryFrames].reverse().find(frame => frame < currentFrame)
+            : boundaryFrames.find(frame => frame > currentFrame);
+
+          if (targetFrame === undefined) {
+            safeToast({
+              title: e.code === "BracketLeft" ? "No previous timeline marker" : "No next timeline marker",
+              duration: 1400,
+            });
+            break;
+          }
+
+          handleFrameJump(targetFrame);
+          safeToast({
+            title: `Timeline boundary: frame ${targetFrame}`,
+            description: e.code === "BracketLeft" ? "Previous start/end marker" : "Next start/end marker",
+            duration: 1200,
+          });
+          break;
+        }
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
         case "KeyC":
           if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -2966,7 +2992,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, handleBreakNavigationJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, handleBreakNavigationJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps, uniqueIdsData]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
@@ -4180,7 +4206,7 @@ export default function DynamicVideo({
 
               {/* Object ranges timeline */}
               <div
-                className="w-full min-h-0 shrink-0"
+                className="relative w-full min-h-0 shrink-0"
                 style={{ flex: '0 0 25%', minHeight: '28px' }}
               >
                 {isLoadingUnique && !uniqueIdsData ? (
