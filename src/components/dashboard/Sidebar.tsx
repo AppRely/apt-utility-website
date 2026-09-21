@@ -974,6 +974,11 @@ export default function Sidebar({
           {selectedObjects.length === 0 && <p className="text-gray-500">No object selected</p>}
           {selectedObjects.map((obj, i) => {
             const color = getObjectColor(obj.object_id, videoColorTheme);
+            const trajectoryLength = rangeQueries[i]?.isSuccess &&
+              obj.start_frame !== undefined &&
+              obj.end_frame !== undefined
+                ? obj.end_frame - obj.start_frame
+                : null;
             return (
               <div key={i} className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start" style={{ borderLeft: `5px solid ${color}` }}>
                 <div>
@@ -983,6 +988,9 @@ export default function Sidebar({
                   </p>
                   <p className="flex gap-3 text-sm"><span>ID: {obj.object_id}</span><span>Frame: {obj.frame_id}</span></p>
                   <p className="flex gap-3 text-xs text-gray-600"><span>Start: {rangeQueries[i]?.isSuccess ? obj.start_frame : "—"}</span><span>End: {rangeQueries[i]?.isSuccess ? obj.end_frame : "—"}</span></p>
+                  <p className="text-xs text-gray-600">
+                    Trajectory length: {trajectoryLength ?? "—"}
+                  </p>
                   {!rangeQueries[i]?.isSuccess && <p className="text-xs text-gray-600">{rangeQueries[i]?.isError ? "Could not load actual range. Reselect the object to retry." : "Loading actual range…"}</p>}
                 </div>
                 <button onClick={() => { setSelectedObjects((prev) => prev.filter((o) => o.object_id !== obj.object_id)); toast({ title: "🗑️ Removed", description: `Object ${obj.object_id} removed from selection.`, variant: "default", duration: 3000 }); }} className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">×</button>
