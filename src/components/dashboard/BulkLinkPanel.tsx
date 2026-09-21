@@ -80,7 +80,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold">Bulk {state.mode} selection ({state.objects.length})</h3>
-      <p className="mt-1 text-xs">Select objects, then press Enter to {state.mode === 'delete' ? 'delete' : 'link'}. S / E jumps to the last selected object's start / end.</p>
+      <p className="mt-1 text-xs">{state.mode === 'link' ? 'Click objects or draw a rectangle over the video to add them. The rectangle stays active while playing and adds objects that enter it. Drag again to replace it, then press Enter to link.' : 'Select objects, then press Enter to delete.'} S / E jumps to the last selected object's start / end.</p>
       {state.mode === 'delete' && <p className="mt-1 text-xs">Deletes each selected object across its full trajectory.</p>}
       {/* <p className="mt-1 text-xs">Click objects in the video across frames to add them. The timeline shows {state.mode === 'link' ? 'the two most recently selected objects' : 'the last selected object'}. S / E jumps to the start / end of the last selected object.</p> */}
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
