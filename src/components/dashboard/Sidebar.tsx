@@ -58,6 +58,11 @@ const formatVideoDuration = (value: string | null) => {
     : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 };
 
+const formatTrajectoryLength = (startFrame?: number, endFrame?: number) =>
+  startFrame !== undefined && endFrame !== undefined
+    ? endFrame - startFrame
+    : "—";
+
 export default function Sidebar({
   selectedObjects: windowSelectedObjects,
   setSelectedObjects,
@@ -974,6 +979,11 @@ export default function Sidebar({
           {selectedObjects.length === 0 && <p className="text-gray-500">No object selected</p>}
           {selectedObjects.map((obj, i) => {
             const color = getObjectColor(obj.object_id, videoColorTheme);
+            const trajectoryLength = rangeQueries[i]?.isSuccess &&
+              obj.start_frame !== undefined &&
+              obj.end_frame !== undefined
+                ? obj.end_frame - obj.start_frame
+                : null;
             return (
               <div key={i} className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start" style={{ borderLeft: `5px solid ${color}` }}>
                 <div>
@@ -983,6 +993,9 @@ export default function Sidebar({
                   </p>
                   <p className="flex gap-3 text-sm"><span>ID: {obj.object_id}</span><span>Frame: {obj.frame_id}</span></p>
                   <p className="flex gap-3 text-xs text-gray-600"><span>Start: {rangeQueries[i]?.isSuccess ? obj.start_frame : "—"}</span><span>End: {rangeQueries[i]?.isSuccess ? obj.end_frame : "—"}</span></p>
+                  <p className="text-xs text-gray-600">
+                    Trajectory length: {trajectoryLength ?? "—"}
+                  </p>
                   {!rangeQueries[i]?.isSuccess && <p className="text-xs text-gray-600">{rangeQueries[i]?.isError ? "Could not load actual range. Reselect the object to retry." : "Loading actual range…"}</p>}
                 </div>
                 <button onClick={() => { setSelectedObjects((prev) => prev.filter((o) => o.object_id !== obj.object_id)); toast({ title: "🗑️ Removed", description: `Object ${obj.object_id} removed from selection.`, variant: "default", duration: 3000 }); }} className="text-red-500 font-bold text-lg hover:text-red-700 ml-2">×</button>
@@ -1236,7 +1249,9 @@ export default function Sidebar({
             {linkOrderRef.current && (
               <div className="mt-2 text-sm text-gray-600 border-t pt-2">
                 <p><strong>Object 1:</strong> ID {linkOrderRef.current.obj1.object_id} (range {linkOrderRef.current.obj1.start_frame}–{linkOrderRef.current.obj1.end_frame})</p>
-                <p><strong>Object 2:</strong> ID {linkOrderRef.current.obj2.object_id} (range {linkOrderRef.current.obj2.start_frame}–{linkOrderRef.current.obj2.end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(linkOrderRef.current.obj1.start_frame, linkOrderRef.current.obj1.end_frame)}</p>
+                <p className="mt-1"><strong>Object 2:</strong> ID {linkOrderRef.current.obj2.object_id} (range {linkOrderRef.current.obj2.start_frame}–{linkOrderRef.current.obj2.end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(linkOrderRef.current.obj2.start_frame, linkOrderRef.current.obj2.end_frame)}</p>
               </div>
             )}
           </div>
@@ -1259,7 +1274,9 @@ export default function Sidebar({
             {selectedObjects.length === 2 && (
               <div className="mt-4 space-y-1">
                 <p><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Range: {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(selectedObjects[0].start_frame, selectedObjects[0].end_frame)}</p>
                 <p><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Range: {selectedObjects[1].start_frame}–{selectedObjects[1].end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(selectedObjects[1].start_frame, selectedObjects[1].end_frame)}</p>
                 <p className="text-yellow-600 mt-2">This will swap the IDs and tracking data of the two objects.</p>
               </div>
             )}
@@ -1285,6 +1302,7 @@ export default function Sidebar({
                 <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
                 <p><strong>At Frame:</strong> {frameId}</p>
                 <p><strong>Current Range:</strong> {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame}</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(selectedObjects[0].start_frame, selectedObjects[0].end_frame)}</p>
                 <div>
                   <p className="font-medium mb-2">Break Type:</p>
                   <div className="flex gap-6">
@@ -1322,6 +1340,12 @@ export default function Sidebar({
                 <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
                 <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
                 <p><strong>Current Range:</strong> {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame}</p>
+                <p>
+                  <strong>Trajectory Length:</strong>{" "}
+                  {selectedObjects[0].start_frame !== undefined && selectedObjects[0].end_frame !== undefined
+                    ? selectedObjects[0].end_frame - selectedObjects[0].start_frame
+                    : "—"}
+                </p>
                 <p className="text-yellow-600 mt-2">Current ID will be deleted.</p>
               </div>
             )}

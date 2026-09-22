@@ -272,44 +272,38 @@ const ObjectRangesTimeline = ({
             const color = getObjectColor(obj.id);
             const showStart = obj.start_frame >= minFrame && obj.start_frame <= maxFrame;
             const showEnd = obj.end_frame >= minFrame && obj.end_frame <= maxFrame;
-            const isOverlap = showStart && showEnd && Math.abs(obj.start_frame - obj.end_frame) < 5;
             const startX = frameToX(obj.start_frame);
             const endX = frameToX(obj.end_frame);
-            const baseY = markerY;
-            const startOffsetY = isOverlap ? -8 : 0;
-            const endOffsetY = isOverlap ? 8 : 0;
 
             return (
               <g key={obj.id}>
                 {showStart && (
-                  <rect
-                    x={startX - 1}
-                    y={baseY + startOffsetY - 5}
-                    width="2"
-                    height="10"
-                    rx="2"
-                    ry="2"
-                    fill={color}
+                  <line
+                    x1={startX}
+                    y1={padding.top}
+                    x2={startX}
+                    y2={markerY}
+                    stroke={color}
+                    strokeWidth="2"
                     style={{ cursor: "pointer" }}
                     onClick={() => handlePointClick(obj.start_frame)}
                   >
                     <title>Object {obj.id} - Start frame: {obj.start_frame}</title>
-                  </rect>
+                  </line>
                 )}
                 {showEnd && (
-                  <rect
-                    x={endX - 1}
-                    y={baseY + endOffsetY - 5}
-                    width="2"
-                    height="10"
-                    rx="2"
-                    ry="2"
-                    fill={color}
+                  <line
+                    x1={endX}
+                    y1={markerY}
+                    x2={endX}
+                    y2={padding.top + chartHeight}
+                    stroke={color}
+                    strokeWidth="2"
                     style={{ cursor: "pointer" }}
                     onClick={() => handlePointClick(obj.end_frame)}
                   >
                     <title>Object {obj.id} - End frame: {obj.end_frame}</title>
-                  </rect>
+                  </line>
                 )}
               </g>
             );
@@ -349,6 +343,20 @@ export default function DynamicVideo({
   const [annotationMap, setAnnotationMap] = useState<Map<string, Annotation>>(new Map());
   const [annotationsReady, setAnnotationsReady] = useState(false);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(true);
+  // The saved bulk-operation rectangle is held in stage/content coordinates, so it
+  // remains aligned with annotations while the video plays, zooms, or pans.
+  const [bulkSelectionRect, setBulkSelectionRect] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
+  const bulkSelectionRectRef = useRef<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
 
   const isFrameStepRef = useRef(false);
   const isFrameStepSequenceRef = useRef(false);
@@ -559,6 +567,14 @@ export default function DynamicVideo({
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
   const isBulkSelectionActive = bulkSelection.active && bulkSelection.projectId === Number(projectId);
   const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
+
+  useEffect(() => {
+    // Starting, switching, or cancelling a bulk operation creates a new
+    // generation and clears the previous operation's selection area.
+    bulkSelectionRectRef.current = null;
+    setBulkSelectionRect(null);
+  }, [bulkSelection.generation]);
+
   const linkSuggestionSource = isBulkSelectionActive
     ? isBulkLinkActive
       ? bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1])
@@ -847,6 +863,42 @@ export default function DynamicVideo({
 
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
+
+  // A saved rectangle is a live selection area. When playback reaches a
+  // later frame, newly visible objects inside it join the active bulk list.
+  useEffect(() => {
+    if (bulkSelectionRectRef.current || !bulkSelectionRect || !isBulkSelectionActive || bulkSelection.busy || !projectId) return;
+
+    const left = Math.min(bulkSelectionRect.startX, bulkSelectionRect.endX);
+    const right = Math.max(bulkSelectionRect.startX, bulkSelectionRect.endX);
+    const top = Math.min(bulkSelectionRect.startY, bulkSelectionRect.endY);
+    const bottom = Math.max(bulkSelectionRect.startY, bulkSelectionRect.endY);
+    if (right - left < 4 || bottom - top < 4) return;
+
+    // Do not call select() for an ID already known to the store: selecting an
+    // existing ID intentionally changes its selection order, which would
+    // trigger this effect again and cause a React update loop.
+    const knownObjectIds = new Set([
+      ...bulkSelection.objects.map(object => object.object_id),
+      ...bulkSelection.pending,
+      ...bulkSelection.excluded,
+    ]);
+    Array.from(annotationMap.values())
+      .filter(annotation => {
+        if (
+          annotation.frame_id !== currentFrame ||
+          annotation.coordinates.length === 0 ||
+          knownObjectIds.has(annotation.object_id)
+        ) return false;
+        const xs = annotation.coordinates.map(([x]) => mapX(x));
+        const ys = annotation.coordinates.map(([, y]) => mapY(y));
+        return Math.max(...xs) >= left && Math.min(...xs) <= right &&
+          Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+      })
+      .forEach(annotation => {
+        void bulkSelection.select(projectId, annotation.object_id, currentFrame, "rectangle");
+      });
+  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
 
   // Numeric shortcuts apply only to objects whose transformed bounding box is
   // currently visible after zooming and panning the stage.
@@ -1877,6 +1929,24 @@ export default function DynamicVideo({
   }, [handleResetZoom, showZoomIndicator]);
 
   const handleMouseDown = (e: any) => {
+    // In Bulk Link or Bulk Delete mode, a left-button drag selects every visible object
+    // whose annotation intersects the rectangle.  This deliberately runs
+    // before normal panning, including when the drag starts on an annotation.
+    if (isBulkSelectionActive && !bulkSelection.busy && e.evt.button === 0 && stageRef.current) {
+      const pointer = stageRef.current.getPointerPosition();
+      if (!pointer) return;
+      const point = {
+        x: (pointer.x - stagePos.x) / stageScale.x,
+        y: (pointer.y - stagePos.y) / stageScale.y,
+      };
+      const rect = { startX: point.x, startY: point.y, endX: point.x, endY: point.y };
+      bulkSelectionRectRef.current = rect;
+      setBulkSelectionRect(rect);
+      e.cancelBubble = true;
+      setCursorStyle("crosshair");
+      return;
+    }
+
     if (e.evt.button === 0 || e.evt.button === 2) {
       if (e.target === e.target.getStage()) {
         setIsPanMode(true);
@@ -1889,6 +1959,18 @@ export default function DynamicVideo({
   
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
+    if (bulkSelectionRectRef.current) {
+      const pointer = stageRef.current.getPointerPosition();
+      if (!pointer) return;
+      const rect = {
+        ...bulkSelectionRectRef.current,
+        endX: (pointer.x - stagePos.x) / stageScale.x,
+        endY: (pointer.y - stagePos.y) / stageScale.y,
+      };
+      bulkSelectionRectRef.current = rect;
+      setBulkSelectionRect(rect);
+      return;
+    }
     if (isDragging && isPanMode) {
       setCursorStyle("grabbing");
       const deltaX = e.evt.clientX - lastMousePosRef.current.x;
@@ -1900,8 +1982,56 @@ export default function DynamicVideo({
     }
   };
   
-  const handleMouseUp = () => { setIsDragging(false); setIsPanMode(false); setCursorStyle("grab"); };
-  const handleMouseLeave = () => { setIsDragging(false); setIsPanMode(false); setCursorStyle("default"); };
+  const finishBulkRectangleSelection = useCallback(() => {
+    const rect = bulkSelectionRectRef.current;
+    bulkSelectionRectRef.current = null;
+    if (!rect || !isBulkSelectionActive || bulkSelection.busy || !projectId) return;
+
+    const left = Math.min(rect.startX, rect.endX);
+    const right = Math.max(rect.startX, rect.endX);
+    const top = Math.min(rect.startY, rect.endY);
+    const bottom = Math.max(rect.startY, rect.endY);
+    // Ignore clicks/minuscule drags; individual annotations retain their
+    // existing click-to-add behavior.
+    if (right - left < 4 || bottom - top < 4) {
+      setBulkSelectionRect(null);
+      return;
+    }
+
+    const objectIds = Array.from(annotationMap.values())
+      .filter(annotation => {
+        if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
+        const xs = annotation.coordinates.map(([x]) => mapX(x));
+        const ys = annotation.coordinates.map(([, y]) => mapY(y));
+        // Bounding-box intersection is more forgiving than requiring every
+        // keypoint to be inside the rectangle and matches visual selection.
+        return Math.max(...xs) >= left && Math.min(...xs) <= right &&
+          Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+      })
+      .map(annotation => annotation.object_id);
+
+    if (objectIds.length === 0) {
+      safeToast({ title: "No objects in the selection", duration: 1400 });
+      return;
+    }
+    objectIds.forEach(objectId => {
+      void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
+    });
+    safeToast({
+      title: `${objectIds.length} object${objectIds.length === 1 ? "" : "s"} added to Bulk ${bulkSelection.mode === "delete" ? "Delete" : "Link"}`,
+      description: "Trajectory ranges are loading in the sidebar.",
+      duration: 1800,
+    });
+  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast]);
+
+  const handleMouseUp = () => {
+    if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
+    setIsDragging(false); setIsPanMode(false); setCursorStyle("grab");
+  };
+  const handleMouseLeave = () => {
+    if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
+    setIsDragging(false); setIsPanMode(false); setCursorStyle("default");
+  };
   const handleContextMenu = (e: any) => e.evt.preventDefault();
   const handleTouchMove = useCallback((e: any) => {}, []);
   const handleTouchEnd = () => {};
@@ -2366,6 +2496,8 @@ export default function DynamicVideo({
       { action: "Next largest trajectory gap", key: "G" },
       { action: "Previous break boundary, then object start", key: "," },
       { action: "Next break boundary, then object end", key: "." },
+      { action: "Previous start/end marker on timeline", key: "[" },
+      { action: "Next start/end marker on timeline", key: "]" },
     ] },
     { category: "View", items: [
       { action: "Zoom In", key: "=" },
@@ -2819,6 +2951,36 @@ export default function DynamicVideo({
           handleBreakNavigationJump(previousFrame);
           break;
         }
+        case "BracketLeft":
+        case "BracketRight": {
+          if (isInputFocused || e.ctrlKey || e.altKey || e.metaKey) break;
+          e.preventDefault();
+          const boundaryFrames = Array.from(new Set(
+            (uniqueIdsData?.data?.objects ?? []).flatMap(object => [
+              object.start_frame,
+              object.end_frame,
+            ])
+          )).sort((a, b) => a - b);
+          const targetFrame = e.code === "BracketLeft"
+            ? [...boundaryFrames].reverse().find(frame => frame < currentFrame)
+            : boundaryFrames.find(frame => frame > currentFrame);
+
+          if (targetFrame === undefined) {
+            safeToast({
+              title: e.code === "BracketLeft" ? "No previous timeline marker" : "No next timeline marker",
+              duration: 1400,
+            });
+            break;
+          }
+
+          handleFrameJump(targetFrame);
+          safeToast({
+            title: `Timeline boundary: frame ${targetFrame}`,
+            description: e.code === "BracketLeft" ? "Previous start/end marker" : "Next start/end marker",
+            duration: 1200,
+          });
+          break;
+        }
         case "KeyM": e.preventDefault(); openUniqueIdsPopup(); break;
         case "KeyC":
           if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -2832,7 +2994,7 @@ export default function DynamicVideo({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, handleBreakNavigationJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps]);
+  }, [video, togglePlayPause, handleSkip, handleFrameStep, handleZoomIn, handleZoomOut, selectedObjects, handleFrameJump, handleBreakNavigationJump, safeToast, mounted, autoPanEnabled, openUniqueIdsPopup, openConfusionPopup, objectsInCurrentFrame, objectPage, totalPages, pageSize, selectObjectForSlot, bboxScale, clipStartFrame, setClipStartFrame, setClipEndFrame, currentFrame, projectId, loadLinkingSuggestions, nextFrameLinkMatches, setSelectedObjects, areTrajectoryGapsLoading, trajectoryGaps, uniqueIdsData]);
 
   // shortcutMap based on currentPageObjects
   const shortcutMap = useMemo(() => {
@@ -3073,6 +3235,19 @@ export default function DynamicVideo({
                     listening={false} 
                   />
                 )}
+                {bulkSelectionRect && (
+                  <Rect
+                    x={Math.min(bulkSelectionRect.startX, bulkSelectionRect.endX)}
+                    y={Math.min(bulkSelectionRect.startY, bulkSelectionRect.endY)}
+                    width={Math.abs(bulkSelectionRect.endX - bulkSelectionRect.startX)}
+                    height={Math.abs(bulkSelectionRect.endY - bulkSelectionRect.startY)}
+                    fill={bulkSelection.mode === "delete" ? "rgba(220, 38, 38, 0.16)" : "rgba(13, 148, 136, 0.18)"}
+                    stroke={bulkSelection.mode === "delete" ? "#b91c1c" : "#0f766e"}
+                    strokeWidth={2 / currentZoom}
+                    dash={[8 / currentZoom, 5 / currentZoom]}
+                    listening={false}
+                  />
+                )}
                 {showTrajectory && allObjectIds.map(oid => {
                   const points = getTrajectoryPointsUpToCurrent(oid, currentFrame);
                   if(points.length < 2) return null;
@@ -3173,6 +3348,7 @@ export default function DynamicVideo({
                         ]}
                         stroke={color}
                         strokeWidth={1 / currentZoom}
+                        dash={[3 / currentZoom, 3 / currentZoom]}
                         opacity={0.75}
                         listening={false}
                       />
@@ -4032,7 +4208,7 @@ export default function DynamicVideo({
 
               {/* Object ranges timeline */}
               <div
-                className="w-full min-h-0 shrink-0"
+                className="relative w-full min-h-0 shrink-0"
                 style={{ flex: '0 0 25%', minHeight: '28px' }}
               >
                 {isLoadingUnique && !uniqueIdsData ? (
