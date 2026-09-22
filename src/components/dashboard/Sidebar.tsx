@@ -58,6 +58,11 @@ const formatVideoDuration = (value: string | null) => {
     : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 };
 
+const formatTrajectoryLength = (startFrame?: number, endFrame?: number) =>
+  startFrame !== undefined && endFrame !== undefined
+    ? endFrame - startFrame
+    : "—";
+
 export default function Sidebar({
   selectedObjects: windowSelectedObjects,
   setSelectedObjects,
@@ -1244,7 +1249,9 @@ export default function Sidebar({
             {linkOrderRef.current && (
               <div className="mt-2 text-sm text-gray-600 border-t pt-2">
                 <p><strong>Object 1:</strong> ID {linkOrderRef.current.obj1.object_id} (range {linkOrderRef.current.obj1.start_frame}–{linkOrderRef.current.obj1.end_frame})</p>
-                <p><strong>Object 2:</strong> ID {linkOrderRef.current.obj2.object_id} (range {linkOrderRef.current.obj2.start_frame}–{linkOrderRef.current.obj2.end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(linkOrderRef.current.obj1.start_frame, linkOrderRef.current.obj1.end_frame)}</p>
+                <p className="mt-1"><strong>Object 2:</strong> ID {linkOrderRef.current.obj2.object_id} (range {linkOrderRef.current.obj2.start_frame}–{linkOrderRef.current.obj2.end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(linkOrderRef.current.obj2.start_frame, linkOrderRef.current.obj2.end_frame)}</p>
               </div>
             )}
           </div>
@@ -1267,7 +1274,9 @@ export default function Sidebar({
             {selectedObjects.length === 2 && (
               <div className="mt-4 space-y-1">
                 <p><strong>Object 1:</strong> ID {selectedObjects[0].object_id} (Range: {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(selectedObjects[0].start_frame, selectedObjects[0].end_frame)}</p>
                 <p><strong>Object 2:</strong> ID {selectedObjects[1].object_id} (Range: {selectedObjects[1].start_frame}–{selectedObjects[1].end_frame})</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(selectedObjects[1].start_frame, selectedObjects[1].end_frame)}</p>
                 <p className="text-yellow-600 mt-2">This will swap the IDs and tracking data of the two objects.</p>
               </div>
             )}
@@ -1293,6 +1302,7 @@ export default function Sidebar({
                 <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
                 <p><strong>At Frame:</strong> {frameId}</p>
                 <p><strong>Current Range:</strong> {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame}</p>
+                <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(selectedObjects[0].start_frame, selectedObjects[0].end_frame)}</p>
                 <div>
                   <p className="font-medium mb-2">Break Type:</p>
                   <div className="flex gap-6">
