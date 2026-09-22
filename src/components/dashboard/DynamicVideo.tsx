@@ -881,6 +881,7 @@ export default function DynamicVideo({
     const knownObjectIds = new Set([
       ...bulkSelection.objects.map(object => object.object_id),
       ...bulkSelection.pending,
+      ...bulkSelection.excluded,
     ]);
     Array.from(annotationMap.values())
       .filter(annotation => {
@@ -895,7 +896,7 @@ export default function DynamicVideo({
           Math.max(...ys) >= top && Math.min(...ys) <= bottom;
       })
       .forEach(annotation => {
-        void bulkSelection.select(projectId, annotation.object_id, currentFrame);
+        void bulkSelection.select(projectId, annotation.object_id, currentFrame, "rectangle");
       });
   }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
 
@@ -1999,7 +2000,7 @@ export default function DynamicVideo({
 
     const objectIds = Array.from(annotationMap.values())
       .filter(annotation => {
-        if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0) return false;
+        if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
         const xs = annotation.coordinates.map(([x]) => mapX(x));
         const ys = annotation.coordinates.map(([, y]) => mapY(y));
         // Bounding-box intersection is more forgiving than requiring every
@@ -2014,7 +2015,7 @@ export default function DynamicVideo({
       return;
     }
     objectIds.forEach(objectId => {
-      void bulkSelection.select(projectId, objectId, currentFrame);
+      void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
     });
     safeToast({
       title: `${objectIds.length} object${objectIds.length === 1 ? "" : "s"} added to Bulk ${bulkSelection.mode === "delete" ? "Delete" : "Link"}`,
