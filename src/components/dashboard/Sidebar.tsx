@@ -1330,6 +1330,12 @@ export default function Sidebar({
                 <p><strong>Object:</strong> ID {selectedObjects[0].object_id}</p>
                 <p><strong>At Frame:</strong> {selectedObjects[0].frame_id}</p>
                 <p><strong>Current Range:</strong> {selectedObjects[0].start_frame}–{selectedObjects[0].end_frame}</p>
+                <p>
+                  <strong>Trajectory Length:</strong>{" "}
+                  {selectedObjects[0].start_frame !== undefined && selectedObjects[0].end_frame !== undefined
+                    ? selectedObjects[0].end_frame - selectedObjects[0].start_frame
+                    : "—"}
+                </p>
                 <p className="text-yellow-600 mt-2">Current ID will be deleted.</p>
               </div>
             )}
