@@ -1335,9 +1335,9 @@ export default function DynamicVideo({
 
   const timelineObjects = useMemo(() => {
     if (!bulkSelection.active || bulkSelection.projectId !== Number(projectId)) return selectedObjects;
-    return bulkSelection.selectionOrder.slice(bulkSelection.mode === 'link' ? -2 : -1)
-      .map(object_id => ({ object_id }));
-  }, [bulkSelection.active, bulkSelection.mode, bulkSelection.projectId, bulkSelection.selectionOrder, projectId, selectedObjects]);
+    // Show every confirmed bulk selection in its object color on the timeline.
+    return bulkSelection.objects.map(({ object_id }) => ({ object_id }));
+  }, [bulkSelection.active, bulkSelection.projectId, bulkSelection.objects, projectId, selectedObjects]);
 
   const selectedTimelineObjectIds = useMemo(
     () => timelineObjects.map(object => object.object_id).sort((a, b) => a - b).join(","),
