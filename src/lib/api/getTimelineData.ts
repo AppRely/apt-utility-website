@@ -19,7 +19,7 @@ export const getTimelineData = async (
   end: number,
   objectIds?: string | number | (string | number)[],
   signal?: AbortSignal
-) => {
+): Promise<{ f: Record<string, Record<string, unknown>> } | null> => {
   let url = `${API_BASE}/api/v1/videos/${projectId}/frame-timeline/?start=${start}&end=${end}`;
   if (objectIds) {
     let idsParam: string;
@@ -34,8 +34,27 @@ export const getTimelineData = async (
     const response = await fetch(url, { method: "GET", signal });
     if (!response.ok) {
       if (response.status === 400) {
-        console.warn(`Timeline API returned 400 for range ${start}-${end}, objectIds: ${objectIds}. Returning empty array.`);
-        return { f: {} }; // empty data
+        // This endpoint rejects a multi-ID request when any ID has no frames
+        // in the requested window. Keep the other selected trajectories visible.
+        const ids = [...new Set((Array.isArray(objectIds) ? objectIds.join(",") : String(objectIds ?? ""))
+          .split(",").map(id => id.trim()).filter(Boolean))];
+        if (ids.length > 1) {
+          const merged: Record<string, Record<string, unknown>> = {};
+          // Limit concurrent fallback requests for large bulk selections.
+          for (let index = 0; index < ids.length; index += 4) {
+            if (signal?.aborted) return null;
+            const results = await Promise.all(ids.slice(index, index + 4).map(id =>
+              getTimelineData(projectId, start, end, id, signal)));
+            if (signal?.aborted) return null;
+            for (const result of results) {
+              for (const [frame, objects] of Object.entries(result?.f ?? {})) {
+                merged[frame] = { ...merged[frame], ...objects };
+              }
+            }
+          }
+          return { f: merged };
+        }
+        return { f: {} };
       }
       throw new Error(`Failed to fetch timeline: ${response.status} ${response.statusText}`);
     }

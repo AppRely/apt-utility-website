@@ -301,7 +301,7 @@ export default function CreateProjectModal({
                   </div>
                 </div>
                 <p className="text-[#929292] text-[14px] pt-2 pb-2">
-                  eg., Accept .trk, .json, .csv, .xml
+                  eg., Accept .trk
                 </p>
               </div>
             </div>

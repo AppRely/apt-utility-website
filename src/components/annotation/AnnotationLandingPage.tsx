@@ -462,7 +462,7 @@ export default function AnnotationLandingPage() {
   );
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-[#F8F9FB] font-sans">
+    <div className="flex h-dvh select-none flex-col overflow-hidden bg-[#F8F9FB] font-sans">
       {/* LANDING CONTENT */}
       <main
         data-system-guide="landing-home"
@@ -511,7 +511,7 @@ export default function AnnotationLandingPage() {
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search projects..."
                 aria-label="Search projects"
-                className="h-10 pl-9"
+                className="h-10 select-text pl-9"
               />
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-600">
