@@ -569,11 +569,10 @@ export default function DynamicVideo({
   const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
 
   useEffect(() => {
-    // Starting, switching, or cancelling a bulk operation creates a new
-    // generation and clears the previous operation's selection area.
+    // Starting, switching, or cancelling clears the previous selection area.
     bulkSelectionRectRef.current = null;
     setBulkSelectionRect(null);
-  }, [bulkSelection.generation]);
+  }, [bulkSelection.active, bulkSelection.projectId, bulkSelection.mode]);
 
   const linkSuggestionSource = isBulkSelectionActive
     ? isBulkLinkActive
@@ -882,6 +881,7 @@ export default function DynamicVideo({
       ...bulkSelection.objects.map(object => object.object_id),
       ...bulkSelection.pending,
       ...bulkSelection.excluded,
+      ...bulkSelection.overlapping,
     ]);
     Array.from(annotationMap.values())
       .filter(annotation => {
@@ -1402,9 +1402,10 @@ export default function DynamicVideo({
     measuredPadding.right
   );
 
-  const clipDisplayEnd = clipEndFrame ?? currentFrame;
-  const clipRangeMin = clipStartFrame === null ? null : Math.min(clipStartFrame, clipDisplayEnd);
-  const clipRangeMax = clipStartFrame === null ? null : Math.max(clipStartFrame, clipDisplayEnd);
+  const displayedClipStart = isBulkSelectionActive ? bulkSelection.captureStart : clipStartFrame;
+  const clipDisplayEnd = (isBulkSelectionActive ? bulkSelection.captureEnd : clipEndFrame) ?? currentFrame;
+  const clipRangeMin = displayedClipStart === null ? null : Math.min(displayedClipStart, clipDisplayEnd);
+  const clipRangeMax = displayedClipStart === null ? null : Math.max(displayedClipStart, clipDisplayEnd);
   const visibleClipStart = clipRangeMin === null ? null : Math.max(clipRangeMin, minFrame);
   const visibleClipEnd = clipRangeMax === null ? null : Math.min(clipRangeMax, maxFrame);
   const hasVisibleClipRange = visibleClipStart !== null && visibleClipEnd !== null && visibleClipStart <= visibleClipEnd;
@@ -1887,6 +1888,32 @@ export default function DynamicVideo({
     };
   }, [clientXToTimelineFrame, seekFromChartMouse, isChartDragging, safeToast]);
 
+  useEffect(() => {
+    const handleBulkClipShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || !event.ctrlKey || event.shiftKey || event.altKey || event.metaKey || event.key.toLowerCase() !== "c") return;
+      const target = document.activeElement as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      if (sessionStorage.getItem('dialogOpen') === 'true' || document.querySelector('[role="dialog"]')) return;
+      const bulk = useBulkLinkStore.getState();
+      if (!bulk.active || bulk.projectId !== Number(projectId) || !video) return;
+      event.preventDefault();
+      if (bulk.busy) return;
+      if (bulk.capturePhase === 'idle') {
+        safeToast({ title: "Draw a rectangle first", duration: 1500 });
+        return;
+      }
+      // Storage is only synchronized on pause/seek. Read the live video clock
+      // so the second press freezes the range even while playback continues.
+      const frame = pendingFrameRef.current ?? Math.round(video.currentTime * stableFpsRef.current);
+      if (!Number.isInteger(frame) || frame < 0) return;
+      const finishing = bulk.capturePhase === 'capturing';
+      bulk.captureBoundary(frame);
+      safeToast({ title: `${finishing ? 'End' : 'Start'}: frame ${frame}`, duration: 1200 });
+    };
+    window.addEventListener('keydown', handleBulkClipShortcut);
+    return () => window.removeEventListener('keydown', handleBulkClipShortcut);
+  }, [projectId, safeToast, video]);
+
   const togglePlayPause = useCallback(() => {
     if (!video) return;
     if (video.paused) {
@@ -1998,6 +2025,11 @@ export default function DynamicVideo({
       return;
     }
 
+    // Prepare a new range; Ctrl+C captures its start and end.
+    bulkSelection.armCapture();
+    video?.pause();
+    setIsPlaying(false);
+
     const objectIds = Array.from(annotationMap.values())
       .filter(annotation => {
         if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
@@ -2010,19 +2042,14 @@ export default function DynamicVideo({
       })
       .map(annotation => annotation.object_id);
 
-    if (objectIds.length === 0) {
-      safeToast({ title: "No objects in the selection", duration: 1400 });
-      return;
-    }
     objectIds.forEach(objectId => {
       void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
     });
     safeToast({
-      title: `${objectIds.length} object${objectIds.length === 1 ? "" : "s"} added to Bulk ${bulkSelection.mode === "delete" ? "Delete" : "Link"}`,
-      description: "Trajectory ranges are loading in the sidebar.",
+      title: "Ctrl+C to set start",
       duration: 1800,
     });
-  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast]);
+  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast, video]);
 
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
@@ -2399,16 +2426,21 @@ export default function DynamicVideo({
       }
     };
     const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => { setIsPlaying(false); sessionStorage.setItem("frameId", currentDisplayFrameRef.current.toString()); };
+    const handlePause = () => {
+      setIsPlaying(false);
+      sessionStorage.setItem("frameId", currentDisplayFrameRef.current.toString());
+    };
     vid.addEventListener("timeupdate", handleTimeUpdate);
     vid.addEventListener("play", handlePlay);
     vid.addEventListener("pause", handlePause);
+    vid.addEventListener("ended", handlePause);
     return () => {
       vid.removeEventListener("timeupdate", handleTimeUpdate);
       vid.removeEventListener("play", handlePlay);
       vid.removeEventListener("pause", handlePause);
+      vid.removeEventListener("ended", handlePause);
     };
-  }, [video, isPlaying, duration, mounted]);
+  }, [video, isPlaying, duration, mounted, projectId]);
 
   const allObjectIds = getAllObjectIds();
 
@@ -2540,6 +2572,7 @@ export default function DynamicVideo({
       { action: "Start / cancel Bulk Link", key: "B" },
       { action: "Start / cancel Bulk Delete", key: "V" },
       { action: "Apply active bulk action (once selection is ready)", key: "Enter" },
+      { action: "Set bulk range start / end", key: "Ctrl+C" },
       { action: "Add visible object to bulk selection", key: "1–9, 0 / Click" },
       { action: "Last bulk object's start / end", key: "S / E" },
     ] },

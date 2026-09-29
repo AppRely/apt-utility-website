@@ -37,6 +37,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
     const current = useBulkLinkStore.getState();
     if (!current.active || current.projectId !== projectId || current.busy || mutation.isPending ||
       current.pending.length > 0 || current.objects.length < (current.mode === 'delete' ? 1 : 2)) return;
+    if (current.capturePhase !== 'ready') return;
     useBulkLinkStore.setState({ busy: true, error: null });
     mutation.mutate();
   }, [projectId, mutation]);
@@ -79,11 +80,8 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
     </Button>
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
-      <h3 className="font-semibold">Bulk {state.mode} selection ({state.objects.length})</h3>
-      <p className="mt-1 text-xs">Click objects or draw a rectangle over the video to add them. The rectangle stays active while playing and adds objects that enter it. Drag again to replace it, then press Enter to {state.mode === 'delete' ? 'delete' : 'link'}. S / E jumps to the last selected object's start / end.</p>
-      <p className="mt-1 text-xs">Use × to remove an ID from this list. Rectangles will skip removed IDs for this operation; click an object to add it again. “Last selected” marks the object used by S / E navigation.</p>
-      {state.mode === 'delete' && <p className="mt-1 text-xs">Deletes each selected object across its full trajectory.</p>}
-      {/* <p className="mt-1 text-xs">Click objects in the video across frames to add them. The timeline shows {state.mode === 'link' ? 'the two most recently selected objects' : 'the last selected object'}. S / E jumps to the start / end of the last selected object.</p> */}
+      <h3 className="font-semibold">{state.objects.length} selected</h3>
+      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd} · Ctrl+C: new range` : state.capturePhase === 'capturing' ? `Start ${state.captureStart} · Ctrl+C: set end` : state.capturePhase === 'armed' ? 'Ctrl+C: set start' : 'Draw a rectangle to begin.'}</p>
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
         {state.objects.map((obj, index) => <li key={obj.object_id} className="text-sm">
           {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
@@ -94,7 +92,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
               style={{ backgroundColor: getObjectColor(obj.object_id, videoColorTheme) }}
             />
             <span className="min-w-0 break-words">
-              ID {obj.object_id}: start {obj.start_frame} {state.mode === 'link' ? '→' : ','} end {obj.end_frame}
+              ID {obj.object_id} · {obj.start_frame}–{obj.end_frame}
               {state.selectionOrder[state.selectionOrder.length - 1] === obj.object_id && (
                 <strong className="block text-xs text-teal-800">(last selected)</strong>
               )}
@@ -103,9 +101,9 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
           </div>
         </li>)}
       </ol>
-      {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading actual trajectory ranges…</p>}
+      {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading…</p>}
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
-      <Button className="mt-3 w-full" disabled={state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
+      <Button className="mt-3 w-full" disabled={state.capturePhase !== 'ready' || state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
         onClick={submitBulkAction}>
         {state.busy ? (state.mode === 'delete' ? 'Deleting…' : 'Linking…') : `${state.mode === 'delete' ? 'Delete' : 'Link'} ${state.objects.length} objects`}
       </Button>

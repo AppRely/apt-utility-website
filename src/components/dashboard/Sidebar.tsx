@@ -1,4 +1,5 @@
 "use client";
+import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import { BulkLinkPanel } from "./BulkLinkPanel";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -701,14 +702,18 @@ export default function Sidebar({
   // Ctrl+C captures the start frame first and the end frame second.
   useEffect(() => {
     const handleClipShortcut = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== "c") return;
+      if (event.defaultPrevented || event.repeat || !event.ctrlKey || event.shiftKey || event.altKey || event.metaKey || event.key.toLowerCase() !== "c") return;
       const activeElement = document.activeElement as HTMLElement | null;
       if (activeElement && (
         activeElement.tagName === "INPUT" ||
         activeElement.tagName === "TEXTAREA" ||
+        activeElement.tagName === "SELECT" ||
         activeElement.isContentEditable
       )) return;
-      if (isAnyDialogOpen) return;
+      if (isAnyDialogOpen || document.querySelector('[role="dialog"]')) return;
+      // Bulk capture uses the video's live frame, not the sidebar's stored frame.
+      const bulk = useBulkLinkStore.getState();
+      if (bulk.active && bulk.projectId === Number(projectId)) return;
       event.preventDefault();
       if (selectedObjects.length < 1) {
         toast({ title: "Select an object", description: "At least one object is required for clipping.", variant: "destructive", duration: 3000 });
@@ -727,7 +732,7 @@ export default function Sidebar({
     };
     window.addEventListener("keydown", handleClipShortcut);
     return () => window.removeEventListener("keydown", handleClipShortcut);
-  }, [clipEndFrame, clipStartFrame, frameId, isAnyDialogOpen, selectedObjects.length, setClipEndFrame, setClipStartFrame, toast]);
+  }, [projectId, clipEndFrame, clipStartFrame, frameId, isAnyDialogOpen, selectedObjects.length, setClipEndFrame, setClipStartFrame, toast]);
 
   // Keyboard shortcuts
   useEffect(() => {
