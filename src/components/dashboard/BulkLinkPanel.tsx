@@ -81,7 +81,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold">{state.objects.length} selected</h3>
-      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd} · Ctrl+C: new range` : state.capturePhase === 'capturing' ? `Start ${state.captureStart} · Ctrl+C: set end` : state.capturePhase === 'armed' ? 'Ctrl+C: set start' : 'Draw a rectangle to begin.'}</p>
+      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Start ${state.captureStart} · Ctrl+C: set end` : 'Draw a rectangle or select an object to start.'}</p>
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
         {state.objects.map((obj, index) => <li key={obj.object_id} className="text-sm">
           {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}

@@ -1898,17 +1898,16 @@ export default function DynamicVideo({
       if (!bulk.active || bulk.projectId !== Number(projectId) || !video) return;
       event.preventDefault();
       if (bulk.busy) return;
-      if (bulk.capturePhase === 'idle') {
-        safeToast({ title: "Draw a rectangle first", duration: 1500 });
+      if (bulk.capturePhase !== 'capturing') {
+        safeToast({ title: "Draw a rectangle or select an object to start", duration: 1500 });
         return;
       }
       // Storage is only synchronized on pause/seek. Read the live video clock
-      // so the second press freezes the range even while playback continues.
+      // so Ctrl+C freezes the range even while playback continues.
       const frame = pendingFrameRef.current ?? Math.round(video.currentTime * stableFpsRef.current);
       if (!Number.isInteger(frame) || frame < 0) return;
-      const finishing = bulk.capturePhase === 'capturing';
       bulk.captureBoundary(frame);
-      safeToast({ title: `${finishing ? 'End' : 'Start'}: frame ${frame}`, duration: 1200 });
+      safeToast({ title: `End: frame ${frame}`, duration: 1200 });
     };
     window.addEventListener('keydown', handleBulkClipShortcut);
     return () => window.removeEventListener('keydown', handleBulkClipShortcut);
@@ -2025,8 +2024,9 @@ export default function DynamicVideo({
       return;
     }
 
-    // Prepare a new range; Ctrl+C captures its start and end.
+    // Drawing starts capture automatically; Ctrl+C sets only the end.
     bulkSelection.armCapture();
+    bulkSelection.beginCapture(pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
     video?.pause();
     setIsPlaying(false);
 
@@ -2046,7 +2046,7 @@ export default function DynamicVideo({
       void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
     });
     safeToast({
-      title: "Ctrl+C to set start",
+      title: "Range started · Ctrl+C to end",
       duration: 1800,
     });
   }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast, video]);
@@ -2572,7 +2572,8 @@ export default function DynamicVideo({
       { action: "Start / cancel Bulk Link", key: "B" },
       { action: "Start / cancel Bulk Delete", key: "V" },
       { action: "Apply active bulk action (once selection is ready)", key: "Enter" },
-      { action: "Set bulk range start / end", key: "Ctrl+C" },
+      { action: "End bulk range", key: "Ctrl+C" },
+      { action: "Remove last selected bulk object", key: "Backspace" },
       { action: "Add visible object to bulk selection", key: "1–9, 0 / Click" },
       { action: "Last bulk object's start / end", key: "S / E" },
     ] },
@@ -2701,6 +2702,17 @@ export default function DynamicVideo({
         } else {
           safeToast({ title: bulk.pending.length ? "Loading selected object's range…" : "Select an object for the bulk operation", duration: 1500 });
         }
+        return;
+      }
+
+      if (e.key === "Backspace" && isBulkNavigation) {
+        if (e.defaultPrevented || e.repeat || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey ||
+            isInputFocused || activeEl?.tagName === 'SELECT' || document.querySelector('[role="dialog"]')) return;
+        e.preventDefault();
+        if (bulk.busy) return;
+        const lastSelectedId = [...bulk.selectionOrder].reverse()
+          .find(id => bulk.objects.some(object => object.object_id === id));
+        if (lastSelectedId !== undefined) bulk.remove(lastSelectedId);
         return;
       }
 

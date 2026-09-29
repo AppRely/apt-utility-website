@@ -131,19 +131,20 @@ const ids = () => Array.from(state.objects, object => object.object_id);
   for (const mode of ['link', 'delete']) {
     state.start(1, mode);
     state.captureBoundary(5);
-    assert.strictEqual(state.capturePhase, 'idle'); // Rectangle required.
-    state.armCapture();
-    state.captureBoundary(20);
+    assert.strictEqual(state.capturePhase, 'idle'); // Ctrl+C cannot start capture.
+    await state.select(1, 23, 5); // Number-key/click selection works before drawing.
+    assert.deepStrictEqual(ids(), [23]);
     assert.strictEqual(state.capturePhase, 'capturing');
-    assert.strictEqual(state.captureStart, 20);
-    state.captureBoundary(5); // Reverse capture is normalized.
-    assert.strictEqual(state.capturePhase, 'ready');
     assert.strictEqual(state.captureStart, 5);
-    assert.strictEqual(state.captureEnd, 20);
+    state.captureBoundary(20);
+    assert.strictEqual(state.capturePhase, 'ready');
+    assert.deepStrictEqual(ids(), mode === 'link' ? [23] : []);
     state.captureBoundary(30);
-    assert.strictEqual(state.capturePhase, 'capturing');
+    assert.strictEqual(state.capturePhase, 'ready'); // Ctrl+C must not restart.
+    assert.strictEqual(state.captureEnd, 20);
+    state.armCapture();
+    state.beginCapture(30); // The rectangle starts capture directly.
     assert.strictEqual(state.captureStart, 30);
-    assert.strictEqual(state.captureEnd, null);
     state.busy = true;
     state.captureBoundary(40);
     assert.strictEqual(state.capturePhase, 'capturing');

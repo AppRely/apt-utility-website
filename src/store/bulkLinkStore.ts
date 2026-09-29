@@ -36,12 +36,8 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
   reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, error: null, generation: state.generation + 1 })),
   captureBoundary: frame => {
     const state = get();
-    if (!state.active || state.busy || state.capturePhase === 'idle' || !Number.isInteger(frame) || frame < 0) return;
-    if (state.capturePhase === 'capturing') state.finishCapture(frame);
-    else {
-      if (state.capturePhase === 'ready') state.armCapture();
-      get().beginCapture(frame);
-    }
+    if (!state.active || state.busy || state.capturePhase !== 'capturing' || !Number.isInteger(frame) || frame < 0) return;
+    state.finishCapture(frame);
   },
   armCapture: () => {
     const state = get();
@@ -51,7 +47,7 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
   },
   beginCapture: frame => {
     const state = get();
-    if (!state.active || state.capturePhase !== 'armed' || state.busy || !Number.isInteger(frame) || frame < 0) return;
+    if (!state.active || (state.capturePhase !== 'armed' && state.capturePhase !== 'idle') || state.busy || !Number.isInteger(frame) || frame < 0) return;
     set({ capturePhase: 'capturing', captureStart: frame, captureEnd: null });
   },
   finishCapture: frame => {
@@ -70,7 +66,8 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
   select: async (projectId, id, frame, source = 'manual') => {
     const state = get();
     if (!state.active || state.projectId !== projectId || state.busy || state.pending.includes(id)) return;
-    if (state.capturePhase !== 'armed' && state.capturePhase !== 'capturing') return;
+    if (state.capturePhase === 'idle' && source === 'manual') get().beginCapture(frame);
+    if (get().capturePhase !== 'armed' && get().capturePhase !== 'capturing') return;
     // Removing an entry protects it from every rectangle for this operation.
     // Only an explicit click/keyboard selection may add it back.
     if (source === 'rectangle' && (state.excluded.includes(id) || (state.mode === 'link' && state.overlapping.includes(id)))) return;

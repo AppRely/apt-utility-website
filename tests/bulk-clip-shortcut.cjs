@@ -44,7 +44,8 @@ for (const mode of ['link', 'delete']) {
   state.start(1, mode);
   state.armCapture();
   context.video.currentTime = 0.5;
-  const first = press();
+  state.beginCapture(5);
+  const first = { key: "c", ctrlKey: true, defaultPrevented: true };
   assert.strictEqual(state.captureStart, 5);
   assert.strictEqual(state.capturePhase, 'capturing');
   press({ repeat: true });
@@ -58,6 +59,10 @@ for (const mode of ['link', 'delete']) {
   context.handle(first); // An already-handled event cannot restart capture.
   assert.strictEqual(state.capturePhase, 'ready');
   press();
+  assert.strictEqual(state.capturePhase, 'ready');
+  assert.strictEqual(state.captureEnd, 20);
+  state.armCapture();
+  state.beginCapture(30);
   assert.strictEqual(state.captureStart, 30);
   assert.strictEqual(state.capturePhase, 'capturing');
   context.document.activeElement = { closest: () => true };
@@ -69,4 +74,4 @@ for (const mode of ['link', 'delete']) {
   assert.strictEqual(state.capturePhase, 'capturing');
   state.busy = false;
 }
-console.log('Bulk Ctrl+C checks passed: live start/end, frozen end, repeat/focus/busy guards, both modes.');
+console.log('Bulk Ctrl+C checks passed: automatic start, live end, frozen end, repeat/focus/busy guards, both modes.');
