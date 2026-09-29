@@ -57,8 +57,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
         if (current.active && current.projectId === projectId && current.mode === mode) current.reset();
         else current.start(projectId, mode);
       } else if (key === 'enter' && current.active && current.projectId === projectId) {
-        // Preserve Enter activation for focused controls, such as Remove/Cancel.
-        if (target?.closest('button, a, [role="button"]')) return;
+        // Enter applies the bulk action even when a toolbar button retains focus.
         event.preventDefault();
         submitBulkAction();
       }
@@ -105,7 +104,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
       <Button className="mt-3 w-full" disabled={state.capturePhase !== 'ready' || state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
         onClick={submitBulkAction}>
-        {state.busy ? (state.mode === 'delete' ? 'Deleting…' : 'Linking…') : `${state.mode === 'delete' ? 'Delete' : 'Link'} ${state.objects.length} objects`}
+        {state.busy ? (state.mode === 'delete' ? 'Deleting…' : 'Linking…') : `${state.mode === 'delete' ? 'Delete' : 'Link'} ${state.objects.length} objects (Enter)`}
       </Button>
     </section>}
   </div>;
