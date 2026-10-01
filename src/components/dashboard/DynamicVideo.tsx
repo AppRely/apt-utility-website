@@ -3127,13 +3127,12 @@ export default function DynamicVideo({
             <div className="absolute top-2 left-2 z-50 text-xs">
               <div className="rounded bg-black/80 px-2 py-1 font-mono text-green-400">
                 FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
-                {isSeekingRef.current && " 🔄 SEEKING"}
-                {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
-                {isLoadingAnnotations && " 📥 LOADING"}
-                {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " 🎯 AUTO-PAN"}
-                {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
-                {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
-                {autoInterpolation && " 🔄 AUTO-INTERP"}
+                {isSeekingRef.current && " | SEEKING"}
+                {pendingFrameVisual !== null && ` | PENDING: ${pendingFrameVisual}`}
+                {isLoadingAnnotations && " | LOADING"}
+                {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " | AUTO-PAN"}
+                {bboxScale !== 1 && ` | BBox ${bboxScale}×`}
+                {autoInterpolation && " | AUTO-INTERP"}
               </div>
               {showSuggestions && !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
