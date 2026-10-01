@@ -1213,6 +1213,15 @@ export default function DynamicVideo({
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
 
+  useEffect(() => {
+    if (!stageRef.current) return;
+    if (isBulkSelectionActive) {
+      setCursorStyle("crosshair");
+      return;
+    }
+    setCursorStyle("grab");
+  }, [isBulkSelectionActive, setCursorStyle]);
+
   // ===== Undo / Redo & Activity Logs =====
   const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
   const exportMutation = useMutation({
@@ -1985,6 +1994,22 @@ export default function DynamicVideo({
   
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
+    if (isBulkSelectionActive) {
+      setCursorStyle("crosshair");
+      if (bulkSelectionRectRef.current) {
+        const pointer = stageRef.current.getPointerPosition();
+        if (!pointer) return;
+        const rect = {
+          ...bulkSelectionRectRef.current,
+          endX: (pointer.x - stagePos.x) / stageScale.x,
+          endY: (pointer.y - stagePos.y) / stageScale.y,
+        };
+        bulkSelectionRectRef.current = rect;
+        setBulkSelectionRect(rect);
+        return;
+      }
+      return;
+    }
     if (bulkSelectionRectRef.current) {
       const pointer = stageRef.current.getPointerPosition();
       if (!pointer) return;
@@ -2053,11 +2078,13 @@ export default function DynamicVideo({
 
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
-    setIsDragging(false); setIsPanMode(false); setCursorStyle("grab");
+    setIsDragging(false); setIsPanMode(false);
+    setCursorStyle(isBulkSelectionActive ? "crosshair" : "grab");
   };
   const handleMouseLeave = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
-    setIsDragging(false); setIsPanMode(false); setCursorStyle("default");
+    setIsDragging(false); setIsPanMode(false);
+    setCursorStyle(isBulkSelectionActive ? "crosshair" : "default");
   };
   const handleContextMenu = (e: any) => e.evt.preventDefault();
   const handleTouchMove = useCallback((e: any) => {}, []);
