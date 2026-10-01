@@ -67,12 +67,12 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
   }, [projectId, mutation.isPending, submitBulkAction]);
 
   return <div className="p-3 pt-0">
-    <div className="grid grid-cols-2 gap-2">
-    <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full px-2 text-xs bg-teal-800 hover:bg-teal-900 text-white" disabled={!projectId || mutation.isPending}
+    <div className="bulk-action-grid">
+    <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full px-2 text-[11px] sm:text-xs bg-teal-800 hover:bg-teal-900 text-white whitespace-nowrap" disabled={!projectId || mutation.isPending}
       onClick={() => state.active && state.mode === 'link' ? state.reset() : state.start(projectId)} aria-pressed={state.active && state.mode === 'link'}>
       {state.active && state.mode === 'link' ? 'Cancel Bulk Link (B)' : 'Bulk Link (B)'}
     </Button>
-    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full px-2 text-xs bg-red-700 hover:bg-red-800 text-white" disabled={!projectId || state.busy || mutation.isPending}
+    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full px-2 text-[11px] sm:text-xs bg-red-700 hover:bg-red-800 text-white whitespace-nowrap" disabled={!projectId || state.busy || mutation.isPending}
       onClick={() => state.active && state.mode === 'delete' ? state.reset() : state.start(projectId, 'delete')}
       aria-pressed={state.active && state.mode === 'delete'}>
       {state.active && state.mode === 'delete' ? 'Cancel Bulk Delete (V)' : 'Bulk Delete (V)'}
