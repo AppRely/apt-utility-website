@@ -863,6 +863,11 @@ export default function DynamicVideo({
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
+  // Keep bulk IDs aligned with the live rectangle on the timeline.
+  useLayoutEffect(() => {
+    if (isBulkSelectionActive) useBulkLinkStore.getState().updateCaptureFrame(currentFrame);
+  }, [isBulkSelectionActive, currentFrame, bulkSelection.captureStart, bulkSelection.generation]);
+
   // A saved rectangle is a live selection area. When playback reaches a
   // later frame, newly visible objects inside it join the active bulk list.
   useEffect(() => {

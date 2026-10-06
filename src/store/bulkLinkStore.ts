@@ -17,6 +17,8 @@ type BulkLinkState = {
   capturePhase: 'idle' | 'armed' | 'capturing' | 'ready';
   captureStart: number | null;
   captureEnd: number | null;
+  captureFrame: number | null;
+  updateCaptureFrame: (frame: number) => void;
   captureBoundary: (frame: number) => void;
   armCapture: () => void;
   beginCapture: (frame: number) => void;
@@ -31,9 +33,9 @@ let linkQueue = Promise.resolve();
 let linkGeneration = -1;
 
 export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
-  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, error: null,
-  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, error: null, generation: state.generation + 1 })),
-  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, error: null, generation: state.generation + 1 })),
+  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null,
+  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
   captureBoundary: frame => {
     const state = get();
     if (!state.active || state.busy || state.capturePhase !== 'capturing' || !Number.isInteger(frame) || frame < 0) return;
@@ -42,13 +44,24 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
   armCapture: () => {
     const state = get();
     if (!state.active || state.busy) return;
-    set({ capturePhase: 'armed', captureStart: null, captureEnd: null,
+    set({ capturePhase: 'armed', captureStart: null, captureEnd: null, captureFrame: null,
       objects: [], pending: [], overlapping: [], selectionOrder: [], error: null, generation: state.generation + 1 });
   },
   beginCapture: frame => {
     const state = get();
     if (!state.active || (state.capturePhase !== 'armed' && state.capturePhase !== 'idle') || state.busy || !Number.isInteger(frame) || frame < 0) return;
-    set({ capturePhase: 'capturing', captureStart: frame, captureEnd: null });
+    set({ capturePhase: 'capturing', captureStart: frame, captureEnd: null, captureFrame: null });
+  },
+  updateCaptureFrame: frame => {
+    const state = get();
+    if (!state.active || state.busy || state.capturePhase !== 'capturing' || state.captureStart === null ||
+        !Number.isInteger(frame) || frame < 0 || state.captureFrame === frame) return;
+    const start = Math.min(state.captureStart, frame);
+    const end = Math.max(state.captureStart, frame);
+    // Live selection includes any trajectory touching the timeline interval.
+    const objects = state.objects.filter(object => object.start_frame <= end && object.end_frame >= start);
+    set({ captureFrame: frame, objects,
+      selectionOrder: state.selectionOrder.filter(id => state.pending.includes(id) || objects.some(object => object.object_id === id)) });
   },
   finishCapture: frame => {
     const state = get();
@@ -97,6 +110,12 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       const current = get();
       if (current.capturePhase === 'ready' &&
           (current.captureStart === null || current.captureEnd === null || start_frame < current.captureStart || end_frame > current.captureEnd)) {
+        set(current => ({ selectionOrder: current.selectionOrder.filter(value => value !== id) }));
+        return;
+      }
+      if (current.capturePhase === 'capturing' && current.captureStart !== null && current.captureFrame !== null &&
+          (start_frame > Math.max(current.captureStart, current.captureFrame) ||
+            end_frame < Math.min(current.captureStart, current.captureFrame))) {
         set(current => ({ selectionOrder: current.selectionOrder.filter(value => value !== id) }));
         return;
       }
