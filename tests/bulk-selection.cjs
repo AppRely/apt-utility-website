@@ -70,7 +70,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
   for (const id of [5, 6, 7]) await state.select(1, id, 40, 'rectangle');
   state.finishCapture(60);
   assert.strictEqual(state.capturePhase, 'ready');
-  assert.deepStrictEqual(ids(), mode === 'link' ? [4] : [5]); // Earlier overlapping candidates were skipped in Link.
+  assert.deepStrictEqual(ids(), mode === 'link' ? [] : [5]); // Earlier overlapping candidates were skipped in Link.
   state.beginCapture(70); // Ordinary playback cannot alter the finished range.
   assert.strictEqual(state.captureStart, 30);
   state.armCapture();
@@ -83,7 +83,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
   resolve();
   await Promise.all([outside, inside]);
   deferred = null;
-  assert.deepStrictEqual(ids(), mode === 'link' ? [4] : [5]);
+  assert.deepStrictEqual(ids(), [5]);
   state.armCapture();
   deferred = new Promise(done => { resolve = done; });
   const stale = state.select(1, 4, 40, 'rectangle');
@@ -121,11 +121,31 @@ const ids = () => Array.from(state.objects, object => object.object_id);
       if (delayed) deferred = new Promise(done => { resolve = done; });
       const selections = [state.select(1, 23, 5, 'rectangle'), state.select(1, 24, 11, 'rectangle')];
       if (!delayed) await Promise.all(selections);
-      state.finishCapture(15); // Both ends may extend outside the capture for Link.
+      state.finishCapture(15); // Neither action may include trajectories extending past either boundary.
       if (delayed) resolve();
       await Promise.all(selections);
       deferred = null;
-      assert.deepStrictEqual(ids(), mode === 'link' ? [23, 24] : []);
+      assert.deepStrictEqual(ids(), []);
+      assert.deepStrictEqual(Array.from(state.selectionOrder), []);
+      assert.strictEqual(state.pending.length, 0);
+    }
+  }
+  // Inclusive boundaries also apply when the range is captured backwards.
+  for (const mode of ['link', 'delete']) {
+    for (const delayed of [false, true]) {
+      state.start(1, mode);
+      state.beginCapture(20);
+      let resolve;
+      if (delayed) deferred = new Promise(done => { resolve = done; });
+      const selections = [state.select(1, 23, 10), state.select(1, 24, 20)];
+      if (!delayed) await Promise.all(selections);
+      state.finishCapture(1);
+      if (delayed) resolve();
+      await Promise.all(selections);
+      deferred = null;
+      assert.deepStrictEqual(ids(), [23, 24]);
+      assert.strictEqual(state.captureStart, 1);
+      assert.strictEqual(state.captureEnd, 20);
     }
   }
   for (const mode of ['link', 'delete']) {
@@ -138,7 +158,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     assert.strictEqual(state.captureStart, 5);
     state.captureBoundary(20);
     assert.strictEqual(state.capturePhase, 'ready');
-    assert.deepStrictEqual(ids(), mode === 'link' ? [23] : []);
+    assert.deepStrictEqual(ids(), []);
     state.captureBoundary(30);
     assert.strictEqual(state.capturePhase, 'ready'); // Ctrl+C must not restart.
     assert.strictEqual(state.captureEnd, 20);

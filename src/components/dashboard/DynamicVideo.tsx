@@ -863,6 +863,11 @@ export default function DynamicVideo({
   const mapX = useCallback((x: number) => offsetX + x * scale, [offsetX, scale]);
   const mapY = useCallback((y: number) => offsetY + y * scale, [offsetY, scale]);
 
+  // Keep bulk IDs aligned with the live rectangle on the timeline.
+  useLayoutEffect(() => {
+    if (isBulkSelectionActive) useBulkLinkStore.getState().updateCaptureFrame(currentFrame);
+  }, [isBulkSelectionActive, currentFrame, bulkSelection.captureStart, bulkSelection.generation]);
+
   // A saved rectangle is a live selection area. When playback reaches a
   // later frame, newly visible objects inside it join the active bulk list.
   useEffect(() => {
@@ -1212,6 +1217,15 @@ export default function DynamicVideo({
 
   const getAllObjectIds = useCallback(() => Array.from(trajectoryMap.keys()).sort((a,b)=>a-b), [trajectoryMap]);
   const setCursorStyle = useCallback((cursor: string) => { if (stageRef.current) stageRef.current.container().style.cursor = cursor; }, []);
+
+  useEffect(() => {
+    if (!stageRef.current) return;
+    if (isBulkSelectionActive) {
+      setCursorStyle("crosshair");
+      return;
+    }
+    setCursorStyle("grab");
+  }, [isBulkSelectionActive, setCursorStyle]);
 
   // ===== Undo / Redo & Activity Logs =====
   const activityLogsQuery = useQuery({ queryKey: ["activity-logs", projectId], queryFn: () => getActivityLogs(projectId!), enabled: !!projectId && mounted });
@@ -1985,6 +1999,22 @@ export default function DynamicVideo({
   
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
+    if (isBulkSelectionActive) {
+      setCursorStyle("crosshair");
+      if (bulkSelectionRectRef.current) {
+        const pointer = stageRef.current.getPointerPosition();
+        if (!pointer) return;
+        const rect = {
+          ...bulkSelectionRectRef.current,
+          endX: (pointer.x - stagePos.x) / stageScale.x,
+          endY: (pointer.y - stagePos.y) / stageScale.y,
+        };
+        bulkSelectionRectRef.current = rect;
+        setBulkSelectionRect(rect);
+        return;
+      }
+      return;
+    }
     if (bulkSelectionRectRef.current) {
       const pointer = stageRef.current.getPointerPosition();
       if (!pointer) return;
@@ -2053,11 +2083,13 @@ export default function DynamicVideo({
 
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
-    setIsDragging(false); setIsPanMode(false); setCursorStyle("grab");
+    setIsDragging(false); setIsPanMode(false);
+    setCursorStyle(isBulkSelectionActive ? "crosshair" : "grab");
   };
   const handleMouseLeave = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
-    setIsDragging(false); setIsPanMode(false); setCursorStyle("default");
+    setIsDragging(false); setIsPanMode(false);
+    setCursorStyle(isBulkSelectionActive ? "crosshair" : "default");
   };
   const handleContextMenu = (e: any) => e.evt.preventDefault();
   const handleTouchMove = useCallback((e: any) => {}, []);
@@ -3100,13 +3132,12 @@ export default function DynamicVideo({
             <div className="absolute top-2 left-2 z-50 text-xs">
               <div className="rounded bg-black/80 px-2 py-1 font-mono text-green-400">
                 FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
-                {isSeekingRef.current && " 🔄 SEEKING"}
-                {pendingFrameVisual !== null && ` ⏳ PENDING: ${pendingFrameVisual}`}
-                {isLoadingAnnotations && " 📥 LOADING"}
-                {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " 🎯 AUTO-PAN"}
-                {bboxScale !== 1 && ` 🔍 BBox ${bboxScale}×`}
-                {showSkeleton && skeletonGraph.length > 0 && " 🦴 SKELETON"}
-                {autoInterpolation && " 🔄 AUTO-INTERP"}
+                {isSeekingRef.current && " | SEEKING"}
+                {pendingFrameVisual !== null && ` | PENDING: ${pendingFrameVisual}`}
+                {isLoadingAnnotations && " | LOADING"}
+                {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " | AUTO-PAN"}
+                {bboxScale !== 1 && ` | BBox ${bboxScale}×`}
+                {autoInterpolation && " | AUTO-INTERP"}
               </div>
               {showSuggestions && !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&

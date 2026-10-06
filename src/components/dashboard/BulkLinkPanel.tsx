@@ -67,12 +67,12 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
   }, [projectId, mutation.isPending, submitBulkAction]);
 
   return <div className="p-3 pt-0">
-    <div className="grid grid-cols-2 gap-2">
-    <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full px-2 text-xs bg-teal-800 hover:bg-teal-900 text-white" disabled={!projectId || mutation.isPending}
+    <div className="bulk-action-grid">
+    <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full px-2 text-[11px] sm:text-xs bg-teal-800 hover:bg-teal-900 text-white whitespace-nowrap" disabled={!projectId || mutation.isPending}
       onClick={() => state.active && state.mode === 'link' ? state.reset() : state.start(projectId)} aria-pressed={state.active && state.mode === 'link'}>
       {state.active && state.mode === 'link' ? 'Cancel Bulk Link (B)' : 'Bulk Link (B)'}
     </Button>
-    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full px-2 text-xs bg-red-700 hover:bg-red-800 text-white" disabled={!projectId || state.busy || mutation.isPending}
+    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full px-2 text-[11px] sm:text-xs bg-red-700 hover:bg-red-800 text-white whitespace-nowrap" disabled={!projectId || state.busy || mutation.isPending}
       onClick={() => state.active && state.mode === 'delete' ? state.reset() : state.start(projectId, 'delete')}
       aria-pressed={state.active && state.mode === 'delete'}>
       {state.active && state.mode === 'delete' ? 'Cancel Bulk Delete (V)' : 'Bulk Delete (V)'}
@@ -82,23 +82,32 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       <h3 className="font-semibold">{state.objects.length} selected</h3>
       <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Start ${state.captureStart} · Ctrl+C: set end` : 'Draw a rectangle or select an object to start.'}</p>
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
-        {state.objects.map((obj, index) => <li key={obj.object_id} className="text-sm">
-          {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
-          <div className="grid grid-cols-[0.75rem_minmax(0,1fr)_2.5rem] items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="h-3 w-3 shrink-0 rounded-full border border-black/20"
-              style={{ backgroundColor: getObjectColor(obj.object_id, videoColorTheme) }}
-            />
-            <span className="min-w-0 break-words">
-              ID {obj.object_id} · {obj.start_frame}–{obj.end_frame}
-              {state.selectionOrder[state.selectionOrder.length - 1] === obj.object_id && (
-                <strong className="block text-xs text-teal-800">(last selected)</strong>
-              )}
-            </span>
-            <button disabled={state.busy} onClick={() => state.remove(obj.object_id)} aria-label={`Remove object ${obj.object_id}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-red-200 text-2xl text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50">×</button>
-          </div>
-        </li>)}
+        {state.objects.map((obj, index) => {
+          const trajectoryLength = typeof obj.start_frame === 'number' && typeof obj.end_frame === 'number'
+            ? obj.end_frame - obj.start_frame
+            : null;
+
+          return <li key={obj.object_id} className="text-sm">
+            {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
+            <div className="grid grid-cols-[0.75rem_minmax(0,1fr)_2.5rem] items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="h-3 w-3 shrink-0 rounded-full border border-black/20"
+                style={{ backgroundColor: getObjectColor(obj.object_id, videoColorTheme) }}
+              />
+              <span className="min-w-0 break-words">
+                ID {obj.object_id} · {obj.start_frame}–{obj.end_frame}
+                <span className="mt-1 block text-xs text-slate-600">
+                  Trajectory length: {trajectoryLength ?? '—'}
+                </span>
+                {state.selectionOrder[state.selectionOrder.length - 1] === obj.object_id && (
+                  <strong className="block text-xs text-teal-800">(last selected)</strong>
+                )}
+              </span>
+              <button disabled={state.busy} onClick={() => state.remove(obj.object_id)} aria-label={`Remove object ${obj.object_id}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-red-200 text-2xl text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50">×</button>
+            </div>
+          </li>;
+        })}
       </ol>
       {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading…</p>}
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
