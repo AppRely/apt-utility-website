@@ -55,10 +55,8 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     if (!state.active || state.capturePhase !== 'capturing' || state.captureStart === null || !Number.isInteger(frame) || frame < 0) return;
     const start = Math.min(state.captureStart, frame);
     const end = Math.max(state.captureStart, frame);
-    // Delete requires full containment; Link keeps the selected full trajectories.
-    const objects = state.mode === 'delete'
-      ? state.objects.filter(object => object.start_frame >= start && object.end_frame <= end)
-      : state.objects;
+    // Both bulk actions require the full trajectory to be inside the range.
+    const objects = state.objects.filter(object => object.start_frame >= start && object.end_frame <= end);
     set({ capturePhase: 'ready', captureStart: start, captureEnd: end, objects,
       selectionOrder: state.selectionOrder.filter(id => state.pending.includes(id) || objects.some(object => object.object_id === id)) });
   },
@@ -97,7 +95,7 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       const { object_id, start_frame, end_frame } = await getActiveObjectRange(projectId, id, frame);
       if (get().generation !== generation || get().excluded.includes(id)) return;
       const current = get();
-      if (current.mode === 'delete' && current.capturePhase === 'ready' &&
+      if (current.capturePhase === 'ready' &&
           (current.captureStart === null || current.captureEnd === null || start_frame < current.captureStart || end_frame > current.captureEnd)) {
         set(current => ({ selectionOrder: current.selectionOrder.filter(value => value !== id) }));
         return;
