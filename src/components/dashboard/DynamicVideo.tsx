@@ -91,6 +91,29 @@ const sliderPositionToPlaybackRate = (position: number) => {
 
 const formatFps = (value: number) => Number(value.toFixed(2)).toString();
 
+const getAdaptiveFrameTicks = (minFrame: number, maxFrame: number, maxTicks = 12) => {
+  const span = Math.max(1, maxFrame - minFrame);
+  const stepCandidates = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 25000, 50000];
+  const targetStep = span / maxTicks;
+  const step = stepCandidates.find(candidate => candidate >= targetStep) ?? stepCandidates[stepCandidates.length - 1];
+  const start = Math.ceil(minFrame / step) * step;
+  const end = Math.floor(maxFrame / step) * step;
+  const ticks: number[] = [];
+
+  for (let frame = start; frame <= end; frame += step) {
+    ticks.push(frame);
+  }
+
+  if (ticks.length === 0) {
+    return [Math.round(minFrame), Math.round(maxFrame)];
+  }
+
+  if (!ticks.includes(Math.round(minFrame))) ticks.unshift(Math.round(minFrame));
+  if (!ticks.includes(Math.round(maxFrame))) ticks.push(Math.round(maxFrame));
+
+  return ticks;
+};
+
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
   containerWidth: number,
@@ -4160,13 +4183,14 @@ export default function DynamicVideo({
                           type="number"
                           dataKey="frame"
                           domain={[minFrame, maxFrame]}
-                          tickCount={Math.floor((maxFrame - minFrame) / 50) + 1}
+                          ticks={getAdaptiveFrameTicks(minFrame, maxFrame, 10)}
                           allowDataOverflow={true}
                           scale="linear"
                           padding={{ left: 0, right: 0 }}
                           interval={0}
+                          minTickGap={20}
                           tick={{ fill: '#ccc', fontSize: 10 }}
-                          tickFormatter={(frame) => frame.toString()}
+                          tickFormatter={(frame) => Math.round(frame).toString()}
                           label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
                         />
                         <YAxis
