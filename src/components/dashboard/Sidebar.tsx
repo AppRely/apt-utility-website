@@ -974,14 +974,14 @@ export default function Sidebar({
       <Separator />
 
       <CardContent className="p-3 pt-2 flex-shrink-0">
-        <div data-system-guide="sidebar-selection" className="p-4 w-full bg-white border border-slate-200 rounded-xl shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-slate-800 text-lg">Selected Objects</h2>
+        <div data-system-guide="sidebar-selection" className="p-3 w-full bg-white border border-slate-200 rounded-xl shadow-sm">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h2 className="font-semibold text-slate-800 text-sm">Selected Objects</h2>
             <Button variant="destructive" size="sm" onClick={() => { setSelectedObjects([]); clearClipRange(); toast({ title: "ℹ️ Cleared", description: "Selection and clip range cleared.", variant: "default", duration: 3000 }); }} disabled={selectedObjects.length === 0 && clipStartFrame === null}>
               Clear
             </Button>
           </div>
-          {selectedObjects.length === 0 && <p className="text-gray-500">No object selected</p>}
+          {selectedObjects.length === 0 && <p className="text-xs text-gray-500">No object selected</p>}
           {selectedObjects.map((obj, i) => {
             const color = getObjectColor(obj.object_id, videoColorTheme);
             const trajectoryLength = rangeQueries[i]?.isSuccess &&
@@ -990,14 +990,14 @@ export default function Sidebar({
                 ? obj.end_frame - obj.start_frame
                 : null;
             return (
-              <div key={i} className="p-3 mt-2 border border-[#D9D9D9] border-[1px] bg-white shadow-sm rounded-[7px] flex justify-between items-start" style={{ borderLeft: `5px solid ${color}` }}>
+              <div key={i} className="p-2 mt-2 border border-[#D9D9D9] bg-white shadow-sm rounded-[7px] flex justify-between items-start gap-1 text-xs" style={{ borderLeft: `5px solid ${color}` }}>
                 <div>
                   <p className="flex items-center gap-2">
                     <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
                     <b>Object {i + 1}</b>
                   </p>
-                  <p className="flex gap-3 text-sm"><span>ID: {obj.object_id}</span><span>Frame: {obj.frame_id}</span></p>
-                  <p className="flex gap-3 text-xs text-gray-600"><span>Start: {rangeQueries[i]?.isSuccess ? obj.start_frame : "—"}</span><span>End: {rangeQueries[i]?.isSuccess ? obj.end_frame : "—"}</span></p>
+                  <p className="flex flex-wrap gap-x-3 text-xs"><span>ID: {obj.object_id}</span><span>Frame: {obj.frame_id}</span></p>
+                  <p className="flex flex-wrap gap-x-3 text-xs text-gray-600"><span>Start: {rangeQueries[i]?.isSuccess ? obj.start_frame : "—"}</span><span>End: {rangeQueries[i]?.isSuccess ? obj.end_frame : "—"}</span></p>
                   <p className="text-xs text-gray-600">
                     Trajectory length: {trajectoryLength ?? "—"}
                   </p>
@@ -1032,31 +1032,31 @@ export default function Sidebar({
       </CardContent>
 
       <CardContent className="sidebar-action-grid p-3 pt-0">
-        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-indigo-600 hover:bg-indigo-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
-          <Image src="/images/swap.svg" alt="Swap" width={25} height={25} />{swapMutation.isPending ? "Swapping..." : "Swap"}
+        <Button data-system-guide="sidebar-swap" className="min-w-0 w-full bg-indigo-600 hover:bg-indigo-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={selectedObjects.length !== 2 || swapMutation.isPending} onClick={() => setSwapDialogOpen(true)}>
+          <Image src="/images/swap.svg" alt="Swap" width={18} height={18} className="shrink-0" />{swapMutation.isPending ? "Swapping..." : "Swap"}
         </Button>
-        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-amber-600 hover:bg-amber-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
-          <Image src="/images/break.svg" alt="Break" width={25} height={25} />{breakMutation.isPending ? "Breaking..." : "Break"}
+        <Button data-system-guide="sidebar-break" className="min-w-0 w-full bg-amber-600 hover:bg-amber-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={selectedObjects.length !== 1 || breakMutation.isPending} onClick={() => setBreakDialogOpen(true)}>
+          <Image src="/images/break.svg" alt="Break" width={18} height={18} className="shrink-0" />{breakMutation.isPending ? "Breaking..." : "Break"}
         </Button>
-        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-teal-700 hover:bg-teal-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={!rangesReady || ![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
-          <Image src="/images/link.svg" alt="Link" width={25} height={25} />{linkMutation.isPending ? "Linking..." : "Link"}
+        <Button data-system-guide="sidebar-link" className="min-w-0 w-full bg-teal-700 hover:bg-teal-800 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={!rangesReady || ![1, 2].includes(selectedObjects.length) || linkMutation.isPending} onClick={handleLinkObjects}>
+          <Image src="/images/link.svg" alt="Link" width={18} height={18} className="shrink-0" />{linkMutation.isPending ? "Linking..." : "Link"}
         </Button>
-        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
-          <Image src="/images/delete.png" alt="Delete" width={35} height={35} />{deleteMutation.isPending ? "Deleting..." : "Delete"}
+        <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+          <Image src="/images/delete.png" alt="Delete" width={22} height={22} className="shrink-0" />{deleteMutation.isPending ? "Deleting..." : "Delete"}
         </Button>
-        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-blue-700 hover:bg-blue-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
-          <Image src="/images/interpolate.svg" alt="Interpolate" width={25} height={25} />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
+        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-blue-700 hover:bg-blue-800 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
+          <Image src="/images/interpolate.svg" alt="Interpolate" width={18} height={18} className="shrink-0" />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
         </Button>
-        <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-11 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
-          <Image src="/images/refresh.svg" alt="Confusion" width={25} height={25} />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
+        <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-1.5" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
+          <Image src="/images/refresh.svg" alt="Confusion" width={18} height={18} className="shrink-0" />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
         </Button>
         <Button
           data-system-guide="sidebar-clip"
-          className="min-w-0 w-full bg-cyan-700 hover:bg-cyan-800 text-white h-11 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
+          className="min-w-0 w-full bg-cyan-700 hover:bg-cyan-800 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5"
           disabled={!selectedClipObject || clipStartFrame === null || clipMutation.isPending}
           onClick={handleOpenClipDialog}
         >
-          <Crop className="h-5 w-5" />
+          <Crop className="h-4 w-4" />
           {clipMutation.isPending ? "Clipping..." : "Clip"}
         </Button>
       </CardContent>
