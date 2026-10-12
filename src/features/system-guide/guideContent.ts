@@ -175,7 +175,7 @@ export const systemGuideSteps: Record<string, SystemGuideStep[]> = {
     {
       selector: '[data-system-guide="sidebar-bulk-link"]',
       title: "Bulk link",
-      description: "Press B to enable or cancel Bulk Link, then select objects across video frames. The list shows their colors, IDs, and start/end frames in start-frame order. Remove an entry with \u00d7, then press Enter or use Link objects once at least two trajectories are ready. S / E jumps to the last selected object's start / end. Cancel Bulk Link clears the selection.",
+      description: "Press B to enable Bulk Link. Draw a rectangle, then click a parent object to show its reference above the linking list. While playback advances, only complete trajectories inside the rectangle and the start-to-current-frame interval enter the list. An out-of-range parent is never included. Ctrl+C freezes the end frame; Enter links at least two eligible trajectories. Remove an entry to exclude it.",
     },
     {
       selector: '[data-system-guide="sidebar-bulk-delete"]',

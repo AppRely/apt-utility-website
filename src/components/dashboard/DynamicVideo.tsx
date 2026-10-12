@@ -1,4 +1,5 @@
 'use client';
+import { coordinatesInsideRectangle } from "@/lib/bulkSelection";
 import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import Image from "next/image";
@@ -374,6 +375,7 @@ export default function DynamicVideo({
     endX: number;
     endY: number;
   } | null>(null);
+  const savedBulkRectangleRef = useRef<typeof bulkSelectionRect>(null);
   const bulkSelectionRectRef = useRef<{
     startX: number;
     startY: number;
@@ -594,12 +596,13 @@ export default function DynamicVideo({
   useEffect(() => {
     // Starting, switching, or cancelling clears the previous selection area.
     bulkSelectionRectRef.current = null;
+    savedBulkRectangleRef.current = null;
     setBulkSelectionRect(null);
   }, [bulkSelection.active, bulkSelection.projectId, bulkSelection.mode]);
 
   const linkSuggestionSource = isBulkSelectionActive
     ? isBulkLinkActive
-      ? bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1])
+      ? bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1]) ?? bulkSelection.parent
       : undefined
     : selectedObjects.length === 1 ? selectedObjects[0] : undefined;
   const nextFrameLinkMatches = useMemo(() => {
@@ -907,24 +910,31 @@ export default function DynamicVideo({
     // trigger this effect again and cause a React update loop.
     const knownObjectIds = new Set([
       ...bulkSelection.objects.map(object => object.object_id),
+      ...bulkSelection.candidates.map(object => object.object_id),
       ...bulkSelection.pending,
+      ...bulkSelection.rejected,
       ...bulkSelection.excluded,
       ...bulkSelection.overlapping,
     ]);
+    const intervalStart = Math.min(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
+    const intervalEnd = Math.max(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
     Array.from(annotationMap.values())
       .filter(annotation => {
         if (
-          annotation.frame_id !== currentFrame ||
+          (bulkSelection.mode === 'link'
+            ? annotation.frame_id < intervalStart || annotation.frame_id > intervalEnd
+            : annotation.frame_id !== currentFrame) ||
           annotation.coordinates.length === 0 ||
           knownObjectIds.has(annotation.object_id)
         ) return false;
         const xs = annotation.coordinates.map(([x]) => mapX(x));
         const ys = annotation.coordinates.map(([, y]) => mapY(y));
-        return Math.max(...xs) >= left && Math.min(...xs) <= right &&
-          Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+        return bulkSelection.mode === 'link'
+          ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
+          : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
       })
       .forEach(annotation => {
-        void bulkSelection.select(projectId, annotation.object_id, currentFrame, "rectangle");
+        void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle");
       });
   }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
 
@@ -2070,15 +2080,18 @@ export default function DynamicVideo({
     const right = Math.max(rect.startX, rect.endX);
     const top = Math.min(rect.startY, rect.endY);
     const bottom = Math.max(rect.startY, rect.endY);
-    // Ignore clicks/minuscule drags; individual annotations retain their
-    // existing click-to-add behavior.
+    // A click chooses the parent without replacing the saved rectangle.
     if (right - left < 4 || bottom - top < 4) {
-      setBulkSelectionRect(null);
+      setBulkSelectionRect(savedBulkRectangleRef.current);
       return;
     }
 
+    savedBulkRectangleRef.current = rect;
     // Drawing starts capture automatically; Ctrl+C sets only the end.
-    bulkSelection.armCapture();
+    bulkSelection.armCapture({
+      left: (left - offsetX) / scale, right: (right - offsetX) / scale,
+      top: (top - offsetY) / scale, bottom: (bottom - offsetY) / scale,
+    });
     bulkSelection.beginCapture(pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
     video?.pause();
     setIsPlaying(false);
@@ -2088,10 +2101,10 @@ export default function DynamicVideo({
         if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
         const xs = annotation.coordinates.map(([x]) => mapX(x));
         const ys = annotation.coordinates.map(([, y]) => mapY(y));
-        // Bounding-box intersection is more forgiving than requiring every
-        // keypoint to be inside the rectangle and matches visual selection.
-        return Math.max(...xs) >= left && Math.min(...xs) <= right &&
-          Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+        // Bulk Link requires complete containment; Bulk Delete keeps its existing intersection rule.
+        return bulkSelection.mode === 'link'
+          ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
+          : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
       })
       .map(annotation => annotation.object_id);
 
@@ -2102,7 +2115,7 @@ export default function DynamicVideo({
       title: "Range started · Ctrl+C to end",
       duration: 1800,
     });
-  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast, video]);
+  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast, video, offsetX, offsetY, scale]);
 
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
