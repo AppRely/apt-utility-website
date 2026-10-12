@@ -18,7 +18,7 @@ interface Props {
   rows: any[];
   loading: boolean;
   message?: string;
-  onRowClick: (frame: number) => void;
+  onRowClick: (frame: number, objectId?: number) => void;
 }
 
 export default function ConfusionTable({ rows, loading, message, onRowClick,}: Props) {
@@ -127,7 +127,7 @@ export default function ConfusionTable({ rows, loading, message, onRowClick,}: P
           ) : visibleRows.map((row, idx) => (
             <tr
               key={idx}
-              onClick={() => onRowClick(row.frame_no)}
+              onClick={() => onRowClick(row.frame_no, row.current_object_id)}
               className="cursor-pointer hover:bg-gray-50"
             >
               <td className="border px-3 py-2 text-center">{idx + 1}</td>

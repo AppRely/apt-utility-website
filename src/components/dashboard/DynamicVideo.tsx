@@ -1,4 +1,5 @@
 'use client';
+import { getAnimalFocus } from "@/lib/animalFocus";
 import { coordinatesInsideRectangle } from "@/lib/bulkSelection";
 import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
@@ -421,6 +422,9 @@ export default function DynamicVideo({
   const [isDragging, setIsDragging] = useState(false);
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
+  const [pendingAnimalFocus, setPendingAnimalFocus] = useState<{ frame: number; objectId: number; projectId: number } | null>(null);
+
+  const focusedAnimalFrameRef = useRef<number | null>(null);
 
   const [zoomIndicatorVisible, setZoomIndicatorVisible] = useState(false);
   const zoomIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1788,6 +1792,8 @@ export default function DynamicVideo({
 
   const handleSeek = async (time: number) => {
     if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
+    setPendingAnimalFocus(null);
+    focusedAnimalFrameRef.current = null;
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const lastFrame = Math.max(0, Math.ceil(video.duration * stableFpsRef.current) - 1);
     const targetFrame = Math.min(Math.round(safeTime * stableFpsRef.current), lastFrame);
@@ -2148,6 +2154,7 @@ export default function DynamicVideo({
   }, [stageScale.x, handleResetZoom, showZoomIndicator]);
   // Auto‑pan
   const panToSelectedObject = useCallback(() => {
+    if (focusedAnimalFrameRef.current === currentFrame) return;
     if (!autoPanEnabled || selectedObjects.length === 0 || isDragging || isPanMode) return;
     if (!stageRef.current || !video || stageWidth <= 0 || stageHeight <= 0) return;
     const selectedIds = new Set(selectedObjects.map(object => object.object_id));
@@ -2281,6 +2288,24 @@ export default function DynamicVideo({
   useEffect(() => {
     if (mounted && annotationsReady) panToSelectedObject();
   }, [mounted, annotationsReady, panToSelectedObject]);
+
+  useLayoutEffect(() => {
+    if (!pendingAnimalFocus || pendingAnimalFocus.projectId !== Number(projectId) ||
+        currentFrame !== pendingAnimalFocus.frame || !annotationsReady) return;
+    const annotation = annotationMap.get(`${pendingAnimalFocus.objectId}-${pendingAnimalFocus.frame}`);
+    if (!annotation) return;
+    const focus = getAnimalFocus(annotation.coordinates, {
+      width: stageWidth, height: stageHeight, scale, offsetX, offsetY, bboxScale,
+    });
+    if (!focus) return;
+    focusedAnimalFrameRef.current = currentFrame;
+    setStageScale({ x: focus.zoom, y: focus.zoom });
+    setCurrentZoom(focus.zoom);
+    setStagePos({ x: focus.x, y: focus.y });
+    setPendingAnimalFocus(null);
+    showZoomIndicator();
+  }, [pendingAnimalFocus, projectId, currentFrame, annotationsReady, annotationMap,
+    stageWidth, stageHeight, scale, offsetX, offsetY, bboxScale, showZoomIndicator]);
 
   // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
@@ -2722,16 +2747,23 @@ export default function DynamicVideo({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || !event.data) return;
       if (event.data.type === "UNIQUE_SELECT") {
         const { frame } = event.data;
         if (frame !== undefined) handleFrameJump(frame);
       } else if (event.data.type === "CONFUSION_JUMP") {
-        handleFrameJump(event.data.frame);
+        const { frame, objectId, projectId: sourceProjectId } = event.data;
+        if (sourceProjectId !== Number(projectId) || !Number.isInteger(frame) || frame < 0) return;
+        handleFrameJump(frame);
+        if (Number.isInteger(objectId) && objectId >= 0) {
+          setSelectedObjects([{ object_id: objectId, frame_id: frame }]);
+          setPendingAnimalFocus({ frame, objectId, projectId: Number(projectId) });
+        }
       }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [handleFrameJump]);
+  }, [handleFrameJump, projectId, setSelectedObjects]);
 
   useEffect(() => {
     if (!mounted) return;
