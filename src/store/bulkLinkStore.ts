@@ -11,6 +11,7 @@ type BulkLinkState = {
   generation: number;
   objects: BulkLinkObject[];
   candidates: BulkLinkObject[];
+  queuedCandidates: BulkLinkObject[];
   parent: BulkLinkObject | null;
   parentId: number | null;
   rectangle: BulkRectangle | null;
@@ -33,15 +34,20 @@ type BulkLinkState = {
   reset: () => void;
   remove: (id: number) => void;
   select: (projectId: number, id: number, frame: number, source?: 'manual' | 'rectangle') => Promise<void>;
+  queueCandidates: (objects: BulkLinkObject[]) => void;
 };
 
 let linkQueue = Promise.resolve();
 let linkGeneration = -1;
 
 export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
-  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], candidates: [], parent: null, parentId: null, rectangle: null, rejected: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null,
-  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], candidates: [], parent: null, parentId: null, rectangle: null, rejected: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
-  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], candidates: [], parent: null, parentId: null, rectangle: null, rejected: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null,
+  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  queueCandidates: objects => set(state => {
+    const additions = objects.filter(object => object.object_id !== state.parentId && !state.candidates.some(item => item.object_id === object.object_id) && !state.objects.some(item => item.object_id === object.object_id) && !state.queuedCandidates.some(item => item.object_id === object.object_id));
+    return { queuedCandidates: [...state.queuedCandidates, ...additions] };
+  }),
   captureBoundary: frame => {
     const state = get();
     if (!state.active || state.busy || state.capturePhase !== 'capturing' || !Number.isInteger(frame) || frame < 0) return;
@@ -131,14 +137,30 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       if (current.mode === 'link') {
         const candidate = { object_id, start_frame, end_frame };
         if (current.parentId === id) set({ parent: candidate });
+        const latestSegment = current.candidates[current.candidates.length - 1] ?? current.parent;
+        if (latestSegment && id !== current.parentId && start_frame <= latestSegment.end_frame) {
+          // A continuation must begin after the currently linked segment. This
+          // prevents older IDs from being re-added when playback advances.
+          set(currentState => ({ rejected: [...new Set([...currentState.rejected, id])] }));
+          return;
+        }
         // Cache spatially valid candidates; only completed, contained ranges enter objects.
         if (!current.rectangle) return;
-        if (!await isBulkTrajectoryInside(projectId, candidate, current.rectangle)) {
+        // A manual click establishes the parent even when its full trajectory
+        // later leaves the search square. The rectangle constrains automatic
+        // candidate matching, not the user's explicit parent selection.
+        if (source !== 'manual' && !await isBulkTrajectoryInside(projectId, candidate, current.rectangle)) {
           if (get().generation === generation) set(current => ({ rejected: [...new Set([...current.rejected, id])] }));
           return;
         }
         if (get().generation !== generation || get().excluded.includes(id)) return;
-        set(current => ({ candidates: [...current.candidates.filter(object => object.object_id !== id), candidate] }));
+        // Advance the prediction queue when its current candidate becomes
+        // part of the selected chain. The following candidate is then the
+        // next continuation to review.
+        set(current => ({
+          candidates: [...current.candidates.filter(object => object.object_id !== id), candidate],
+          queuedCandidates: current.queuedCandidates.filter(object => object.object_id !== id),
+        }));
         reconcileLinkSelection();
         return;
       }
