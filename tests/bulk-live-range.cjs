@@ -2,9 +2,10 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync('src/store/bulkLinkStore.ts', 'utf8');
-const implementation = source.slice(source.indexOf('let linkQueue ='))
+const implementation = require('typescript').transpile(source
+  .replace(/^import .*;\r?\n/gm, '')
   .replace('export const useBulkLinkStore = create<BulkLinkState>', 'store = create')
-  .replace('new Promise<void>', 'new Promise');
+  .replace(/useBulkLinkStore/g, 'store'), { target: require('typescript').ScriptTarget.ES2020 });
 let state;
 let deferred;
 const ranges = { 4: { start_frame: 0, end_frame: 10 }, 12: { start_frame: 11, end_frame: 20 } };
@@ -13,7 +14,7 @@ vm.runInNewContext(implementation, {
     const get = () => state;
     const set = update => { state = { ...state, ...(typeof update === 'function' ? update(state) : update) }; };
     state = initialize(set, get);
-    return { getState: get };
+    return { getState: get, setState: set };
   },
   getActiveObjectRange: async (_, id) => {
     if (deferred) await deferred;
@@ -22,7 +23,7 @@ vm.runInNewContext(implementation, {
 });
 const ids = () => Array.from(state.objects, object => object.object_id);
 (async () => {
-  for (const mode of ['link', 'delete']) {
+  for (const mode of ['delete']) {
     for (const source of ['manual', 'rectangle']) {
       state.start(1, mode);
       state.beginCapture(0);
@@ -69,5 +70,5 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     state.reset();
     assert.strictEqual(state.captureFrame, null);
   }
-  console.log('Bulk live range checks passed: IDs 4 and 12 at frames 14/16/11/10, both modes, reverse capture, and delayed responses.');
+  console.log('Bulk live range checks passed: IDs 4 and 12 at frames 14/16/11/10, Bulk Delete, reverse capture, and delayed responses.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

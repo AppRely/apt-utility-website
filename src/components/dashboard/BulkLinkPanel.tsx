@@ -68,28 +68,38 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
 
   return <div className="p-3 pt-0">
     <div className="bulk-action-grid">
-    <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full px-2 text-[11px] sm:text-xs bg-teal-800 hover:bg-teal-900 text-white whitespace-nowrap" disabled={!projectId || mutation.isPending}
+    <Button data-system-guide="sidebar-bulk-link" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-teal-800 hover:bg-teal-900 text-white whitespace-normal" disabled={!projectId || mutation.isPending}
       onClick={() => state.active && state.mode === 'link' ? state.reset() : state.start(projectId)} aria-pressed={state.active && state.mode === 'link'}>
       {state.active && state.mode === 'link' ? 'Cancel Bulk Link (B)' : 'Bulk Link (B)'}
     </Button>
-    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full px-2 text-[11px] sm:text-xs bg-red-700 hover:bg-red-800 text-white whitespace-nowrap" disabled={!projectId || state.busy || mutation.isPending}
+    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-red-700 hover:bg-red-800 text-white whitespace-normal" disabled={!projectId || state.busy || mutation.isPending}
       onClick={() => state.active && state.mode === 'delete' ? state.reset() : state.start(projectId, 'delete')}
       aria-pressed={state.active && state.mode === 'delete'}>
       {state.active && state.mode === 'delete' ? 'Cancel Bulk Delete (V)' : 'Bulk Delete (V)'}
     </Button>
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
-      <h3 className="font-semibold">{state.objects.length} selected</h3>
-      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Start ${state.captureStart} · Ctrl+C: set end` : 'Draw a rectangle or select an object to start.'}</p>
+      <h3 className="font-semibold" title={state.mode === 'link' ? 'Only full trajectories inside the box and frame range are selected.' : undefined}>{state.objects.length} selected</h3>
+      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Frames ${state.captureStart}-${state.captureFrame ?? state.captureStart} · Ctrl+C: end` : state.mode === 'link' ? 'Draw box, click parent.' : 'Draw box or select object.'}</p>
+      {state.mode === 'link' && state.parentId !== null && (
+        <div className="mt-2 rounded-md border border-teal-200 bg-white p-2 text-xs" aria-label="Parent object reference">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: getObjectColor(state.parentId, videoColorTheme) }} />
+            <span className="font-semibold">Parent ID {state.parentId}</span>
+            <span className="ml-auto text-slate-600">{state.parent ? `${state.parent.start_frame}-${state.parent.end_frame}` : 'Loading...'}</span>
+          </div>
+          <div className="mt-1 text-slate-600" title="The parent is linked only when its full trajectory fits the box and frame range.">{state.objects.some(object => object.object_id === state.parentId) ? 'Selected for linking' : 'Reference only'}</div>
+        </div>
+      )}
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
         {state.objects.map((obj, index) => {
           const trajectoryLength = typeof obj.start_frame === 'number' && typeof obj.end_frame === 'number'
             ? obj.end_frame - obj.start_frame
             : null;
 
-          return <li key={obj.object_id} className="text-sm">
+          return <li key={obj.object_id} className="text-xs">
             {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
-            <div className="grid grid-cols-[0.75rem_minmax(0,1fr)_2.5rem] items-center gap-2">
+            <div className="grid grid-cols-[0.75rem_minmax(0,1fr)_2rem] items-center gap-2">
               <span
                 aria-hidden="true"
                 className="h-3 w-3 shrink-0 rounded-full border border-black/20"
@@ -104,7 +114,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
                   <strong className="block text-xs text-teal-800">(last selected)</strong>
                 )}
               </span>
-              <button disabled={state.busy} onClick={() => state.remove(obj.object_id)} aria-label={`Remove object ${obj.object_id}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-red-200 text-2xl text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50">×</button>
+              <button disabled={state.busy} onClick={() => state.remove(obj.object_id)} aria-label={`Remove object ${obj.object_id}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 text-lg text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50">×</button>
             </div>
           </li>;
         })}

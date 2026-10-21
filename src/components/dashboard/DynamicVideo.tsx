@@ -1,4 +1,6 @@
 'use client';
+import { getAnimalFocus } from "@/lib/animalFocus";
+import { coordinatesInsideRectangle } from "@/lib/bulkSelection";
 import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import Image from "next/image";
@@ -42,6 +44,7 @@ import {
   getTrajectoryLinkingSuggestions,
   TrajectoryLinkingSuggestion,
 } from "@/lib/api/getTrajectoryLinkingSuggestions";
+import { getBulkLinkCandidates } from "@/lib/api/getBulkLinkCandidates";
 import {
   getCoordinateDistance,
   NEXT_LINK_MAX_DISTANCE_PX,
@@ -90,6 +93,29 @@ const sliderPositionToPlaybackRate = (position: number) => {
 };
 
 const formatFps = (value: number) => Number(value.toFixed(2)).toString();
+
+const getAdaptiveFrameTicks = (minFrame: number, maxFrame: number, maxTicks = 12) => {
+  const span = Math.max(1, maxFrame - minFrame);
+  const stepCandidates = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 25000, 50000];
+  const targetStep = span / maxTicks;
+  const step = stepCandidates.find(candidate => candidate >= targetStep) ?? stepCandidates[stepCandidates.length - 1];
+  const start = Math.ceil(minFrame / step) * step;
+  const end = Math.floor(maxFrame / step) * step;
+  const ticks: number[] = [];
+
+  for (let frame = start; frame <= end; frame += step) {
+    ticks.push(frame);
+  }
+
+  if (ticks.length === 0) {
+    return [Math.round(minFrame), Math.round(maxFrame)];
+  }
+
+  if (!ticks.includes(Math.round(minFrame))) ticks.unshift(Math.round(minFrame));
+  if (!ticks.includes(Math.round(maxFrame))) ticks.push(Math.round(maxFrame));
+
+  return ticks;
+};
 
 // ==================== SHARED FRAME MAPPING (UNCLAMPED) ====================
 function useFrameMapping(
@@ -351,6 +377,7 @@ export default function DynamicVideo({
     endX: number;
     endY: number;
   } | null>(null);
+  const savedBulkRectangleRef = useRef<typeof bulkSelectionRect>(null);
   const bulkSelectionRectRef = useRef<{
     startX: number;
     startY: number;
@@ -396,6 +423,9 @@ export default function DynamicVideo({
   const [isDragging, setIsDragging] = useState(false);
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
+  const [pendingAnimalFocus, setPendingAnimalFocus] = useState<{ frame: number; objectId: number; projectId: number } | null>(null);
+
+  const focusedAnimalFrameRef = useRef<number | null>(null);
 
   const [zoomIndicatorVisible, setZoomIndicatorVisible] = useState(false);
   const zoomIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -561,6 +591,7 @@ export default function DynamicVideo({
     sourceObjectId: number;
     matches: UniqueIdObject[];
   } | null>(null);
+  const bulkCandidateRequestRef = useRef<string | null>(null);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
@@ -571,12 +602,15 @@ export default function DynamicVideo({
   useEffect(() => {
     // Starting, switching, or cancelling clears the previous selection area.
     bulkSelectionRectRef.current = null;
+    savedBulkRectangleRef.current = null;
     setBulkSelectionRect(null);
   }, [bulkSelection.active, bulkSelection.projectId, bulkSelection.mode]);
 
   const linkSuggestionSource = isBulkSelectionActive
     ? isBulkLinkActive
-      ? bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1])
+      ? bulkSelection.candidates[bulkSelection.candidates.length - 1] ??
+        bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1]) ??
+        bulkSelection.parent
       : undefined
     : selectedObjects.length === 1 ? selectedObjects[0] : undefined;
   const nextFrameLinkMatches = useMemo(() => {
@@ -608,6 +642,103 @@ export default function DynamicVideo({
       )
       .slice(0, 5);
   }, [linkSuggestionSource, isBulkLinkActive, bulkSelection.selectionOrder, uniqueIdsData]);
+
+  useEffect(() => {
+    if (!isBulkLinkActive || !projectId || bulkSelection.busy || linkSuggestionSource?.end_frame === undefined) {
+      if (!isBulkLinkActive) bulkCandidateRequestRef.current = null;
+      return;
+    }
+    const source = linkSuggestionSource;
+    // Once the parent is selected, load possible continuations immediately.
+    // Promotion still requires the parent to have ended and the candidate to
+    // be inside the rectangle.
+    // Keep the bulk-link preview responsive even when the ranked candidate
+    // request is slow or unavailable. These matches are already loaded for
+    // the video overlay, so show their IDs/ranges in the yellow queue now.
+    if (nextFrameLinkMatches.length > 0) {
+      useBulkLinkStore.getState().queueCandidates(nextFrameLinkMatches.map(candidate => ({
+        object_id: candidate.id,
+        start_frame: candidate.start_frame,
+        end_frame: candidate.end_frame,
+      })));
+    }
+    if (currentFrame < (source.start_frame ?? 0)) return;
+    const requestKey = `${source.object_id}:${source.start_frame}:${source.end_frame}:${currentFrame < source.end_frame ? 'prefetch' : 'promote'}`;
+    if (bulkCandidateRequestRef.current === requestKey) return;
+    bulkCandidateRequestRef.current = requestKey;
+    void getBulkLinkCandidates(projectId, {
+      source_object_id: source.object_id,
+      source_end_frame: source.end_frame,
+      search_start_frame: source.end_frame + 1,
+      search_end_frame: source.end_frame + 20,
+      limit: 5,
+    }).then(candidates => {
+      const state = useBulkLinkStore.getState();
+      state.queueCandidates(candidates.map(candidate => ({
+        object_id: candidate.object_id,
+        start_frame: candidate.start_frame,
+        end_frame: candidate.end_frame,
+      })));
+      if (currentFrame < source.end_frame) {
+        return;
+      }
+      const best = candidates.find(candidate => {
+        if (candidate.start_frame < source.end_frame + 1) return false;
+        const rectangle = useBulkLinkStore.getState().rectangle;
+        if (!rectangle) return true;
+        const annotation = Array.from(annotationMap.values()).find(item =>
+          item.object_id === candidate.object_id && item.frame_id === currentFrame && item.coordinates.length > 0
+        );
+        return Boolean(annotation?.coordinates.every(([x, y]) =>
+          x >= rectangle.left && x <= rectangle.right && y >= rectangle.top && y <= rectangle.bottom
+        ));
+      });
+      if (!best) {
+        return;
+      }
+      const rectangle = useBulkLinkStore.getState().rectangle;
+      if (rectangle) {
+        const annotation = Array.from(annotationMap.values()).find(item =>
+          item.object_id === best.object_id && item.frame_id === currentFrame && item.coordinates.length > 0
+        );
+        const inside = annotation?.coordinates.every(([x, y]) =>
+          x >= rectangle.left && x <= rectangle.right && y >= rectangle.top && y <= rectangle.bottom
+        );
+        if (!inside) {
+          // Keep looking as playback advances; the candidate may enter the
+          // rectangle on a later frame.
+          bulkCandidateRequestRef.current = null;
+          return;
+        }
+      }
+      const knownIds = new Set([
+        ...state.candidates.map(object => object.object_id),
+        ...state.objects.map(object => object.object_id),
+        ...state.pending,
+      ]);
+      if (!knownIds.has(best.object_id)) {
+        // The backend has ranked this as the continuation; the store still
+        // verifies the complete trajectory against the saved rectangle.
+        // This is an automatic continuation, so keep rectangle containment
+        // enforced. Only the user's explicit parent click uses the manual
+        // exception in the store.
+        void state.select(projectId, best.object_id, best.start_frame, "rectangle");
+      }
+    }).catch(() => {
+      // If the backend is temporarily unavailable, use only the frontend
+      // candidate that starts after this segment ends. Never link an earlier
+      // range back into the chain.
+      const fallback = nextFrameLinkMatches.find(candidate => candidate.start_frame >= source.end_frame + 1);
+      if (!fallback) {
+        return;
+      }
+      const state = useBulkLinkStore.getState();
+      const knownIds = new Set([...state.candidates, ...state.objects].map(object => object.object_id));
+      if (!knownIds.has(fallback.id) && !state.pending.includes(fallback.id)) {
+        void state.select(projectId, fallback.id, fallback.start_frame, "rectangle");
+      }
+    });
+  }, [annotationMap, bulkSelection.busy, currentFrame, isBulkLinkActive, linkSuggestionSource, nextFrameLinkMatches, projectId]);
 
   useEffect(() => {
     if (!isBulkSelectionActive && selectedObjects.length === 1 && nextFrameLinkMatches.length > 0) {
@@ -872,6 +1003,9 @@ export default function DynamicVideo({
   // later frame, newly visible objects inside it join the active bulk list.
   useEffect(() => {
     if (bulkSelectionRectRef.current || !bulkSelectionRect || !isBulkSelectionActive || bulkSelection.busy || !projectId) return;
+    // Bulk Link must never add every object inside the rectangle. The square
+    // is only a search area; backend-ranked candidates are added separately.
+    if (bulkSelection.mode === 'link') return;
 
     const left = Math.min(bulkSelectionRect.startX, bulkSelectionRect.endX);
     const right = Math.max(bulkSelectionRect.startX, bulkSelectionRect.endX);
@@ -884,24 +1018,31 @@ export default function DynamicVideo({
     // trigger this effect again and cause a React update loop.
     const knownObjectIds = new Set([
       ...bulkSelection.objects.map(object => object.object_id),
+      ...bulkSelection.candidates.map(object => object.object_id),
       ...bulkSelection.pending,
+      ...bulkSelection.rejected,
       ...bulkSelection.excluded,
       ...bulkSelection.overlapping,
     ]);
+    const intervalStart = Math.min(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
+    const intervalEnd = Math.max(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
     Array.from(annotationMap.values())
       .filter(annotation => {
         if (
-          annotation.frame_id !== currentFrame ||
+          (bulkSelection.mode === 'link'
+            ? annotation.frame_id < intervalStart || annotation.frame_id > intervalEnd
+            : annotation.frame_id !== currentFrame) ||
           annotation.coordinates.length === 0 ||
           knownObjectIds.has(annotation.object_id)
         ) return false;
         const xs = annotation.coordinates.map(([x]) => mapX(x));
         const ys = annotation.coordinates.map(([, y]) => mapY(y));
-        return Math.max(...xs) >= left && Math.min(...xs) <= right &&
-          Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+        return bulkSelection.mode === 'link'
+          ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
+          : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
       })
       .forEach(annotation => {
-        void bulkSelection.select(projectId, annotation.object_id, currentFrame, "rectangle");
+        void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle");
       });
   }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
 
@@ -1755,6 +1896,8 @@ export default function DynamicVideo({
 
   const handleSeek = async (time: number) => {
     if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
+    setPendingAnimalFocus(null);
+    focusedAnimalFrameRef.current = null;
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const lastFrame = Math.max(0, Math.ceil(video.duration * stableFpsRef.current) - 1);
     const targetFrame = Math.min(Math.round(safeTime * stableFpsRef.current), lastFrame);
@@ -1912,8 +2055,12 @@ export default function DynamicVideo({
       if (!bulk.active || bulk.projectId !== Number(projectId) || !video) return;
       event.preventDefault();
       if (bulk.busy) return;
+      if (bulk.capturePhase === 'ready') {
+        safeToast({ title: "Bulk range is already ended", duration: 1500 });
+        return;
+      }
       if (bulk.capturePhase !== 'capturing') {
-        safeToast({ title: "Draw a rectangle or select an object to start", duration: 1500 });
+        safeToast({ title: "Select the parent object to start the bulk range", duration: 1500 });
         return;
       }
       // Storage is only synchronized on pause/seek. Read the live video clock
@@ -1923,8 +2070,10 @@ export default function DynamicVideo({
       bulk.captureBoundary(frame);
       safeToast({ title: `End: frame ${frame}`, duration: 1200 });
     };
-    window.addEventListener('keydown', handleBulkClipShortcut);
-    return () => window.removeEventListener('keydown', handleBulkClipShortcut);
+    // Capture globally so Bulk Link does not require the video canvas to be
+    // clicked first. This also runs before browser-level copy handling.
+    document.addEventListener('keydown', handleBulkClipShortcut, true);
+    return () => document.removeEventListener('keydown', handleBulkClipShortcut, true);
   }, [projectId, safeToast, video]);
 
   const togglePlayPause = useCallback(() => {
@@ -2047,15 +2196,18 @@ export default function DynamicVideo({
     const right = Math.max(rect.startX, rect.endX);
     const top = Math.min(rect.startY, rect.endY);
     const bottom = Math.max(rect.startY, rect.endY);
-    // Ignore clicks/minuscule drags; individual annotations retain their
-    // existing click-to-add behavior.
+    // A click chooses the parent without replacing the saved rectangle.
     if (right - left < 4 || bottom - top < 4) {
-      setBulkSelectionRect(null);
+      setBulkSelectionRect(savedBulkRectangleRef.current);
       return;
     }
 
+    savedBulkRectangleRef.current = rect;
     // Drawing starts capture automatically; Ctrl+C sets only the end.
-    bulkSelection.armCapture();
+    bulkSelection.armCapture({
+      left: (left - offsetX) / scale, right: (right - offsetX) / scale,
+      top: (top - offsetY) / scale, bottom: (bottom - offsetY) / scale,
+    });
     bulkSelection.beginCapture(pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
     video?.pause();
     setIsPlaying(false);
@@ -2065,21 +2217,24 @@ export default function DynamicVideo({
         if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
         const xs = annotation.coordinates.map(([x]) => mapX(x));
         const ys = annotation.coordinates.map(([, y]) => mapY(y));
-        // Bounding-box intersection is more forgiving than requiring every
-        // keypoint to be inside the rectangle and matches visual selection.
-        return Math.max(...xs) >= left && Math.min(...xs) <= right &&
-          Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+        // Bulk Link requires complete containment; Bulk Delete keeps its existing intersection rule.
+        return bulkSelection.mode === 'link'
+          ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
+          : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
       })
       .map(annotation => annotation.object_id);
 
-    objectIds.forEach(objectId => {
+    // Bulk Link uses the rectangle only as a search area. The parent must be
+    // selected by clicking one object; never add every animal in the square.
+    const idsToSelect = bulkSelection.mode === 'link' ? [] : objectIds;
+    idsToSelect.forEach(objectId => {
       void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
     });
     safeToast({
       title: "Range started · Ctrl+C to end",
       duration: 1800,
     });
-  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast, video]);
+  }, [annotationMap, bulkSelection, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, safeToast, video, offsetX, offsetY, scale]);
 
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
@@ -2112,6 +2267,7 @@ export default function DynamicVideo({
   }, [stageScale.x, handleResetZoom, showZoomIndicator]);
   // Auto‑pan
   const panToSelectedObject = useCallback(() => {
+    if (focusedAnimalFrameRef.current === currentFrame) return;
     if (!autoPanEnabled || selectedObjects.length === 0 || isDragging || isPanMode) return;
     if (!stageRef.current || !video || stageWidth <= 0 || stageHeight <= 0) return;
     const selectedIds = new Set(selectedObjects.map(object => object.object_id));
@@ -2245,6 +2401,24 @@ export default function DynamicVideo({
   useEffect(() => {
     if (mounted && annotationsReady) panToSelectedObject();
   }, [mounted, annotationsReady, panToSelectedObject]);
+
+  useLayoutEffect(() => {
+    if (!pendingAnimalFocus || pendingAnimalFocus.projectId !== Number(projectId) ||
+        currentFrame !== pendingAnimalFocus.frame || !annotationsReady) return;
+    const annotation = annotationMap.get(`${pendingAnimalFocus.objectId}-${pendingAnimalFocus.frame}`);
+    if (!annotation) return;
+    const focus = getAnimalFocus(annotation.coordinates, {
+      width: stageWidth, height: stageHeight, scale, offsetX, offsetY, bboxScale,
+    });
+    if (!focus) return;
+    focusedAnimalFrameRef.current = currentFrame;
+    setStageScale({ x: focus.zoom, y: focus.zoom });
+    setCurrentZoom(focus.zoom);
+    setStagePos({ x: focus.x, y: focus.y });
+    setPendingAnimalFocus(null);
+    showZoomIndicator();
+  }, [pendingAnimalFocus, projectId, currentFrame, annotationsReady, annotationMap,
+    stageWidth, stageHeight, scale, offsetX, offsetY, bboxScale, showZoomIndicator]);
 
   // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
@@ -2686,16 +2860,23 @@ export default function DynamicVideo({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || !event.data) return;
       if (event.data.type === "UNIQUE_SELECT") {
         const { frame } = event.data;
         if (frame !== undefined) handleFrameJump(frame);
       } else if (event.data.type === "CONFUSION_JUMP") {
-        handleFrameJump(event.data.frame);
+        const { frame, objectId, projectId: sourceProjectId } = event.data;
+        if (sourceProjectId !== Number(projectId) || !Number.isInteger(frame) || frame < 0) return;
+        handleFrameJump(frame);
+        if (Number.isInteger(objectId) && objectId >= 0) {
+          setSelectedObjects([{ object_id: objectId, frame_id: frame }]);
+          setPendingAnimalFocus({ frame, objectId, projectId: Number(projectId) });
+        }
       }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [handleFrameJump]);
+  }, [handleFrameJump, projectId, setSelectedObjects]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -3132,12 +3313,12 @@ export default function DynamicVideo({
             <div className="absolute top-2 left-2 z-50 text-xs">
               <div className="rounded bg-black/80 px-2 py-1 font-mono text-green-400">
                 FPS: {stableFpsRef.current} | Frame: {currentFrame} | Time: {currentTime.toFixed(3)}s
-                {isSeekingRef.current && " | SEEKING"}
                 {pendingFrameVisual !== null && ` | PENDING: ${pendingFrameVisual}`}
                 {isLoadingAnnotations && " | LOADING"}
                 {autoPanEnabled && selectedObjects.length > 0 && (selectedObjects.length === 2 || currentZoom > 1.1) && " | AUTO-PAN"}
                 {bboxScale !== 1 && ` | BBox ${bboxScale}×`}
                 {autoInterpolation && " | AUTO-INTERP"}
+                {isSeekingRef.current && " | SEEKING"}
               </div>
               {showSuggestions && !isBulkSelectionActive && linkingSuggestions &&
                 currentFrame >= linkingSuggestions.breakStart &&
@@ -3364,6 +3545,13 @@ export default function DynamicVideo({
                   return (
                     <Group 
                       key={`${a.object_id}-${a.frame_id}-${annotationIndex}`}
+                      onMouseDown={(e) => {
+                        const bulk = useBulkLinkStore.getState();
+                        if (bulk.active && bulk.mode === "link" && bulk.projectId === Number(projectId)) {
+                          e.cancelBubble = true;
+                          if (!bulk.busy) void bulk.select(Number(projectId), a.object_id, currentFrame, "manual");
+                        }
+                      }}
                       onClick={(e) => {
                         const objectId = a.object_id;
                         const bulk = useBulkLinkStore.getState();
@@ -4160,13 +4348,14 @@ export default function DynamicVideo({
                           type="number"
                           dataKey="frame"
                           domain={[minFrame, maxFrame]}
-                          tickCount={Math.floor((maxFrame - minFrame) / 50) + 1}
+                          ticks={getAdaptiveFrameTicks(minFrame, maxFrame, 10)}
                           allowDataOverflow={true}
                           scale="linear"
                           padding={{ left: 0, right: 0 }}
                           interval={0}
+                          minTickGap={20}
                           tick={{ fill: '#ccc', fontSize: 10 }}
-                          tickFormatter={(frame) => frame.toString()}
+                          tickFormatter={(frame) => Math.round(frame).toString()}
                           label={{ value: 'Frame', position: 'insideBottom', offset: -5, fill: '#aaa', fontSize: 10 }}
                         />
                         <YAxis

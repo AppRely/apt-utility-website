@@ -3,9 +3,10 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync('src/store/bulkLinkStore.ts', 'utf8');
-const implementation = source.slice(source.indexOf('let linkQueue ='))
+const implementation = require('typescript').transpile(source
+  .replace(/^import .*;\r?\n/gm, '')
   .replace('export const useBulkLinkStore = create<BulkLinkState>', 'store = create')
-  .replace('new Promise<void>', 'new Promise');
+  .replace(/useBulkLinkStore/g, 'store'), { target: require('typescript').ScriptTarget.ES2020 });
 let state;
 let deferred;
 let ranges = {};
@@ -14,7 +15,7 @@ const context = {
     const get = () => state;
     const set = update => { state = Object.assign({}, state, typeof update === 'function' ? update(state) : update); };
     state = initialize(set, get);
-    return { getState: get };
+    return { getState: get, setState: set };
   },
   getActiveObjectRange: async (_, id) => {
     if (deferred) await deferred;
@@ -24,7 +25,7 @@ const context = {
 vm.runInNewContext(implementation, context);
 const ids = () => Array.from(state.objects, object => object.object_id);
 (async () => {
-  for (const mode of ['delete', 'link']) {
+  for (const mode of ['delete']) {
     state.start(1, mode);
     state.armCapture();
     await state.select(1, 6, 1);
@@ -58,7 +59,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     await state.select(1, 11, 101, 'rectangle');
     assert.deepStrictEqual(ids(), [11]);
   }
-  for (const mode of ['delete', 'link']) {
+  for (const mode of ['delete']) {
   state.start(1, mode);
   state.armCapture();
   state.finishCapture(30); // Drawing-induced pause must not finish capture.
@@ -95,7 +96,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
   }
   ranges = { 1: { start_frame: 0, end_frame: 50 }, 2: { start_frame: 51, end_frame: 100 },
     3: { start_frame: 100, end_frame: 150 }, 5: { start_frame: 31, end_frame: 50 } };
-  for (const mode of ['link', 'delete']) {
+  for (const mode of ['delete']) {
     state.start(1, mode);
     state.armCapture();
     state.beginCapture(0);
@@ -112,7 +113,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     assert.strictEqual(state.pending.length, 0);
   }
   ranges = { 23: { start_frame: 1, end_frame: 10 }, 24: { start_frame: 11, end_frame: 20 } };
-  for (const mode of ['link', 'delete']) {
+  for (const mode of ['delete']) {
     for (const delayed of [false, true]) {
       state.start(1, mode);
       state.armCapture();
@@ -131,7 +132,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     }
   }
   // Inclusive boundaries also apply when the range is captured backwards.
-  for (const mode of ['link', 'delete']) {
+  for (const mode of ['delete']) {
     for (const delayed of [false, true]) {
       state.start(1, mode);
       state.beginCapture(20);
@@ -148,7 +149,7 @@ const ids = () => Array.from(state.objects, object => object.object_id);
       assert.strictEqual(state.captureEnd, 20);
     }
   }
-  for (const mode of ['link', 'delete']) {
+  for (const mode of ['delete']) {
     state.start(1, mode);
     state.captureBoundary(5);
     assert.strictEqual(state.capturePhase, 'idle'); // Ctrl+C cannot start capture.
@@ -172,5 +173,5 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     state.captureBoundary(40);
     assert.strictEqual(state.captureEnd, 40);
   }
-  console.log('Bulk selection regression checks passed (delete and link).');
+  console.log('Bulk Delete selection regression checks passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

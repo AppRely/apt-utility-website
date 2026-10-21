@@ -81,9 +81,9 @@ export default function ConfusionPopup() {
     return () => clearInterval(intervalId);
   }, [projectId]);
 
-  const handleRowClick = (frame: number) => {
+  const handleRowClick = (frame: number, objectId?: number) => {
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: "CONFUSION_JUMP", frame }, "*");
+      window.opener.postMessage({ type: "CONFUSION_JUMP", frame, objectId, projectId: Number(projectId) }, window.location.origin);
     }
   };
 

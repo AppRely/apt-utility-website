@@ -2,16 +2,17 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const storeSource = fs.readFileSync('src/store/bulkLinkStore.ts', 'utf8');
-const implementation = storeSource.slice(storeSource.indexOf('let linkQueue ='))
+const implementation = require('typescript').transpile(storeSource
+  .replace(/^import .*;\r?\n/gm, '')
   .replace('export const useBulkLinkStore = create<BulkLinkState>', 'store = create')
-  .replace('new Promise<void>', 'new Promise');
+  .replace(/useBulkLinkStore/g, 'store'), { target: require('typescript').ScriptTarget.ES2020 });
 let state;
 const context = {
   create: initialize => {
     const get = () => state;
     const set = update => { state = Object.assign({}, state, typeof update === 'function' ? update(state) : update); };
     state = initialize(set, get);
-    return { getState: get };
+    return { getState: get, setState: set };
   },
   projectId: 1,
   video: { currentTime: 0 },
