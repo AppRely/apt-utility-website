@@ -100,7 +100,10 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       set({ parentId: id, parent: state.candidates.find(object => object.object_id === id) ?? null });
     }
     if (state.pending.includes(id)) return;
-    if (state.capturePhase === 'idle' && source === 'manual') get().beginCapture(frame);
+    // Selecting the parent after drawing a rectangle must start the live
+    // capture as well. Without this, the store can remain "armed" and the
+    // first Ctrl+C is ignored.
+    if ((state.capturePhase === 'idle' || state.capturePhase === 'armed') && source === 'manual') get().beginCapture(frame);
     if (get().capturePhase !== 'armed' && get().capturePhase !== 'capturing' && !(state.mode === 'link' && get().capturePhase === 'ready')) return;
     // Explicit selection may restore a manually removed candidate.
     if (source === 'rectangle' && (state.excluded.includes(id) || state.rejected.includes(id))) return;

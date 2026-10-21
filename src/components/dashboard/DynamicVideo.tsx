@@ -2055,8 +2055,12 @@ export default function DynamicVideo({
       if (!bulk.active || bulk.projectId !== Number(projectId) || !video) return;
       event.preventDefault();
       if (bulk.busy) return;
+      if (bulk.capturePhase === 'ready') {
+        safeToast({ title: "Bulk range is already ended", duration: 1500 });
+        return;
+      }
       if (bulk.capturePhase !== 'capturing') {
-        safeToast({ title: "Draw a rectangle or select an object to start", duration: 1500 });
+        safeToast({ title: "Select the parent object to start the bulk range", duration: 1500 });
         return;
       }
       // Storage is only synchronized on pause/seek. Read the live video clock
@@ -2066,8 +2070,10 @@ export default function DynamicVideo({
       bulk.captureBoundary(frame);
       safeToast({ title: `End: frame ${frame}`, duration: 1200 });
     };
-    window.addEventListener('keydown', handleBulkClipShortcut);
-    return () => window.removeEventListener('keydown', handleBulkClipShortcut);
+    // Capture globally so Bulk Link does not require the video canvas to be
+    // clicked first. This also runs before browser-level copy handling.
+    document.addEventListener('keydown', handleBulkClipShortcut, true);
+    return () => document.removeEventListener('keydown', handleBulkClipShortcut, true);
   }, [projectId, safeToast, video]);
 
   const togglePlayPause = useCallback(() => {
