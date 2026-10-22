@@ -48,6 +48,14 @@ const fetchUniqueIdsRange = async (
       signal,
     });
 
+    if (response.status === 429) {
+      // Rate limiting is a recoverable state during playback. Let callers
+      // retain their current data and retry on their normal schedule instead
+      // of surfacing an application-level error overlay.
+      console.warn("Unique IDs request was rate limited; keeping current data.");
+      return null;
+    }
+
     if (!response.ok) {
       const details = await response.json().catch(() => null);
       throw new Error(`Failed to fetch unique IDs (HTTP ${response.status}): ${

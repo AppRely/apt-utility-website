@@ -592,10 +592,12 @@ export default function DynamicVideo({
     matches: UniqueIdObject[];
   } | null>(null);
   const bulkCandidateRequestRef = useRef<string | null>(null);
+  const bulkDeleteScanKeyRef = useRef<string | null>(null);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
+  const uniqueIdsNextRequestAtRef = useRef(0);
   const isBulkSelectionActive = bulkSelection.active && bulkSelection.projectId === Number(projectId);
   const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
 
@@ -1020,12 +1022,39 @@ export default function DynamicVideo({
       ...bulkSelection.objects.map(object => object.object_id),
       ...bulkSelection.candidates.map(object => object.object_id),
       ...bulkSelection.pending,
-      ...bulkSelection.rejected,
+      ...bulkSelection.rejected.filter(id => {
+        const reason = bulkSelection.rejectedReasons[id];
+        return !reason?.startsWith('Trajectory extends beyond') && reason !== 'Trajectory data is incomplete or unavailable.';
+      }),
       ...bulkSelection.excluded,
       ...bulkSelection.overlapping,
     ]);
     const intervalStart = Math.min(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
     const intervalEnd = Math.max(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
+    if (bulkSelection.mode === 'delete') {
+      const scanKey = `${bulkSelection.generation}:${currentFrame}:${intervalStart}:${intervalEnd}:${annotationMap.size}:${uniqueIdsData?.data?.objects?.length ?? 0}`;
+      if (bulkDeleteScanKeyRef.current === scanKey) return;
+      bulkDeleteScanKeyRef.current = scanKey;
+      const rangesById = new Map((uniqueIdsData?.data?.objects ?? []).map(object => [Number(object.id), object]));
+      Array.from(annotationMap.values())
+        .filter(annotation => annotation.frame_id >= intervalStart && annotation.frame_id <= intervalEnd &&
+          annotation.coordinates.length > 0 && !knownObjectIds.has(annotation.object_id))
+        .filter(annotation => {
+          const xs = annotation.coordinates.map(([x]) => mapX(x));
+          const ys = annotation.coordinates.map(([, y]) => mapY(y));
+          return Math.max(...xs) >= left && Math.min(...xs) <= right &&
+            Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+        })
+        .forEach(annotation => {
+          const range = rangesById.get(annotation.object_id);
+          void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle", {
+            object_id: annotation.object_id,
+            start_frame: range?.start_frame ?? annotation.frame_id,
+            end_frame: range?.end_frame ?? annotation.frame_id,
+          });
+        });
+      return;
+    }
     Array.from(annotationMap.values())
       .filter(annotation => {
         if (
@@ -1044,7 +1073,7 @@ export default function DynamicVideo({
       .forEach(annotation => {
         void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle");
       });
-  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
+  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, uniqueIdsData]);
 
   // Numeric shortcuts apply only to objects whose transformed bounding box is
   // currently visible after zooming and panning the stage.
@@ -1158,6 +1187,7 @@ export default function DynamicVideo({
 
   const fetchUniqueRange = useCallback((startFrame: number, endFrame: number) => {
     if (!projectId) return;
+    if (Date.now() < uniqueIdsNextRequestAtRef.current) return;
     const rangeKey = `${startFrame}-${endFrame}`;
     if (isUniqueRangeLoaded(startFrame, endFrame)) return;
     if (isUniqueRangeLoading(startFrame, endFrame)) return;
@@ -1166,6 +1196,9 @@ export default function DynamicVideo({
     pendingUniqueRangesRef.current.add(rangeKey);
     const controller = new AbortController();
     uniqueIdsAbortRef.current = controller;
+    // Avoid issuing a new range request on every playback frame. The range
+    // loader will retry naturally on the next frame after this short window.
+    uniqueIdsNextRequestAtRef.current = Date.now() + 300;
     setIsLoadingUnique(true);
     getUniqueIdsData(projectId, startFrame, endFrame, controller.signal)
       .then(data => {
@@ -1179,7 +1212,15 @@ export default function DynamicVideo({
         }
       })
       .catch(err => {
-        if (!controller.signal.aborted) console.error("[UniqueIDs] Fetch error:", err);
+        if (!controller.signal.aborted) {
+          if (String(err?.message).includes("HTTP 429")) {
+            // Respect the server's rate limit before trying another window.
+            uniqueIdsNextRequestAtRef.current = Date.now() + 3000;
+            console.warn("[UniqueIDs] Rate limited; retrying shortly.");
+          } else {
+            console.error("[UniqueIDs] Fetch error:", err);
+          }
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -2212,24 +2253,9 @@ export default function DynamicVideo({
     video?.pause();
     setIsPlaying(false);
 
-    const objectIds = Array.from(annotationMap.values())
-      .filter(annotation => {
-        if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
-        const xs = annotation.coordinates.map(([x]) => mapX(x));
-        const ys = annotation.coordinates.map(([, y]) => mapY(y));
-        // Bulk Link requires complete containment; Bulk Delete keeps its existing intersection rule.
-        return bulkSelection.mode === 'link'
-          ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
-          : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
-      })
-      .map(annotation => annotation.object_id);
-
     // Bulk Link uses the rectangle only as a search area. The parent must be
-    // selected by clicking one object; never add every animal in the square.
-    const idsToSelect = bulkSelection.mode === 'link' ? [] : objectIds;
-    idsToSelect.forEach(objectId => {
-      void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
-    });
+    // selected by clicking one object; Bulk Delete also waits for the live
+    // interval checks before adding any object.
     safeToast({
       title: "Range started · Ctrl+C to end",
       duration: 1800,
