@@ -24,6 +24,7 @@ interface Props {
 export default function ConfusionTable({ rows, loading, message, onRowClick,}: Props) {
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" } | null>(null);
   const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
 
   const formatNearbyIds = (ids: number[] | undefined) => {
     if (!ids?.length) return "—";
@@ -124,11 +125,28 @@ export default function ConfusionTable({ rows, loading, message, onRowClick,}: P
             <tr>
               <td colSpan={6} className="border px-3 py-4 text-center text-gray-500">No matching rows</td>
             </tr>
-          ) : visibleRows.map((row, idx) => (
+          ) : visibleRows.map((row, idx) => {
+            const rowKey = `${row.frame_no}-${row.current_object_id ?? "unknown"}-${idx}`;
+            const selectRow = () => {
+              const frame = Number(row.frame_no);
+              const objectId = Number(row.current_object_id);
+              if (!Number.isInteger(frame) || frame < 0) return;
+              setSelectedRowKey(rowKey);
+              onRowClick(frame, Number.isInteger(objectId) && objectId >= 0 ? objectId : undefined);
+            };
+            return (
             <tr
-              key={idx}
-              onClick={() => onRowClick(row.frame_no, row.current_object_id)}
-              className="cursor-pointer hover:bg-gray-50"
+              key={rowKey}
+              onClick={selectRow}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  selectRow();
+                }
+              }}
+              tabIndex={0}
+              aria-selected={selectedRowKey === rowKey}
+              className={`cursor-pointer outline-none hover:bg-gray-50 focus:bg-blue-50 focus:ring-2 focus:ring-inset focus:ring-blue-500 ${selectedRowKey === rowKey ? "bg-blue-50" : ""}`}
             >
               <td className="border px-3 py-2 text-center">{idx + 1}</td>
               <td className="border px-3 py-2 text-center font-mono">{row.frame_no}</td>
@@ -145,7 +163,8 @@ export default function ConfusionTable({ rows, loading, message, onRowClick,}: P
                 {row.confusion_score?.toFixed(4) ?? "—"}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
