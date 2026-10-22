@@ -1040,10 +1040,12 @@ export default function DynamicVideo({
         .filter(annotation => annotation.frame_id >= intervalStart && annotation.frame_id <= intervalEnd &&
           annotation.coordinates.length > 0 && !knownObjectIds.has(annotation.object_id))
         .filter(annotation => {
-          const xs = annotation.coordinates.map(([x]) => mapX(x));
-          const ys = annotation.coordinates.map(([, y]) => mapY(y));
-          return Math.max(...xs) >= left && Math.min(...xs) <= right &&
-            Math.max(...ys) >= top && Math.min(...ys) <= bottom;
+          // Reject partial overlap immediately. Bulk Delete candidates must
+          // have every point of the visible annotation inside the rectangle.
+          return coordinatesInsideRectangle(
+            annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]),
+            { left, right, top, bottom },
+          );
         })
         .forEach(annotation => {
           const range = rangesById.get(annotation.object_id);
