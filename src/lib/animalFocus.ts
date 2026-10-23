@@ -13,7 +13,7 @@ export function getAnimalFocus(
   // Keep the animal centered while leaving enough surrounding context to see
   // nearby objects. The focus view is intentionally wider than auto-pan's
   // selected-object fit.
-  const zoom = Math.max(1, Math.min(10, view.width * 0.2 / boxWidth, view.height * 0.2 / boxHeight));
+  const zoom = Math.max(1, Math.min(10, view.width * 0.15 / boxWidth, view.height * 0.15 / boxHeight));
   return {
     zoom,
     x: view.width / 2 - (left + right) / 2 * zoom,
