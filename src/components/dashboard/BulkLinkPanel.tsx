@@ -72,11 +72,24 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       onClick={() => state.active && state.mode === 'link' ? state.reset() : state.start(projectId)} aria-pressed={state.active && state.mode === 'link'}>
       {state.active && state.mode === 'link' ? 'Cancel Bulk Link (B)' : 'Bulk Link (B)'}
     </Button>
-    <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-red-700 hover:bg-red-800 text-white whitespace-normal" disabled={!projectId || state.busy || mutation.isPending}
-      onClick={() => state.active && state.mode === 'delete' ? state.reset() : state.start(projectId, 'delete')}
-      aria-pressed={state.active && state.mode === 'delete'}>
-      {state.active && state.mode === 'delete' ? 'Cancel Bulk Delete (V)' : 'Bulk Delete (V)'}
-    </Button>
+    {state.active && state.mode === 'delete' ? (
+      <div className="col-span-2 grid grid-cols-2 gap-2">
+        <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-red-700 hover:bg-red-800 text-white whitespace-normal" disabled={!projectId || state.busy || mutation.isPending}
+          onClick={() => state.reset()} aria-pressed="true">
+          Cancel (V)
+        </Button>
+        <Button className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-amber-600 hover:bg-amber-700 text-white whitespace-normal"
+          disabled={state.busy || mutation.isPending || state.capturePhase !== 'capturing'}
+          onClick={() => state.captureBoundary(state.captureFrame ?? state.captureStart ?? 0)}>
+          {state.mode === 'delete' ? 'Done' : 'End'} (Ctrl+C)
+        </Button>
+      </div>
+    ) : (
+      <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-red-700 hover:bg-red-800 text-white whitespace-normal" disabled={!projectId || state.busy || mutation.isPending}
+        onClick={() => state.start(projectId, 'delete')} aria-pressed="false">
+        Bulk Delete (V)
+      </Button>
+    )}
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold" title={state.mode === 'link' ? 'Only full trajectories inside the box and frame range are selected.' : undefined}>{state.objects.length} selected</h3>
@@ -120,6 +133,16 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
         })}
       </ol>
       {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading…</p>}
+      {state.mode === 'delete' && state.rejected.length > 0 && (
+        <details className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
+          <summary className="cursor-pointer font-semibold text-amber-900">
+            {state.rejected.length} rejected object{state.rejected.length === 1 ? '' : 's'}
+          </summary>
+          <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-amber-900">
+            {state.rejected.map(id => <li key={id}>ID {id}: {state.rejectedReasons[id] ?? 'Did not pass validation.'}</li>)}
+          </ul>
+        </details>
+      )}
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
       <Button className="mt-3 w-full" disabled={state.capturePhase !== 'ready' || state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
         onClick={submitBulkAction}>

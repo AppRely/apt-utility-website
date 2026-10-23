@@ -592,10 +592,13 @@ export default function DynamicVideo({
     matches: UniqueIdObject[];
   } | null>(null);
   const bulkCandidateRequestRef = useRef<string | null>(null);
+  const bulkDeleteScanKeyRef = useRef<string | null>(null);
+  const bulkDeleteRetryGenerationRef = useRef<number | null>(null);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
   const uniqueDataCacheRef = useRef<Map<string, any[]>>(new Map());
+  const uniqueIdsNextRequestAtRef = useRef(0);
   const isBulkSelectionActive = bulkSelection.active && bulkSelection.projectId === Number(projectId);
   const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
 
@@ -1020,12 +1023,41 @@ export default function DynamicVideo({
       ...bulkSelection.objects.map(object => object.object_id),
       ...bulkSelection.candidates.map(object => object.object_id),
       ...bulkSelection.pending,
-      ...bulkSelection.rejected,
+      ...bulkSelection.rejected.filter(id => {
+        const reason = bulkSelection.rejectedReasons[id];
+        return !reason?.startsWith('Trajectory extends beyond') && reason !== 'Trajectory data is incomplete or unavailable.';
+      }),
       ...bulkSelection.excluded,
       ...bulkSelection.overlapping,
     ]);
     const intervalStart = Math.min(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
     const intervalEnd = Math.max(bulkSelection.captureStart ?? currentFrame, bulkSelection.captureEnd ?? currentFrame);
+    if (bulkSelection.mode === 'delete') {
+      const scanKey = `${bulkSelection.generation}:${currentFrame}:${intervalStart}:${intervalEnd}:${annotationMap.size}:${uniqueIdsData?.data?.objects?.length ?? 0}`;
+      if (bulkDeleteScanKeyRef.current === scanKey) return;
+      bulkDeleteScanKeyRef.current = scanKey;
+      const rangesById = new Map((uniqueIdsData?.data?.objects ?? []).map(object => [Number(object.id), object]));
+      Array.from(annotationMap.values())
+        .filter(annotation => annotation.frame_id >= intervalStart && annotation.frame_id <= intervalEnd &&
+          annotation.coordinates.length > 0 && !knownObjectIds.has(annotation.object_id))
+        .filter(annotation => {
+          // Reject partial overlap immediately. Bulk Delete candidates must
+          // have every point of the visible annotation inside the rectangle.
+          return coordinatesInsideRectangle(
+            annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]),
+            { left, right, top, bottom },
+          );
+        })
+        .forEach(annotation => {
+          const range = rangesById.get(annotation.object_id);
+          void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle", range ? {
+            object_id: annotation.object_id,
+            start_frame: range.start_frame,
+            end_frame: range.end_frame,
+          } : undefined);
+        });
+      return;
+    }
     Array.from(annotationMap.values())
       .filter(annotation => {
         if (
@@ -1044,7 +1076,7 @@ export default function DynamicVideo({
       .forEach(annotation => {
         void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle");
       });
-  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId]);
+  }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, uniqueIdsData]);
 
   // Numeric shortcuts apply only to objects whose transformed bounding box is
   // currently visible after zooming and panning the stage.
@@ -1158,6 +1190,7 @@ export default function DynamicVideo({
 
   const fetchUniqueRange = useCallback((startFrame: number, endFrame: number) => {
     if (!projectId) return;
+    if (Date.now() < uniqueIdsNextRequestAtRef.current) return;
     const rangeKey = `${startFrame}-${endFrame}`;
     if (isUniqueRangeLoaded(startFrame, endFrame)) return;
     if (isUniqueRangeLoading(startFrame, endFrame)) return;
@@ -1166,20 +1199,38 @@ export default function DynamicVideo({
     pendingUniqueRangesRef.current.add(rangeKey);
     const controller = new AbortController();
     uniqueIdsAbortRef.current = controller;
+    // Avoid issuing a new range request on every playback frame. The range
+    // loader will retry naturally on the next frame after this short window.
+    uniqueIdsNextRequestAtRef.current = Date.now() + 300;
     setIsLoadingUnique(true);
-    getUniqueIdsData(projectId, startFrame, endFrame, controller.signal)
-      .then(data => {
+    const chunks: Array<[number, number]> = [];
+    for (let chunkStart = startFrame; chunkStart <= endFrame; chunkStart += 250) {
+      chunks.push([chunkStart, Math.min(endFrame, chunkStart + 250)]);
+    }
+    Promise.all(chunks.map(([chunkStart, chunkEnd]) =>
+      getUniqueIdsData(projectId, chunkStart, chunkEnd, controller.signal)
+    ))
+      .then(results => {
         if (controller.signal.aborted) return;
-        if (data?.data?.objects) {
+        const objects = results.flatMap(data => data?.data?.objects ?? []);
+        if (objects.length > 0) {
           uniqueDataCacheRef.current.clear();
           loadedUniqueRangesRef.current = [];
-          uniqueDataCacheRef.current.set(rangeKey, data.data.objects);
+          uniqueDataCacheRef.current.set(rangeKey, objects);
           addUniqueLoadedRange(startFrame, endFrame);
           mergeUniqueCacheIntoState();
         }
       })
       .catch(err => {
-        if (!controller.signal.aborted) console.error("[UniqueIDs] Fetch error:", err);
+        if (!controller.signal.aborted) {
+          if (String(err?.message).includes("HTTP 429")) {
+            // Respect the server's rate limit before trying another window.
+            uniqueIdsNextRequestAtRef.current = Date.now() + 3000;
+            console.warn("[UniqueIDs] Rate limited; retrying shortly.");
+          } else {
+            console.error("[UniqueIDs] Fetch error:", err);
+          }
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -1459,8 +1510,10 @@ export default function DynamicVideo({
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
-    const uniqueHalfWindow = Math.min(halfWindow, 100);
-    pruneUniqueRanges(currentFrame, 375);
+    // Load the complete visible window. fetchUniqueRange splits large ranges
+    // into API-safe chunks, so this must not be capped to 100 frames.
+    const uniqueHalfWindow = halfWindow;
+    pruneUniqueRanges(currentFrame, Math.max(375, halfWindow + 25));
     const visibleStart = Math.max(0, currentFrame - uniqueHalfWindow);
     const visibleEnd = Math.min(totalFrames, currentFrame + uniqueHalfWindow);
     if (isUniqueRangeLoaded(visibleStart, visibleEnd)) return;
@@ -1519,7 +1572,9 @@ export default function DynamicVideo({
     const controller = new AbortController();
     timelineAbortRef.current = controller;
     if (loaded?.key !== key) setTimelinePoints([]);
-    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    // Request roughly 1.5× the visible range: 100 visible frames requests
+    // about 150 frames, while 1000 requests about 1500.
+    const buffer = Math.max(1, Math.round(halfWindow * 0.25));
     const start = Math.max(0, visibleStart - buffer);
     const end = Math.min(totalFrames, visibleEnd + buffer);
     timelineRangeRef.current = { start, end, key };
@@ -1557,6 +1612,13 @@ export default function DynamicVideo({
     measuredPadding.right
   );
 
+  const fullVideoRangeObjects = useMemo(() => {
+    return (uniqueIdsData?.data?.objects ?? []).map(object => ({
+      id: object.id,
+      start_frame: object.start_frame,
+      end_frame: object.end_frame,
+    }));
+  }, [uniqueIdsData]);
   const displayedClipStart = isBulkSelectionActive ? bulkSelection.captureStart : clipStartFrame;
   const clipDisplayEnd = (isBulkSelectionActive ? bulkSelection.captureEnd : clipEndFrame) ?? currentFrame;
   const clipRangeMin = displayedClipStart === null ? null : Math.min(displayedClipStart, clipDisplayEnd);
@@ -1593,7 +1655,7 @@ export default function DynamicVideo({
       visibleEnd <= loaded.end
     ) return;
 
-    const buffer = Math.max(100, Math.floor(halfWindow / 2));
+    const buffer = Math.max(1, Math.floor(halfWindow * 0.25));
     const requestStart = Math.max(0, visibleStart - buffer);
     const requestEnd = Math.min(totalFrames, visibleEnd + buffer);
     const controller = new AbortController();
@@ -2208,28 +2270,16 @@ export default function DynamicVideo({
       left: (left - offsetX) / scale, right: (right - offsetX) / scale,
       top: (top - offsetY) / scale, bottom: (bottom - offsetY) / scale,
     });
-    bulkSelection.beginCapture(pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
+    const captureFrame = bulkSelection.mode === 'delete'
+      ? (currentDisplayFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame))
+      : (pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
+    bulkSelection.beginCapture(captureFrame);
     video?.pause();
     setIsPlaying(false);
 
-    const objectIds = Array.from(annotationMap.values())
-      .filter(annotation => {
-        if (annotation.frame_id !== currentFrame || annotation.coordinates.length === 0 || bulkSelection.excluded.includes(annotation.object_id)) return false;
-        const xs = annotation.coordinates.map(([x]) => mapX(x));
-        const ys = annotation.coordinates.map(([, y]) => mapY(y));
-        // Bulk Link requires complete containment; Bulk Delete keeps its existing intersection rule.
-        return bulkSelection.mode === 'link'
-          ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
-          : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
-      })
-      .map(annotation => annotation.object_id);
-
     // Bulk Link uses the rectangle only as a search area. The parent must be
-    // selected by clicking one object; never add every animal in the square.
-    const idsToSelect = bulkSelection.mode === 'link' ? [] : objectIds;
-    idsToSelect.forEach(objectId => {
-      void bulkSelection.select(projectId, objectId, currentFrame, "rectangle");
-    });
+    // selected by clicking one object; Bulk Delete also waits for the live
+    // interval checks before adding any object.
     safeToast({
       title: "Range started · Ctrl+C to end",
       duration: 1800,
@@ -2635,6 +2685,15 @@ export default function DynamicVideo({
     const handlePause = () => {
       setIsPlaying(false);
       sessionStorage.setItem("frameId", currentDisplayFrameRef.current.toString());
+      const bulk = useBulkLinkStore.getState();
+      if (bulk.active && bulk.projectId === Number(projectId) && bulk.mode === 'delete' && bulk.rejected.length > 0 &&
+          bulkDeleteRetryGenerationRef.current !== bulk.generation) {
+        // Re-check rejected delete candidates whenever playback is paused.
+        // Do this once per capture generation so repeated pause events do not
+        // keep restarting the scan.
+        bulkDeleteRetryGenerationRef.current = bulk.generation + 1;
+        bulk.retryRejected();
+      }
     };
     vid.addEventListener("timeupdate", handleTimeUpdate);
     vid.addEventListener("play", handlePlay);
@@ -4241,7 +4300,6 @@ export default function DynamicVideo({
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines
-                {timelineObjects.length > 0 && ` (selected: ${timelineObjects.map(o => o.object_id).join(', ')})`}
               </span>
               <div className="flex items-center gap-2">
                 <select
@@ -4481,13 +4539,9 @@ export default function DynamicVideo({
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Loading object ranges…
                   </div>
-                ) : uniqueIdsData && uniqueIdsData.data?.objects?.length > 0 ? (
+                  ) : fullVideoRangeObjects.length > 0 ? (
                   <ObjectRangesTimeline
-                    objects={uniqueIdsData.data.objects.map(obj => ({
-                      id: obj.id,
-                      start_frame: obj.start_frame,
-                      end_frame: obj.end_frame,
-                    }))}
+                    objects={fullVideoRangeObjects}
                     currentFrame={currentFrame}
                     onSeek={handleFrameJump}
                     getObjectColor={getObjectColor}

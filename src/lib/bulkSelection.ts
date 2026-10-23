@@ -9,7 +9,7 @@ export function coordinatesInsideRectangle(coordinates: number[][], rectangle: B
     y >= rectangle.top && y <= rectangle.bottom);
 }
 
-export async function isBulkTrajectoryInside(projectId: number, object: BulkLinkObject, rectangle: BulkRectangle) {
+export async function getBulkTrajectoryRejectionReason(projectId: number, object: BulkLinkObject, rectangle: BulkRectangle) {
   // Verify the complete trajectory, including endpoints and frames skipped by playback.
   // Bound each response so long trajectories do not require one enormous request.
   let hasStart = false;
@@ -17,12 +17,16 @@ export async function isBulkTrajectoryInside(projectId: number, object: BulkLink
   for (let start = object.start_frame; start <= object.end_frame; start += 500) {
     const data = await getFrameRangeData(projectId, start, Math.min(start + 499, object.end_frame));
     const track = data?.objects?.find((item: { object_id: number }) => item.object_id === object.object_id);
-    if (!track?.frames?.length) return false;
+    if (!track?.frames?.length) return 'Trajectory data is incomplete or unavailable.';
     for (const frame of track.frames) {
-      if (!coordinatesInsideRectangle(frame.coordinates ?? [], rectangle)) return false;
+      if (!coordinatesInsideRectangle(frame.coordinates ?? [], rectangle)) return 'Trajectory leaves the selection rectangle.';
       if (frame.frame_id === object.start_frame) hasStart = true;
       if (frame.frame_id === object.end_frame) hasEnd = true;
     }
   }
-  return hasStart && hasEnd;
+  return hasStart && hasEnd ? null : 'Trajectory data is incomplete or unavailable.';
+}
+
+export async function isBulkTrajectoryInside(projectId: number, object: BulkLinkObject, rectangle: BulkRectangle) {
+  return (await getBulkTrajectoryRejectionReason(projectId, object, rectangle)) === null;
 }
