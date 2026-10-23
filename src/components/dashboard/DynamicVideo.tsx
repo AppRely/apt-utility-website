@@ -1203,13 +1203,20 @@ export default function DynamicVideo({
     // loader will retry naturally on the next frame after this short window.
     uniqueIdsNextRequestAtRef.current = Date.now() + 300;
     setIsLoadingUnique(true);
-    getUniqueIdsData(projectId, startFrame, endFrame, controller.signal)
-      .then(data => {
+    const chunks: Array<[number, number]> = [];
+    for (let chunkStart = startFrame; chunkStart <= endFrame; chunkStart += 250) {
+      chunks.push([chunkStart, Math.min(endFrame, chunkStart + 250)]);
+    }
+    Promise.all(chunks.map(([chunkStart, chunkEnd]) =>
+      getUniqueIdsData(projectId, chunkStart, chunkEnd, controller.signal)
+    ))
+      .then(results => {
         if (controller.signal.aborted) return;
-        if (data?.data?.objects) {
+        const objects = results.flatMap(data => data?.data?.objects ?? []);
+        if (objects.length > 0) {
           uniqueDataCacheRef.current.clear();
           loadedUniqueRangesRef.current = [];
-          uniqueDataCacheRef.current.set(rangeKey, data.data.objects);
+          uniqueDataCacheRef.current.set(rangeKey, objects);
           addUniqueLoadedRange(startFrame, endFrame);
           mergeUniqueCacheIntoState();
         }
@@ -1503,8 +1510,10 @@ export default function DynamicVideo({
     if (!projectId) return;
     const totalFrames = getTotalFrames();
     if (totalFrames === 0) return;
-    const uniqueHalfWindow = Math.min(halfWindow, 100);
-    pruneUniqueRanges(currentFrame, 375);
+    // Load the complete visible window. fetchUniqueRange splits large ranges
+    // into API-safe chunks, so this must not be capped to 100 frames.
+    const uniqueHalfWindow = halfWindow;
+    pruneUniqueRanges(currentFrame, Math.max(375, halfWindow + 25));
     const visibleStart = Math.max(0, currentFrame - uniqueHalfWindow);
     const visibleEnd = Math.min(totalFrames, currentFrame + uniqueHalfWindow);
     if (isUniqueRangeLoaded(visibleStart, visibleEnd)) return;
@@ -1563,7 +1572,9 @@ export default function DynamicVideo({
     const controller = new AbortController();
     timelineAbortRef.current = controller;
     if (loaded?.key !== key) setTimelinePoints([]);
-    const buffer = Math.max(250, Math.round(halfWindow * 0.5));
+    // Request roughly 1.5× the visible range: 100 visible frames requests
+    // about 150 frames, while 1000 requests about 1500.
+    const buffer = Math.max(1, Math.round(halfWindow * 0.25));
     const start = Math.max(0, visibleStart - buffer);
     const end = Math.min(totalFrames, visibleEnd + buffer);
     timelineRangeRef.current = { start, end, key };
@@ -1601,6 +1612,13 @@ export default function DynamicVideo({
     measuredPadding.right
   );
 
+  const fullVideoRangeObjects = useMemo(() => {
+    return (uniqueIdsData?.data?.objects ?? []).map(object => ({
+      id: object.id,
+      start_frame: object.start_frame,
+      end_frame: object.end_frame,
+    }));
+  }, [uniqueIdsData]);
   const displayedClipStart = isBulkSelectionActive ? bulkSelection.captureStart : clipStartFrame;
   const clipDisplayEnd = (isBulkSelectionActive ? bulkSelection.captureEnd : clipEndFrame) ?? currentFrame;
   const clipRangeMin = displayedClipStart === null ? null : Math.min(displayedClipStart, clipDisplayEnd);
@@ -1637,7 +1655,7 @@ export default function DynamicVideo({
       visibleEnd <= loaded.end
     ) return;
 
-    const buffer = Math.max(100, Math.floor(halfWindow / 2));
+    const buffer = Math.max(1, Math.floor(halfWindow * 0.25));
     const requestStart = Math.max(0, visibleStart - buffer);
     const requestEnd = Math.min(totalFrames, visibleEnd + buffer);
     const controller = new AbortController();
@@ -4521,13 +4539,9 @@ export default function DynamicVideo({
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Loading object ranges…
                   </div>
-                ) : uniqueIdsData && uniqueIdsData.data?.objects?.length > 0 ? (
+                  ) : fullVideoRangeObjects.length > 0 ? (
                   <ObjectRangesTimeline
-                    objects={uniqueIdsData.data.objects.map(obj => ({
-                      id: obj.id,
-                      start_frame: obj.start_frame,
-                      end_frame: obj.end_frame,
-                    }))}
+                    objects={fullVideoRangeObjects}
                     currentFrame={currentFrame}
                     onSeek={handleFrameJump}
                     getObjectColor={getObjectColor}
