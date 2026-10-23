@@ -17,6 +17,7 @@ type BulkLinkState = {
   rectangle: BulkRectangle | null;
   rejected: number[];
   rejectedReasons: Record<number, string>;
+  resolvedRanges: Record<number, BulkLinkObject>;
   pending: number[];
   excluded: number[];
   overlapping: number[];
@@ -43,9 +44,9 @@ let linkQueue = Promise.resolve();
 let linkGeneration = -1;
 
 export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
-  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null,
-  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
-  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null,
+  start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
   retryRejected: () => {
     const state = get();
     const retryIds = new Set(state.rejected);
@@ -148,9 +149,11 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     try {
       if (state.mode === 'link') await previous;
       if (get().generation !== generation || get().excluded.includes(id)) return;
-      const { object_id, start_frame, end_frame } = knownObject ?? await getActiveObjectRange(projectId, id, frame);
+      const cachedRange = get().resolvedRanges[id];
+      let { object_id, start_frame, end_frame } = knownObject ?? cachedRange ?? await getActiveObjectRange(projectId, id, frame);
       if (get().generation !== generation || get().excluded.includes(id)) return;
       const current = get();
+      set(currentState => ({ resolvedRanges: { ...currentState.resolvedRanges, [id]: { object_id, start_frame, end_frame } } }));
       if (current.mode === 'link') {
         const candidate = { object_id, start_frame, end_frame };
         if (current.parentId === id) set({ parent: candidate });
@@ -193,15 +196,26 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
         return;
       }
       if (current.mode === 'delete' && current.rectangle) {
-        const intervalStart = current.captureStart === null ? start_frame : Math.min(current.captureStart, current.captureFrame ?? current.captureStart);
-        const intervalEnd = current.captureEnd === null
+        let intervalStart = current.captureStart === null ? start_frame : Math.min(current.captureStart, current.captureFrame ?? current.captureStart);
+        let intervalEnd = current.captureEnd === null
           ? Math.max(current.captureStart ?? end_frame, current.captureFrame ?? end_frame)
           : Math.max(current.captureStart ?? current.captureEnd, current.captureEnd);
+        // Windowed unique-ID ranges can be clipped. Resolve only candidates
+        // that are already outside the interval, keeping the common path fast
+        // while ensuring rejection messages use the true trajectory range.
+        if (knownObject && (start_frame < intervalStart || end_frame > intervalEnd)) {
+          const fullRange = await getActiveObjectRange(projectId, id, frame);
+          object_id = fullRange.object_id;
+          start_frame = fullRange.start_frame;
+          end_frame = fullRange.end_frame;
+          intervalStart = current.captureStart === null ? start_frame : Math.min(current.captureStart, current.captureFrame ?? current.captureStart);
+          intervalEnd = current.captureEnd === null
+            ? Math.max(current.captureStart ?? end_frame, current.captureFrame ?? end_frame)
+            : Math.max(current.captureStart ?? current.captureEnd, current.captureEnd);
+        }
         let rejectionReason: string | null = null;
         if (start_frame < intervalStart || end_frame > intervalEnd) {
           rejectionReason = `Trajectory ${start_frame}–${end_frame} is outside selected interval ${intervalStart}–${intervalEnd}.`;
-        } else {
-          rejectionReason = await getBulkTrajectoryRejectionReason(projectId, { object_id, start_frame, end_frame }, current.rectangle);
         }
         if (rejectionReason) {
           set(currentState => ({ selectionOrder: currentState.selectionOrder.filter(value => value !== id), rejected: [...new Set([...currentState.rejected, id])], rejectedReasons: { ...currentState.rejectedReasons, [id]: rejectionReason! } }));

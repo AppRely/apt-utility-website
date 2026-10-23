@@ -593,6 +593,7 @@ export default function DynamicVideo({
   } | null>(null);
   const bulkCandidateRequestRef = useRef<string | null>(null);
   const bulkDeleteScanKeyRef = useRef<string | null>(null);
+  const bulkDeleteRetryGenerationRef = useRef<number | null>(null);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
@@ -1049,11 +1050,11 @@ export default function DynamicVideo({
         })
         .forEach(annotation => {
           const range = rangesById.get(annotation.object_id);
-          void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle", {
+          void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle", range ? {
             object_id: annotation.object_id,
-            start_frame: range?.start_frame ?? annotation.frame_id,
-            end_frame: range?.end_frame ?? annotation.frame_id,
-          });
+            start_frame: range.start_frame,
+            end_frame: range.end_frame,
+          } : undefined);
         });
       return;
     }
@@ -2251,7 +2252,10 @@ export default function DynamicVideo({
       left: (left - offsetX) / scale, right: (right - offsetX) / scale,
       top: (top - offsetY) / scale, bottom: (bottom - offsetY) / scale,
     });
-    bulkSelection.beginCapture(pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
+    const captureFrame = bulkSelection.mode === 'delete'
+      ? (currentDisplayFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame))
+      : (pendingFrameRef.current ?? (video ? Math.round(video.currentTime * stableFpsRef.current) : currentFrame));
+    bulkSelection.beginCapture(captureFrame);
     video?.pause();
     setIsPlaying(false);
 
@@ -2663,6 +2667,15 @@ export default function DynamicVideo({
     const handlePause = () => {
       setIsPlaying(false);
       sessionStorage.setItem("frameId", currentDisplayFrameRef.current.toString());
+      const bulk = useBulkLinkStore.getState();
+      if (bulk.active && bulk.projectId === Number(projectId) && bulk.mode === 'delete' && bulk.rejected.length > 0 &&
+          bulkDeleteRetryGenerationRef.current !== bulk.generation) {
+        // Re-check rejected delete candidates whenever playback is paused.
+        // Do this once per capture generation so repeated pause events do not
+        // keep restarting the scan.
+        bulkDeleteRetryGenerationRef.current = bulk.generation + 1;
+        bulk.retryRejected();
+      }
     };
     vid.addEventListener("timeupdate", handleTimeUpdate);
     vid.addEventListener("play", handlePlay);
@@ -4269,7 +4282,6 @@ export default function DynamicVideo({
             <div className="flex justify-between items-center mb-1 flex-wrap gap-2 flex-shrink-0 px-2 py-1">
               <span className="text-xs text-gray-300">
                 Object Timelines
-                {timelineObjects.length > 0 && ` (selected: ${timelineObjects.map(o => o.object_id).join(', ')})`}
               </span>
               <div className="flex items-center gap-2">
                 <select

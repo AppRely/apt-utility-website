@@ -81,7 +81,7 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
         <Button className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-amber-600 hover:bg-amber-700 text-white whitespace-normal"
           disabled={state.busy || mutation.isPending || state.capturePhase !== 'capturing'}
           onClick={() => state.captureBoundary(state.captureFrame ?? state.captureStart ?? 0)}>
-          End (Ctrl+C)
+          {state.mode === 'delete' ? 'Done' : 'End'} (Ctrl+C)
         </Button>
       </div>
     ) : (
@@ -141,11 +141,6 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
           <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-amber-900">
             {state.rejected.map(id => <li key={id}>ID {id}: {state.rejectedReasons[id] ?? 'Did not pass validation.'}</li>)}
           </ul>
-          {state.rejected.length > 0 && (
-            <Button className="mt-2 h-7 w-full px-2 text-xs" onClick={() => state.retryRejected()}>
-              Retry rejected objects
-            </Button>
-          )}
         </details>
       )}
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
