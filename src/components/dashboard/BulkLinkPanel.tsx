@@ -76,34 +76,24 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       <div className="col-span-2 grid grid-cols-2 gap-2">
         <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-red-700 hover:bg-red-800 text-white whitespace-normal" disabled={!projectId || state.busy || mutation.isPending}
           onClick={() => state.reset()} aria-pressed="true">
-          Cancel (V)
+          Cancel {state.mode === 'delete' ? '(V)' : '(B)'}
         </Button>
         <Button className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-amber-600 hover:bg-amber-700 text-white whitespace-normal"
           disabled={state.busy || mutation.isPending || state.capturePhase !== 'capturing'}
           onClick={() => state.captureBoundary(state.captureFrame ?? state.captureStart ?? 0)}>
-          {state.mode === 'delete' ? 'Done' : 'End'} (Ctrl+C)
+          Done (Ctrl+C)
         </Button>
       </div>
-    ) : (
+    ) : !state.active ? (
       <Button data-system-guide="sidebar-bulk-delete" className="min-w-0 w-full h-9 px-2 py-1 text-xs leading-tight bg-red-700 hover:bg-red-800 text-white whitespace-normal" disabled={!projectId || state.busy || mutation.isPending}
         onClick={() => state.start(projectId, 'delete')} aria-pressed="false">
         Bulk Delete (V)
       </Button>
-    )}
+    ) : null}
     </div>
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold" title={state.mode === 'link' ? 'Only full trajectories inside the box and frame range are selected.' : undefined}>{state.objects.length} selected</h3>
-      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Frames ${state.captureStart}-${state.captureFrame ?? state.captureStart} · Ctrl+C: end` : state.mode === 'link' ? 'Draw box, click parent.' : 'Draw box or select object.'}</p>
-      {state.mode === 'link' && state.parentId !== null && (
-        <div className="mt-2 rounded-md border border-teal-200 bg-white p-2 text-xs" aria-label="Parent object reference">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: getObjectColor(state.parentId, videoColorTheme) }} />
-            <span className="font-semibold">Parent ID {state.parentId}</span>
-            <span className="ml-auto text-slate-600">{state.parent ? `${state.parent.start_frame}-${state.parent.end_frame}` : 'Loading...'}</span>
-          </div>
-          <div className="mt-1 text-slate-600" title="The parent is linked only when its full trajectory fits the box and frame range.">{state.objects.some(object => object.object_id === state.parentId) ? 'Selected for linking' : 'Reference only'}</div>
-        </div>
-      )}
+      <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Frames ${state.captureStart}-${state.captureFrame ?? state.captureStart} · Ctrl+C: end` : state.mode === 'link' ? 'Draw a rectangle to select trajectories.' : 'Draw box or select object.'}</p>
       <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
         {state.objects.map((obj, index) => {
           const trajectoryLength = typeof obj.start_frame === 'number' && typeof obj.end_frame === 'number'
@@ -133,8 +123,8 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
         })}
       </ol>
       {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading…</p>}
-      {state.mode === 'delete' && state.rejected.length > 0 && (
-        <details className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
+      {state.rejected.length > 0 && (
+        <details open className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
           <summary className="cursor-pointer font-semibold text-amber-900">
             {state.rejected.length} rejected object{state.rejected.length === 1 ? '' : 's'}
           </summary>

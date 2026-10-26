@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/hooks/use-toast";
+import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
@@ -593,7 +594,6 @@ export default function DynamicVideo({
   } | null>(null);
   const bulkCandidateRequestRef = useRef<string | null>(null);
   const bulkDeleteScanKeyRef = useRef<string | null>(null);
-  const bulkDeleteRetryGenerationRef = useRef<number | null>(null);
   const uniqueIdsAbortRef = useRef<AbortController | null>(null);
   const loadedUniqueRangesRef = useRef<{ start: number; end: number }[]>([]);
   const pendingUniqueRangesRef = useRef<Set<string>>(new Set());
@@ -601,6 +601,14 @@ export default function DynamicVideo({
   const uniqueIdsNextRequestAtRef = useRef(0);
   const isBulkSelectionActive = bulkSelection.active && bulkSelection.projectId === Number(projectId);
   const isBulkLinkActive = isBulkSelectionActive && bulkSelection.mode === 'link';
+  const [bulkOverlapDialog, setBulkOverlapDialog] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isBulkLinkActive || !bulkSelection.error?.toLowerCase().includes('overlap')) return;
+    video?.pause();
+    setIsPlaying(false);
+    setBulkOverlapDialog(bulkSelection.error);
+  }, [bulkSelection.error, isBulkLinkActive, video]);
 
   useEffect(() => {
     // Starting, switching, or cancelling clears the previous selection area.
@@ -610,11 +618,7 @@ export default function DynamicVideo({
   }, [bulkSelection.active, bulkSelection.projectId, bulkSelection.mode]);
 
   const linkSuggestionSource = isBulkSelectionActive
-    ? isBulkLinkActive
-      ? bulkSelection.candidates[bulkSelection.candidates.length - 1] ??
-        bulkSelection.objects.find(object => object.object_id === bulkSelection.selectionOrder[bulkSelection.selectionOrder.length - 1]) ??
-        bulkSelection.parent
-      : undefined
+    ? undefined
     : selectedObjects.length === 1 ? selectedObjects[0] : undefined;
   const nextFrameLinkMatches = useMemo(() => {
     const selected = linkSuggestionSource;
@@ -999,16 +1003,25 @@ export default function DynamicVideo({
 
   // Keep bulk IDs aligned with the live rectangle on the timeline.
   useLayoutEffect(() => {
-    if (isBulkSelectionActive) useBulkLinkStore.getState().updateCaptureFrame(currentFrame);
+    if (!isBulkSelectionActive) return;
+    const bulk = useBulkLinkStore.getState();
+    bulk.updateCaptureFrame(currentFrame);
+    const updated = useBulkLinkStore.getState();
+    if (updated.mode === 'link' && updated.rejected.length > 0 &&
+        updated.captureStart !== null && updated.captureFrame !== null) {
+      const latestRejectedEnd = Math.max(...updated.rejected
+        .map(id => updated.resolvedRanges[id]?.end_frame ?? -1));
+      if (latestRejectedEnd >= 0 && updated.captureFrame >= latestRejectedEnd) {
+        void updated.retryRejected();
+      }
+    }
   }, [isBulkSelectionActive, currentFrame, bulkSelection.captureStart, bulkSelection.generation]);
 
   // A saved rectangle is a live selection area. When playback reaches a
   // later frame, newly visible objects inside it join the active bulk list.
   useEffect(() => {
     if (bulkSelectionRectRef.current || !bulkSelectionRect || !isBulkSelectionActive || bulkSelection.busy || !projectId) return;
-    // Bulk Link must never add every object inside the rectangle. The square
-    // is only a search area; backend-ranked candidates are added separately.
-    if (bulkSelection.mode === 'link') return;
+    // Both bulk modes automatically scan objects inside the rectangle.
 
     const left = Math.min(bulkSelectionRect.startX, bulkSelectionRect.endX);
     const right = Math.max(bulkSelectionRect.startX, bulkSelectionRect.endX);
@@ -1058,7 +1071,7 @@ export default function DynamicVideo({
         });
       return;
     }
-    Array.from(annotationMap.values())
+    const linkAnnotations = Array.from(annotationMap.values())
       .filter(annotation => {
         if (
           (bulkSelection.mode === 'link'
@@ -1072,10 +1085,10 @@ export default function DynamicVideo({
         return bulkSelection.mode === 'link'
           ? coordinatesInsideRectangle(annotation.coordinates.map(([x, y]) => [mapX(x), mapY(y)]), { left, right, top, bottom })
           : Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom;
-      })
-      .forEach(annotation => {
-        void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle");
       });
+    linkAnnotations.forEach(annotation => {
+      void bulkSelection.select(projectId, annotation.object_id, annotation.frame_id, "rectangle");
+    });
   }, [annotationMap, bulkSelection, bulkSelectionRect, currentFrame, isBulkSelectionActive, mapX, mapY, projectId, uniqueIdsData]);
 
   // Numeric shortcuts apply only to objects whose transformed bounding box is
@@ -2184,6 +2197,9 @@ export default function DynamicVideo({
     // whose annotation intersects the rectangle.  This deliberately runs
     // before normal panning, including when the drag starts on an annotation.
     if (isBulkSelectionActive && !bulkSelection.busy && e.evt.button === 0 && stageRef.current) {
+      // A Bulk Link session uses one rectangle. A new rectangle is available
+      // only after cancelling and starting Bulk Link again.
+      if (isBulkLinkActive && (savedBulkRectangleRef.current || bulkSelection.rectangle)) return;
       const pointer = stageRef.current.getPointerPosition();
       if (!pointer) return;
       const point = {
@@ -2289,16 +2305,25 @@ export default function DynamicVideo({
   const handleMouseUp = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
     setIsDragging(false); setIsPanMode(false);
-    setCursorStyle(isBulkSelectionActive ? "crosshair" : "grab");
+    // The rectangle gesture is complete. Keep Bulk Link active, but restore
+    // normal canvas cursor/event behavior until the next drag starts.
+    setCursorStyle("grab");
   };
   const handleMouseLeave = () => {
     if (bulkSelectionRectRef.current) finishBulkRectangleSelection();
     setIsDragging(false); setIsPanMode(false);
-    setCursorStyle(isBulkSelectionActive ? "crosshair" : "default");
+    setCursorStyle("default");
   };
   const handleContextMenu = (e: any) => e.evt.preventDefault();
   const handleTouchMove = useCallback((e: any) => {}, []);
   const handleTouchEnd = () => {};
+  const handleTouchCancel = () => {
+    bulkSelectionRectRef.current = null;
+    setBulkSelectionRect(savedBulkRectangleRef.current);
+    setIsDragging(false);
+    setIsPanMode(false);
+    setCursorStyle(isBulkSelectionActive ? "crosshair" : "default");
+  };
   const handleZoomIn = () => {
     const ns = Math.min(stageScale.x * 1.1, 10);
     setStageScale({x:ns,y:ns});
@@ -2680,18 +2705,27 @@ export default function DynamicVideo({
           }
         }
       }
+      const bulk = useBulkLinkStore.getState();
+      if (bulk.active && bulk.projectId === Number(projectId) && bulk.mode === 'link' &&
+          bulk.rejected.length > 0 && bulk.captureStart !== null &&
+          bulk.captureFrame !== null) {
+        const latestRejectedEnd = Math.max(...bulk.rejected
+          .map(id => bulk.resolvedRanges[id]?.end_frame ?? -1));
+        if (latestRejectedEnd >= 0 && bulk.captureFrame >= latestRejectedEnd) {
+          bulk.retryRejected();
+        }
+      }
     };
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => {
       setIsPlaying(false);
       sessionStorage.setItem("frameId", currentDisplayFrameRef.current.toString());
       const bulk = useBulkLinkStore.getState();
-      if (bulk.active && bulk.projectId === Number(projectId) && bulk.mode === 'delete' && bulk.rejected.length > 0 &&
-          bulkDeleteRetryGenerationRef.current !== bulk.generation) {
-        // Re-check rejected delete candidates whenever playback is paused.
-        // Do this once per capture generation so repeated pause events do not
-        // keep restarting the scan.
-        bulkDeleteRetryGenerationRef.current = bulk.generation + 1;
+      if (bulk.active && bulk.projectId === Number(projectId) && bulk.rejected.length > 0) {
+        // Re-check rejected candidates whenever playback is paused. This is
+        // important for Bulk Link: candidates seen before the parent reaches
+        // the end of the interval are rejected temporarily, then can be
+        // selected once playback reaches that boundary.
         bulk.retryRejected();
       }
     };
@@ -3537,7 +3571,8 @@ export default function DynamicVideo({
               onMouseLeave={handleMouseLeave} 
               onContextMenu={handleContextMenu} 
               onTouchMove={handleTouchMove} 
-              onTouchEnd={handleTouchEnd} 
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchCancel}
               draggable={false}
             >
               <Layer ref={layerRef}>
@@ -4602,6 +4637,14 @@ export default function DynamicVideo({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={bulkOverlapDialog !== null}
+        onOpenChange={open => { if (!open) setBulkOverlapDialog(null); }}
+        title="Overlapping trajectories detected"
+        description={<p>{bulkOverlapDialog ?? 'Two or more trajectories overlap. They cannot be bulk linked together.'}</p>}
+        confirmText="OK"
+        onConfirm={() => setBulkOverlapDialog(null)}
+      />
     </>
   );
 }

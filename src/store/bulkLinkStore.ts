@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { getActiveObjectRange } from '@/lib/api/getObjectData';
-import { getBulkTrajectoryRejectionReason, isBulkTrajectoryInside, type BulkRectangle } from '@/lib/bulkSelection';
+import { getBulkTrajectoryRejectionReason, type BulkRectangle } from '@/lib/bulkSelection';
 import type { BulkLinkObject } from '@/lib/api/bulkLinkObjects';
 
 type BulkLinkState = {
@@ -33,6 +33,7 @@ type BulkLinkState = {
   beginCapture: (frame: number) => void;
   finishCapture: (frame: number) => void;
   start: (projectId: number, mode?: 'link' | 'delete') => void;
+  abort: (reason: string, rejectedId?: number) => void;
   reset: () => void;
   retryRejected: () => void;
   remove: (id: number) => void;
@@ -42,15 +43,69 @@ type BulkLinkState = {
 
 let linkQueue = Promise.resolve();
 let linkGeneration = -1;
+let linkRetryInFlight = false;
 
 export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
   projectId: null, active: false, mode: 'link', busy: false, generation: 0, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null,
   start: (projectId, mode = 'link') => set(state => ({ projectId, mode, active: true, busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
+  abort: (reason, rejectedId) => set(state => ({
+    active: true,
+    busy: false,
+    candidates: [],
+    queuedCandidates: [],
+    pending: [],
+    rejected: rejectedId === undefined ? state.rejected : [...new Set([...state.rejected, rejectedId])],
+    rejectedReasons: rejectedId === undefined ? state.rejectedReasons : { ...state.rejectedReasons, [rejectedId]: reason },
+    capturePhase: 'ready',
+    captureEnd: state.captureEnd ?? state.captureFrame ?? state.captureStart,
+    error: reason,
+    generation: state.generation + 1,
+  })),
   reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
-  retryRejected: () => {
+  retryRejected: async () => {
     const state = get();
     const retryIds = new Set(state.rejected);
     if (!retryIds.size) return;
+    if (state.mode === 'link') {
+      const boundary = state.captureEnd ?? state.captureFrame ?? state.captureStart;
+      const start = state.captureStart !== null && boundary !== null ? Math.min(state.captureStart, boundary) : null;
+      const end = state.captureStart !== null && boundary !== null ? Math.max(state.captureStart, boundary) : null;
+      const intervalObjects = start !== null && end !== null
+        ? [...retryIds]
+            .map(id => state.resolvedRanges[id])
+            .filter((object): object is BulkLinkObject => Boolean(object) && object.start_frame >= start && object.end_frame <= end)
+            .filter(object => !state.objects.some(existing => object.start_frame <= existing.end_frame && object.end_frame >= existing.start_frame))
+        : [];
+      if (intervalObjects.length === 0) return;
+      if (linkRetryInFlight) return;
+      linkRetryInFlight = true;
+      let validation: { object: BulkLinkObject; rejectionReason: string | null }[];
+      try {
+        validation = await Promise.all(intervalObjects.map(async object => ({
+          object,
+          rejectionReason: state.rectangle
+            ? await getBulkTrajectoryRejectionReason(state.projectId!, object, state.rectangle)
+            : null,
+        })));
+      } finally {
+        linkRetryInFlight = false;
+      }
+      if (get().generation !== state.generation) return;
+      const retriedObjects = validation.filter(item => !item.rejectionReason).map(item => item.object);
+      set(current => ({
+        objects: [...current.objects, ...retriedObjects]
+          .sort((a, b) => a.start_frame - b.start_frame || a.object_id - b.object_id),
+        selectionOrder: [...current.selectionOrder, ...retriedObjects.map(object => object.object_id)],
+        rejected: current.rejected.filter(id => !retriedObjects.some(object => object.object_id === id)),
+        rejectedReasons: Object.fromEntries(Object.entries(current.rejectedReasons).filter(([id]) => !retriedObjects.some(object => object.object_id === Number(id)))
+          .map(([id, reason]) => {
+            const result = validation.find(item => item.object.object_id === Number(id));
+            return [id, result?.rejectionReason ?? reason];
+          })),
+        generation: current.generation + 1,
+      }));
+      return;
+    }
     set(current => ({
       rejected: current.rejected.filter(id => !retryIds.has(id)),
       rejectedReasons: Object.fromEntries(Object.entries(current.rejectedReasons).filter(([id]) => !retryIds.has(Number(id)))),
@@ -84,7 +139,15 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     const start = Math.min(state.captureStart, frame);
     const end = Math.max(state.captureStart, frame);
     if (state.mode === 'link') {
-      reconcileLinkSelection({ captureFrame: frame });
+      const objects = state.objects.filter(object => object.start_frame >= start && object.end_frame <= end);
+      const rejected = state.rejected.filter(id => {
+        const range = state.resolvedRanges[id];
+        return !range || range.end_frame <= end;
+      });
+      set({ captureFrame: frame, objects,
+        rejected,
+        rejectedReasons: Object.fromEntries(Object.entries(state.rejectedReasons).filter(([id]) => rejected.includes(Number(id)))),
+        selectionOrder: state.selectionOrder.filter(id => objects.some(object => object.object_id === id)) });
       return;
     }
     const objects = state.mode === 'delete'
@@ -99,7 +162,7 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     const start = Math.min(state.captureStart, frame);
     const end = Math.max(state.captureStart, frame);
     if (state.mode === 'link') {
-      reconcileLinkSelection({ capturePhase: 'ready', captureStart: start, captureEnd: end, captureFrame: frame });
+      set({ capturePhase: 'ready', captureStart: start, captureEnd: end, captureFrame: frame });
       return;
     }
     // The full trajectory must be inside the final range.
@@ -107,13 +170,11 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     set({ capturePhase: 'ready', captureStart: start, captureEnd: end, objects,
       selectionOrder: state.selectionOrder.filter(id => state.pending.includes(id) || objects.some(object => object.object_id === id)) });
   },
-  remove: id => { if (!get().busy) { set(state => ({ excluded: [...new Set([...state.excluded, id])], objects: state.objects.filter(obj => obj.object_id !== id), selectionOrder: state.selectionOrder.filter(value => value !== id) })); reconcileLinkSelection(); } },
+  remove: id => { if (!get().busy) { set(state => ({ excluded: [...new Set([...state.excluded, id])], objects: state.objects.filter(obj => obj.object_id !== id), selectionOrder: state.selectionOrder.filter(value => value !== id) })); if (get().mode !== 'link') reconcileLinkSelection(); } },
   select: async (projectId, id, frame, source = 'manual', knownObject) => {
     const state = get();
     if (!state.active || state.projectId !== projectId || state.busy) return;
-    if (state.mode === 'link' && source === 'manual' && state.parentId === null) {
-      set({ parentId: id, parent: state.candidates.find(object => object.object_id === id) ?? null });
-    }
+    if (state.mode === 'link' && source === 'manual') return;
     if (state.pending.includes(id)) return;
     // Selecting the parent after drawing a rectangle must start the live
     // capture as well. Without this, the store can remain "armed" and the
@@ -156,32 +217,38 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       set(currentState => ({ resolvedRanges: { ...currentState.resolvedRanges, [id]: { object_id, start_frame, end_frame } } }));
       if (current.mode === 'link') {
         const candidate = { object_id, start_frame, end_frame };
-        if (current.parentId === id) set({ parent: candidate });
-        const latestSegment = current.candidates[current.candidates.length - 1] ?? current.parent;
-        if (latestSegment && id !== current.parentId && start_frame <= latestSegment.end_frame) {
-          // A continuation must begin after the currently linked segment. This
-          // prevents older IDs from being re-added when playback advances.
-          set(currentState => ({ rejected: [...new Set([...currentState.rejected, id])] }));
+        const intervalStart = current.captureStart ?? start_frame;
+        const intervalEnd = current.captureEnd ?? current.captureFrame ?? intervalStart;
+        let rejectionReason: string | null = null;
+        const overlapsResolvedTrajectory = Object.values(current.resolvedRanges).some(object =>
+          object.object_id !== id && start_frame <= object.end_frame && end_frame >= object.start_frame
+        );
+        if (current.objects.some(object => start_frame <= object.end_frame && end_frame >= object.start_frame) || overlapsResolvedTrajectory) {
+          rejectionReason = `Trajectory ${start_frame}–${end_frame} overlaps another trajectory and cannot be bulk linked.`;
+        } else if (start_frame < Math.min(intervalStart, intervalEnd) || end_frame > Math.max(intervalStart, intervalEnd)) {
+          rejectionReason = `Trajectory ${start_frame}–${end_frame} is outside selected interval ${Math.min(intervalStart, intervalEnd)}–${Math.max(intervalStart, intervalEnd)}.`;
+        } else if (current.rectangle) {
+          rejectionReason = await getBulkTrajectoryRejectionReason(projectId, candidate, current.rectangle);
+        }
+        if (rejectionReason) {
+          if (rejectionReason.includes('overlaps')) {
+            get().abort(`Bulk link stopped: ${rejectionReason}`, id);
+            return;
+          }
+          if (get().generation === generation) set(currentState => ({
+            rejected: [...new Set([...currentState.rejected, id])],
+            rejectedReasons: { ...currentState.rejectedReasons, [id]: rejectionReason! },
+            error: rejectionReason.includes('overlaps')
+              ? 'Some trajectories overlap and cannot be bulk linked.'
+              : currentState.error,
+          }));
           return;
         }
-        // Cache spatially valid candidates; only completed, contained ranges enter objects.
-        if (!current.rectangle) return;
-        // A manual click establishes the parent even when its full trajectory
-        // later leaves the search square. The rectangle constrains automatic
-        // candidate matching, not the user's explicit parent selection.
-        if (source !== 'manual' && !await isBulkTrajectoryInside(projectId, candidate, current.rectangle)) {
-          if (get().generation === generation) set(current => ({ rejected: [...new Set([...current.rejected, id])] }));
-          return;
-        }
-        if (get().generation !== generation || get().excluded.includes(id)) return;
-        // Advance the prediction queue when its current candidate becomes
-        // part of the selected chain. The following candidate is then the
-        // next continuation to review.
         set(current => ({
-          candidates: [...current.candidates.filter(object => object.object_id !== id), candidate],
-          queuedCandidates: current.queuedCandidates.filter(object => object.object_id !== id),
+          objects: [...current.objects, candidate].sort((a, b) => a.start_frame - b.start_frame || a.object_id - b.object_id),
+          rejected: current.rejected.filter(value => value !== id),
+          rejectedReasons: Object.fromEntries(Object.entries(current.rejectedReasons).filter(([key]) => Number(key) !== id)),
         }));
-        reconcileLinkSelection();
         return;
       }
       if (current.capturePhase === 'ready' &&
@@ -230,7 +297,10 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       if (get().generation === generation) set(current => ({ selectionOrder: current.selectionOrder.filter(value => value !== id), rejected: current.mode === 'link' ? [...new Set([...current.rejected, id])] : current.rejected, error: error instanceof Error ? error.message : 'Could not load object range.' }));
     } finally {
       release();
-      if (get().generation === generation) set(current => ({ pending: current.pending.filter(value => value !== id) }));
+      // A retry can advance the generation while this request is in flight.
+      // The request still owns its pending ID, so always release it; leaving
+      // stale IDs here keeps the Link button stuck in Loading state.
+      set(current => ({ pending: current.pending.filter(value => value !== id) }));
     }
   },
 }));
