@@ -2196,10 +2196,8 @@ export default function DynamicVideo({
     // In Bulk Link or Bulk Delete mode, a left-button drag selects every visible object
     // whose annotation intersects the rectangle.  This deliberately runs
     // before normal panning, including when the drag starts on an annotation.
-    if (isBulkSelectionActive && !bulkSelection.busy && e.evt.button === 0 && stageRef.current) {
-      // A Bulk Link session uses one rectangle. A new rectangle is available
-      // only after cancelling and starting Bulk Link again.
-      if (isBulkLinkActive && (savedBulkRectangleRef.current || bulkSelection.rectangle)) return;
+    const bulkRectangleLocked = isBulkLinkActive && (savedBulkRectangleRef.current || bulkSelection.rectangle);
+    if (isBulkSelectionActive && !bulkRectangleLocked && !bulkSelection.busy && e.evt.button === 0 && stageRef.current) {
       const pointer = stageRef.current.getPointerPosition();
       if (!pointer) return;
       const point = {
@@ -2226,7 +2224,7 @@ export default function DynamicVideo({
   
   const handleMouseMove = (e: any) => {
     if (!stageRef.current) return;
-    if (isBulkSelectionActive) {
+    if (isBulkSelectionActive && !(isBulkLinkActive && (savedBulkRectangleRef.current || bulkSelection.rectangle))) {
       setCursorStyle("crosshair");
       if (bulkSelectionRectRef.current) {
         const pointer = stageRef.current.getPointerPosition();
