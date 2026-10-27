@@ -18,7 +18,6 @@ import { objectDelete } from "@/lib/api/objectDelete";
 import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
 import { SelectedObjectProps } from "@/types";
 import { ArrowLeft, Crop, PawPrint, X } from "lucide-react";
-import { formatFileName } from "@/lib/utils/formatFileName";
 import { getObjectColor } from "@/lib/objectColors";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
@@ -959,14 +958,14 @@ export default function Sidebar({
       <CardContent className="p-3">
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
-          <span className="text-[#404040] text-[13px] truncate" title={mounted ? videoStoragePath ?? videoName ?? "" : ""}>
-            {mounted ? formatFileName(videoName ?? "") : "-"}
+          <span className="text-[#404040] text-[13px] break-all" title={mounted ? videoStoragePath ?? videoName ?? "" : ""}>
+            {mounted ? videoStoragePath ?? videoName ?? "-" : "-"}
           </span>
         </div>
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
-          <span className="text-[#404040] text-[13px] truncate" title={mounted ? trkStoragePath ?? trkFileName ?? "" : ""}>
-            {mounted ? formatFileName(trkFileName ?? "") : "-"}
+          <span className="text-[#404040] text-[13px] break-all" title={mounted ? trkStoragePath ?? trkFileName ?? "" : ""}>
+            {mounted ? trkStoragePath ?? trkFileName ?? "-" : "-"}
           </span>
         </div>
       </CardContent>
