@@ -424,6 +424,7 @@ export default function DynamicVideo({
   const [isDragging, setIsDragging] = useState(false);
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
+  const viewStateLoadedRef = useRef(false);
   const [pendingAnimalFocus, setPendingAnimalFocus] = useState<{ frame: number; objectId: number; projectId: number } | null>(null);
 
   const focusedAnimalFrameRef = useRef<number | null>(null);
@@ -821,6 +822,53 @@ export default function DynamicVideo({
 
   const [halfWindow, setHalfWindow] = useState(250);
   const [totalVisibleInput, setTotalVisibleInput] = useState("500");
+
+  useEffect(() => {
+    if (!mounted || !projectId || viewStateLoadedRef.current) return;
+    const rawState = sessionStorage.getItem(`video-view-state-${projectId}`);
+    if (rawState) {
+      try {
+        const saved = JSON.parse(rawState) as {
+          frame?: number;
+          zoom?: number;
+          pan?: { x: number; y: number };
+          visibleFrames?: number;
+        };
+        const savedFrame = Number.isFinite(saved.frame) ? Math.max(0, Math.trunc(saved.frame as number)) : null;
+        const savedVisibleFrames = Number.isFinite(saved.visibleFrames) ? Math.max(10, Math.trunc(saved.visibleFrames as number)) : null;
+        if (savedFrame !== null) {
+          currentDisplayFrameRef.current = savedFrame;
+          setCurrentFrame(savedFrame);
+          sessionStorage.setItem("frameId", String(savedFrame));
+        }
+        if (Number.isFinite(saved.zoom)) {
+          const zoom = Math.min(10, Math.max(1, saved.zoom as number));
+          setCurrentZoom(zoom);
+          setStageScale({ x: zoom, y: zoom });
+        }
+        if (saved.pan && Number.isFinite(saved.pan.x) && Number.isFinite(saved.pan.y)) {
+          setStagePos({ x: saved.pan.x, y: saved.pan.y });
+        }
+        if (savedVisibleFrames !== null) {
+          setHalfWindow(Math.floor(savedVisibleFrames / 2));
+          setTotalVisibleInput(String(savedVisibleFrames));
+        }
+      } catch {
+        // Ignore an invalid saved view and use the defaults.
+      }
+    }
+    viewStateLoadedRef.current = true;
+  }, [mounted, projectId]);
+
+  useEffect(() => {
+    if (!mounted || !projectId || !viewStateLoadedRef.current) return;
+    sessionStorage.setItem(`video-view-state-${projectId}`, JSON.stringify({
+      frame: currentFrame,
+      zoom: currentZoom,
+      pan: stagePos,
+      visibleFrames: halfWindow * 2,
+    }));
+  }, [mounted, projectId, currentFrame, currentZoom, stagePos, halfWindow]);
 
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
@@ -2621,9 +2669,15 @@ export default function DynamicVideo({
           setInitialLoadComplete(false);
           const storedFrame = sessionStorage.getItem("frameId");
           const initialFrame = storedFrame ? parseInt(storedFrame, 10) : 0;
-          setCurrentFrame(initialFrame);
-          currentDisplayFrameRef.current = initialFrame;
-          chunkMutation.mutate({ start: 0, end: 150 });
+          const safeInitialFrame = Number.isFinite(initialFrame)
+            ? Math.max(0, Math.min(initialFrame, Math.max(0, Math.floor(vid.duration * lockedFps) - 1)))
+            : 0;
+          pendingFrameRef.current = safeInitialFrame;
+          isSeekingRef.current = true;
+          vid.currentTime = Math.min(safeInitialFrame / lockedFps, vid.duration);
+          setCurrentFrame(safeInitialFrame);
+          currentDisplayFrameRef.current = safeInitialFrame;
+          setCurrentTime(vid.currentTime);
         };
         vid.onerror = () => safeToast({ title: "Error loading video", variant: "destructive", duration: 1500 });
         setVideo(vid);
