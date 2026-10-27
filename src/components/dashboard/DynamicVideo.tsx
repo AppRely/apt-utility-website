@@ -1,5 +1,4 @@
 'use client';
-import { getAnimalFocus } from "@/lib/animalFocus";
 import { coordinatesInsideRectangle } from "@/lib/bulkSelection";
 import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
@@ -425,9 +424,9 @@ export default function DynamicVideo({
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
   const viewStateLoadedRef = useRef(false);
-  const [pendingAnimalFocus, setPendingAnimalFocus] = useState<{ frame: number; objectId: number; projectId: number } | null>(null);
 
   const focusedAnimalFrameRef = useRef<number | null>(null);
+  const pendingConfusionPanRef = useRef<{ frame: number; objectId: number } | null>(null);
 
   const [zoomIndicatorVisible, setZoomIndicatorVisible] = useState(false);
   const zoomIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -2019,7 +2018,6 @@ export default function DynamicVideo({
 
   const handleSeek = async (time: number) => {
     if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
-    setPendingAnimalFocus(null);
     focusedAnimalFrameRef.current = null;
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const lastFrame = Math.max(0, Math.ceil(video.duration * stableFpsRef.current) - 1);
@@ -2525,22 +2523,20 @@ export default function DynamicVideo({
   }, [mounted, annotationsReady, panToSelectedObject]);
 
   useLayoutEffect(() => {
-    if (!pendingAnimalFocus || pendingAnimalFocus.projectId !== Number(projectId) ||
-        currentFrame !== pendingAnimalFocus.frame || !annotationsReady) return;
-    const annotation = annotationMap.get(`${pendingAnimalFocus.objectId}-${pendingAnimalFocus.frame}`);
-    if (!annotation) return;
-    const focus = getAnimalFocus(annotation.coordinates, {
-      width: stageWidth, height: stageHeight, scale, offsetX, offsetY, bboxScale,
+    const pending = pendingConfusionPanRef.current;
+    if (!pending || pending.frame !== currentFrame || !annotationsReady || stageWidth <= 0 || stageHeight <= 0) return;
+    const annotation = annotationMap.get(`${pending.objectId}-${pending.frame}`);
+    if (!annotation?.coordinates.length || stageScale.x <= 0) return;
+    const xs = annotation.coordinates.map(([x]) => offsetX + x * scale);
+    const ys = annotation.coordinates.map(([, y]) => offsetY + y * scale);
+    const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    setStagePos({
+      x: stageWidth / 2 - centerX * stageScale.x,
+      y: stageHeight / 2 - centerY * stageScale.y,
     });
-    if (!focus) return;
-    focusedAnimalFrameRef.current = currentFrame;
-    setStageScale({ x: focus.zoom, y: focus.zoom });
-    setCurrentZoom(focus.zoom);
-    setStagePos({ x: focus.x, y: focus.y });
-    setPendingAnimalFocus(null);
-    showZoomIndicator();
-  }, [pendingAnimalFocus, projectId, currentFrame, annotationsReady, annotationMap,
-    stageWidth, stageHeight, scale, offsetX, offsetY, bboxScale, showZoomIndicator]);
+    pendingConfusionPanRef.current = null;
+  }, [annotationMap, annotationsReady, currentFrame, offsetX, offsetY, scale, stageHeight, stageScale.x, stageWidth]);
 
   // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
@@ -3015,8 +3011,8 @@ export default function DynamicVideo({
         if (sourceProjectId !== Number(projectId) || !Number.isInteger(frame) || frame < 0) return;
         handleFrameJump(frame);
         if (Number.isInteger(objectId) && objectId >= 0) {
+          pendingConfusionPanRef.current = { frame, objectId };
           setSelectedObjects([{ object_id: objectId, frame_id: frame }]);
-          setPendingAnimalFocus({ frame, objectId, projectId: Number(projectId) });
         }
       }
     };
