@@ -3939,6 +3939,19 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="control-track"
+                    onClick={() => setShowTrajectory(!showTrajectory)}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      showTrajectory
+                        ? "bg-teal-50 text-teal-700 hover:bg-teal-100"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span className="text-lg">〰</span>
+                    <span>Track {showTrajectory ? "ON" : "OFF"}</span>
+                  </button>
+
+                  <button
                     data-system-guide="menu-auto-interpolation"
                     onClick={() => {
                       setAutoInterpolation(!autoInterpolation);
@@ -4161,10 +4174,6 @@ export default function DynamicVideo({
             <Button data-system-guide="control-zoom-in" size="icon" variant="ghost" onClick={handleZoomIn}>
               <ZoomIn className="w-3 h-3" />
             </Button>
-            <Button data-system-guide="control-track" size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
-              Track
-            </Button>
-
             {/* Speed popup */}
             <div className="relative">
               <button data-system-guide="control-speed" className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
