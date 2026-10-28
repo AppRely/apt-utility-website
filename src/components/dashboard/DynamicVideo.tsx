@@ -1085,7 +1085,13 @@ export default function DynamicVideo({
       ...bulkSelection.pending,
       ...bulkSelection.rejected.filter(id => {
         const reason = bulkSelection.rejectedReasons[id];
-        return !reason?.startsWith('Trajectory extends beyond') && reason !== 'Trajectory data is incomplete or unavailable.';
+        // Bulk Delete may reject a trajectory only because the live interval
+        // has not reached its full range yet. It must be rescanned as the
+        // user advances frame-by-frame.
+        const temporaryIntervalRejection = bulkSelection.mode === 'delete' &&
+          (reason === 'Trajectory is outside the selected frame interval.' ||
+            reason?.includes('is outside selected interval'));
+        return !temporaryIntervalRejection && !reason?.startsWith('Trajectory extends beyond') && reason !== 'Trajectory data is incomplete or unavailable.';
       }),
       ...bulkSelection.excluded,
       ...bulkSelection.overlapping,

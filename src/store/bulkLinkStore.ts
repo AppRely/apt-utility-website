@@ -182,7 +182,15 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     if ((state.capturePhase === 'idle' || state.capturePhase === 'armed') && source === 'manual') get().beginCapture(frame);
     if (get().capturePhase !== 'armed' && get().capturePhase !== 'capturing' && !(state.mode === 'link' && get().capturePhase === 'ready')) return;
     // Explicit selection may restore a manually removed candidate.
-    if (source === 'rectangle' && (state.excluded.includes(id) || state.rejected.includes(id))) return;
+    // A delete candidate can be rejected temporarily while the live interval
+    // is still growing. Allow the rectangle scanner to retry it on a later
+    // frame; geometric and link-validation rejections remain final until an
+    // explicit retry.
+    if (source === 'rectangle' && state.excluded.includes(id)) return;
+    if (source === 'rectangle' && state.rejected.includes(id) &&
+        (state.mode !== 'delete' ||
+          (state.rejectedReasons[id] !== 'Trajectory is outside the selected frame interval.' &&
+            !state.rejectedReasons[id]?.includes('is outside selected interval')))) return;
     if (source === 'manual' && state.excluded.includes(id)) {
       set(current => ({ excluded: current.excluded.filter(value => value !== id) }));
     }
