@@ -64,7 +64,13 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
   reset: () => set(state => ({ projectId: null, active: false, mode: 'link', busy: false, objects: [], candidates: [], queuedCandidates: [], parent: null, parentId: null, rectangle: null, rejected: [], rejectedReasons: {}, resolvedRanges: {}, pending: [], excluded: [], overlapping: [], selectionOrder: [], capturePhase: 'idle', captureStart: null, captureEnd: null, captureFrame: null, error: null, generation: state.generation + 1 })),
   retryRejected: async () => {
     const state = get();
-    const retryIds = new Set(state.rejected);
+    // Manual removals are intentional exclusions, not temporary validation
+    // failures. Only interval-related rejections may be retried automatically.
+    const retryIds = new Set(state.rejected.filter(id => {
+      const reason = state.rejectedReasons[id] ?? '';
+      return reason === 'Trajectory is outside the selected frame interval.' ||
+        reason.includes('is outside selected interval');
+    }));
     if (!retryIds.size) return;
     if (state.mode === 'link') {
       const boundary = state.captureEnd ?? state.captureFrame ?? state.captureStart;
@@ -170,7 +176,7 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
     set({ capturePhase: 'ready', captureStart: start, captureEnd: end, objects,
       selectionOrder: state.selectionOrder.filter(id => state.pending.includes(id) || objects.some(object => object.object_id === id)) });
   },
-  remove: id => { if (!get().busy) { set(state => ({ excluded: [...new Set([...state.excluded, id])], objects: state.objects.filter(obj => obj.object_id !== id), selectionOrder: state.selectionOrder.filter(value => value !== id) })); if (get().mode !== 'link') reconcileLinkSelection(); } },
+  remove: id => { if (!get().busy) { set(state => { const object = state.objects.find(item => item.object_id === id) ?? state.resolvedRanges[id]; return { excluded: [...new Set([...state.excluded, id])], objects: state.objects.filter(obj => obj.object_id !== id), selectionOrder: state.selectionOrder.filter(value => value !== id), rejected: [...new Set([...state.rejected, id])], rejectedReasons: { ...state.rejectedReasons, [id]: 'Manually removed from selected trajectories.' }, resolvedRanges: object ? { ...state.resolvedRanges, [id]: object } : state.resolvedRanges }; }); if (get().mode !== 'link') reconcileLinkSelection(); } },
   select: async (projectId, id, frame, source = 'manual', knownObject) => {
     const state = get();
     if (!state.active || state.projectId !== projectId || state.busy) return;
@@ -260,20 +266,25 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
         return;
       }
       if (current.capturePhase === 'ready' &&
+          !(current.mode === 'delete' && knownObject) &&
           (current.captureStart === null || current.captureEnd === null || start_frame < current.captureStart || end_frame > current.captureEnd)) {
         set(current => ({ selectionOrder: current.selectionOrder.filter(value => value !== id), rejected: [...new Set([...current.rejected, id])], rejectedReasons: { ...current.rejectedReasons, [id]: 'Trajectory is outside the selected frame interval.' } }));
         return;
       }
       if (current.capturePhase === 'capturing' && current.captureStart !== null && current.captureFrame !== null &&
+          !(current.mode === 'delete' && knownObject) &&
           (start_frame > Math.max(current.captureStart, current.captureFrame) ||
             end_frame < Math.min(current.captureStart, current.captureFrame))) {
         set(current => ({ selectionOrder: current.selectionOrder.filter(value => value !== id), rejected: [...new Set([...current.rejected, id])], rejectedReasons: { ...current.rejectedReasons, [id]: 'Trajectory is outside the selected frame interval.' } }));
         return;
       }
       if (current.mode === 'delete' && current.rectangle) {
-        let intervalStart = current.captureStart === null ? start_frame : Math.min(current.captureStart, current.captureFrame ?? current.captureStart);
+        // For live Bulk Delete, `frame` is the authoritative boundary. Do
+        // not fall back to the candidate's windowed range: unique-ID data can
+        // be clipped to the currently loaded frame window.
+        let intervalStart = current.captureStart === null ? frame : Math.min(current.captureStart, current.captureFrame ?? frame);
         let intervalEnd = current.captureEnd === null
-          ? Math.max(current.captureStart ?? end_frame, current.captureFrame ?? end_frame)
+          ? Math.max(current.captureStart ?? frame, current.captureFrame ?? frame)
           : Math.max(current.captureStart ?? current.captureEnd, current.captureEnd);
         // Windowed unique-ID ranges can be clipped. Resolve only candidates
         // that are already outside the interval, keeping the common path fast
@@ -283,9 +294,10 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
           object_id = fullRange.object_id;
           start_frame = fullRange.start_frame;
           end_frame = fullRange.end_frame;
-          intervalStart = current.captureStart === null ? start_frame : Math.min(current.captureStart, current.captureFrame ?? current.captureStart);
+          set(currentState => ({ resolvedRanges: { ...currentState.resolvedRanges, [id]: { object_id, start_frame, end_frame } } }));
+          intervalStart = current.captureStart === null ? frame : Math.min(current.captureStart, current.captureFrame ?? frame);
           intervalEnd = current.captureEnd === null
-            ? Math.max(current.captureStart ?? end_frame, current.captureFrame ?? end_frame)
+            ? Math.max(current.captureStart ?? frame, current.captureFrame ?? frame)
             : Math.max(current.captureStart ?? current.captureEnd, current.captureEnd);
         }
         let rejectionReason: string | null = null;

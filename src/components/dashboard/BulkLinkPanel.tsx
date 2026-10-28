@@ -1,11 +1,68 @@
 'use client';
-import { useCallback, useEffect } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useBulkLinkStore } from '@/store/bulkLinkStore';
 import { bulkDeleteObjects, type BulkDeleteResult } from '@/lib/api/objectDelete';
 import { bulkLinkObjects, type BulkLinkResult } from '@/lib/api/bulkLinkObjects';
 import { getObjectColor, type VideoColorTheme } from '@/lib/objectColors';
+import type { BulkLinkObject } from '@/lib/api/bulkLinkObjects';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+function TrajectoryTable({ title, items, tone, reasons, onRemove, busy, videoColorTheme }: {
+  title: string;
+  items: BulkLinkObject[];
+  tone: 'selected' | 'active' | 'rejected';
+  reasons?: Record<number, string>;
+  onRemove?: (id: number) => void;
+  busy: boolean;
+  videoColorTheme: VideoColorTheme;
+}) {
+  const [idAscending, setIdAscending] = useState<boolean | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const visibleItems = useMemo(() => [...items].sort((a, b) => {
+      if (idAscending === null) return 0;
+      return (a.object_id - b.object_id) * (idAscending ? 1 : -1);
+    }), [idAscending, items]);
+  const changeIdSort = () => setIdAscending(value => value === null ? true : null);
+  const styles = {
+    selected: 'border-teal-200 bg-white',
+    active: 'border-sky-200 bg-sky-50',
+    rejected: 'border-amber-200 bg-amber-50',
+  }[tone];
+  const heading = {
+    selected: 'text-teal-900',
+    active: 'text-sky-900',
+    rejected: 'text-amber-900',
+  }[tone];
+  return <section className={`mt-3 overflow-hidden rounded-md border ${styles}`} aria-label={`${title} trajectories`}>
+    <div className="border-b border-inherit">
+      <button type="button" onClick={() => setCollapsed(value => !value)} aria-expanded={!collapsed} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-500">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <svg className={`h-4 w-4 shrink-0 transition-transform ${collapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          <span className={`text-xs font-semibold ${heading}`}>{title}</span>
+        </span>
+        <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-slate-600">{items.length}</span>
+      </button>
+    </div>
+    {!collapsed && (items.length === 0 ? <p className="px-3 py-3 text-xs text-slate-500">No trajectories</p> : <>
+      <div className="max-h-56 w-full overflow-x-hidden overflow-y-auto">
+      <Table className="w-full min-w-0 table-fixed text-left text-[10px]">
+        <colgroup><col style={{ width: onRemove ? '25%' : '30%' }} /><col style={{ width: onRemove ? '19%' : '22%' }} /><col style={{ width: onRemove ? '19%' : '22%' }} /><col style={{ width: onRemove ? '27%' : '26%' }} />{onRemove && <col style={{ width: '10%' }} />}</colgroup>
+        <TableHeader><TableRow className="bg-black/[0.03] text-[10px] uppercase tracking-wide text-slate-500">
+          <TableHead className="h-8 px-1.5"><button className="font-semibold" onClick={changeIdSort}>ID {idAscending === true ? '↑' : idAscending === null ? '' : '↺'}</button></TableHead>
+          <TableHead className="h-8 px-1.5 font-semibold">Start</TableHead><TableHead className="h-8 px-1.5 font-semibold">End</TableHead><TableHead className="h-8 px-1.5 font-semibold">Length</TableHead>{onRemove && <TableHead className="h-8 px-0" />}
+        </TableRow></TableHeader>
+        <TableBody>{visibleItems.map(item => <Fragment key={item.object_id}><TableRow className={reasons?.[item.object_id] ? 'border-b-0' : undefined}>
+          <TableCell className="px-1.5 py-2 font-medium text-slate-800"><span className="flex min-w-0 items-center gap-1"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getObjectColor(item.object_id, videoColorTheme) }} /><button className="min-w-0 truncate text-teal-800 underline-offset-2 hover:underline" title={`Jump to frame ${item.start_frame}`} onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.start_frame }))}>{item.object_id}</button></span></TableCell>
+          <TableCell className="px-1.5 py-2 text-slate-600"><button className="underline-offset-2 hover:underline" onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.start_frame }))}>{item.start_frame}</button></TableCell><TableCell className="px-1.5 py-2 text-slate-600"><button className="underline-offset-2 hover:underline" onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.end_frame }))}>{item.end_frame}</button></TableCell><TableCell className="px-1.5 py-2 text-slate-600">{item.end_frame - item.start_frame + 1}</TableCell>
+          {onRemove && <TableCell className="px-0 py-1 text-center"><button disabled={busy} onClick={() => onRemove(item.object_id)} aria-label={`Remove object ${item.object_id}`} className="h-7 w-7 rounded border border-red-200 text-base leading-none text-red-700 hover:bg-red-100 disabled:opacity-50">×</button></TableCell>}
+        </TableRow>{reasons?.[item.object_id] && <TableRow className="border-b hover:bg-transparent"><TableCell colSpan={onRemove ? 5 : 4} className="border-b px-1.5 py-0.5 text-[10px] text-amber-800"><details><summary className="cursor-pointer text-amber-700">Reason</summary><span className="block break-words pb-1">{reasons[item.object_id]}</span></details></TableCell></TableRow>}</Fragment>)}</TableBody>
+      </Table>
+      </div>
+    </>)}
+  </section>;
+}
 
 export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteSuccess }: { projectId: number; videoColorTheme: VideoColorTheme; onSuccess: (result: BulkLinkResult) => void; onDeleteSuccess: (result: BulkDeleteResult) => void }) {
   const state = useBulkLinkStore();
@@ -108,45 +165,9 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
     {state.active && <section className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3" aria-label="Bulk selection">
       <h3 className="font-semibold" title={state.mode === 'link' ? 'Only full trajectories inside the box and frame range are selected.' : undefined}>{state.objects.length} selected</h3>
       <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Frames ${state.captureStart}-${state.captureFrame ?? state.captureStart} · Ctrl+C: end` : state.mode === 'link' ? 'Draw a rectangle to select trajectories.' : 'Draw box or select object.'}</p>
-      <ol className="mt-3 max-h-56 overflow-y-auto space-y-2">
-        {state.objects.map((obj, index) => {
-          const trajectoryLength = typeof obj.start_frame === 'number' && typeof obj.end_frame === 'number'
-            ? obj.end_frame - obj.start_frame
-            : null;
-
-          return <li key={obj.object_id} className="text-xs">
-            {state.mode === 'link' && index > 0 && <div aria-hidden="true">↓</div>}
-            <div className="grid grid-cols-[0.75rem_minmax(0,1fr)_2rem] items-center gap-2">
-              <span
-                aria-hidden="true"
-                className="h-3 w-3 shrink-0 rounded-full border border-black/20"
-                style={{ backgroundColor: getObjectColor(obj.object_id, videoColorTheme) }}
-              />
-              <span className="min-w-0 break-words">
-                ID {obj.object_id} · {obj.start_frame}–{obj.end_frame}
-                <span className="mt-1 block text-xs text-slate-600">
-                  Trajectory length: {trajectoryLength ?? '—'}
-                </span>
-                {state.selectionOrder[state.selectionOrder.length - 1] === obj.object_id && (
-                  <strong className="block text-xs text-teal-800">(last selected)</strong>
-                )}
-              </span>
-              <button disabled={state.busy} onClick={() => state.remove(obj.object_id)} aria-label={`Remove object ${obj.object_id}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 text-lg text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50">×</button>
-            </div>
-          </li>;
-        })}
-      </ol>
+      <TrajectoryTable title="Selected" items={state.objects} tone="selected" onRemove={state.remove} busy={state.busy} videoColorTheme={videoColorTheme} />
+      <TrajectoryTable title="Rejected" items={state.rejected.map(id => state.resolvedRanges[id] ?? { object_id: id, start_frame: 0, end_frame: 0 })} tone="rejected" reasons={state.rejectedReasons} busy={state.busy} videoColorTheme={videoColorTheme} />
       {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading…</p>}
-      {state.rejected.length > 0 && (
-        <details open className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
-          <summary className="cursor-pointer font-semibold text-amber-900">
-            {state.rejected.length} rejected object{state.rejected.length === 1 ? '' : 's'}
-          </summary>
-          <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-amber-900">
-            {state.rejected.map(id => <li key={id}>ID {id}: {state.rejectedReasons[id] ?? 'Did not pass validation.'}</li>)}
-          </ul>
-        </details>
-      )}
       {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
       <Button className="mt-3 w-full" disabled={state.capturePhase !== 'ready' || state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
         onClick={submitBulkAction}>

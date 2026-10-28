@@ -2022,6 +2022,15 @@ export default function DynamicVideo({
     setFrameInput("");
   };
 
+  useEffect(() => {
+    const handleBulkFrameJump = (event: Event) => {
+      const frame = (event as CustomEvent<number>).detail;
+      if (Number.isInteger(frame)) void handleFrameJump(frame);
+    };
+    window.addEventListener('bulk-frame-jump', handleBulkFrameJump);
+    return () => window.removeEventListener('bulk-frame-jump', handleBulkFrameJump);
+  }, [handleFrameJump]);
+
   const handleSeek = async (time: number) => {
     if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
     focusedAnimalFrameRef.current = null;
