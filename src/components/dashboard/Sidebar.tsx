@@ -136,8 +136,6 @@ export default function Sidebar({
   const totalFrames = useSessionStorage("total_frames");
   const activeObjectCount = useSessionStorage("active_object_count");
   const [displayActiveObjectCount, setDisplayActiveObjectCount] = useState<string | null>(null);
-  const videoStoragePath = useSessionStorage("video_storage_path");
-  const trkStoragePath = useSessionStorage("trk_storage_path");
   const autoInterpolation = useSessionStorage("autoInterpolation");
   const videoColorTheme = useSessionStorage("videoColorTheme") === "dark" ? "dark" : "light";
 
@@ -958,14 +956,14 @@ export default function Sidebar({
       <CardContent className="p-3">
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mr-2"></span>
-          <span className="text-[#404040] text-[13px] break-all" title={mounted ? videoStoragePath ?? videoName ?? "" : ""}>
-            {mounted ? videoStoragePath ?? videoName ?? "-" : "-"}
+          <span className="text-[#404040] text-[13px] break-all" title={mounted ? videoName ?? "" : ""}>
+            {mounted ? videoName ?? "-" : "-"}
           </span>
         </div>
         <div className="flex items-center">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span>
-          <span className="text-[#404040] text-[13px] break-all" title={mounted ? trkStoragePath ?? trkFileName ?? "" : ""}>
-            {mounted ? trkStoragePath ?? trkFileName ?? "-" : "-"}
+          <span className="text-[#404040] text-[13px] break-all" title={mounted ? trkFileName ?? "" : ""}>
+            {mounted ? trkFileName ?? "-" : "-"}
           </span>
         </div>
       </CardContent>

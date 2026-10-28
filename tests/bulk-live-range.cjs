@@ -70,5 +70,22 @@ const ids = () => Array.from(state.objects, object => object.object_id);
     state.reset();
     assert.strictEqual(state.captureFrame, null);
   }
+  // A trajectory first seen before its end frame is temporarily rejected,
+  // then must be retried when keyboard navigation expands the live interval.
+  ranges[42] = { start_frame: 61498, end_frame: 61505 };
+  state.start(1, 'delete');
+  state.armCapture();
+  state.beginCapture(61491);
+  await state.select(1, 42, 61498, 'rectangle', {
+    object_id: 42, start_frame: 61498, end_frame: 61505,
+  });
+  assert.deepStrictEqual(ids(), []);
+  assert.deepStrictEqual(state.rejected, [42]);
+  state.updateCaptureFrame(61506);
+  await state.select(1, 42, 61506, 'rectangle', {
+    object_id: 42, start_frame: 61498, end_frame: 61505,
+  });
+  assert.deepStrictEqual(ids(), [42]);
+  assert.deepStrictEqual(state.rejected, []);
   console.log('Bulk live range checks passed: IDs 4 and 12 at frames 14/16/11/10, Bulk Delete, reverse capture, and delayed responses.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

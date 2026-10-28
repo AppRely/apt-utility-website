@@ -102,6 +102,7 @@ export function MainFrames() {
           className="h-full shrink-0 min-w-0 overflow-hidden"
           style={{
             width: isSidebarCollapsed ? "0%" : `${sidebarWidth}%`,
+            minWidth: isSidebarCollapsed ? "0px" : "260px",
           }}
         >
           <Sidebar

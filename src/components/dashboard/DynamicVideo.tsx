@@ -1,5 +1,4 @@
 'use client';
-import { getAnimalFocus } from "@/lib/animalFocus";
 import { coordinatesInsideRectangle } from "@/lib/bulkSelection";
 import { useBulkLinkStore } from "@/store/bulkLinkStore";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
@@ -424,9 +423,10 @@ export default function DynamicVideo({
   const [isDragging, setIsDragging] = useState(false);
   const [isPanMode, setIsPanMode] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number>(1);
-  const [pendingAnimalFocus, setPendingAnimalFocus] = useState<{ frame: number; objectId: number; projectId: number } | null>(null);
+  const viewStateLoadedRef = useRef(false);
 
   const focusedAnimalFrameRef = useRef<number | null>(null);
+  const pendingConfusionPanRef = useRef<{ frame: number; objectId: number } | null>(null);
 
   const [zoomIndicatorVisible, setZoomIndicatorVisible] = useState(false);
   const zoomIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -822,6 +822,53 @@ export default function DynamicVideo({
   const [halfWindow, setHalfWindow] = useState(250);
   const [totalVisibleInput, setTotalVisibleInput] = useState("500");
 
+  useEffect(() => {
+    if (!mounted || !projectId || viewStateLoadedRef.current) return;
+    const rawState = sessionStorage.getItem(`video-view-state-${projectId}`);
+    if (rawState) {
+      try {
+        const saved = JSON.parse(rawState) as {
+          frame?: number;
+          zoom?: number;
+          pan?: { x: number; y: number };
+          visibleFrames?: number;
+        };
+        const savedFrame = Number.isFinite(saved.frame) ? Math.max(0, Math.trunc(saved.frame as number)) : null;
+        const savedVisibleFrames = Number.isFinite(saved.visibleFrames) ? Math.max(10, Math.trunc(saved.visibleFrames as number)) : null;
+        if (savedFrame !== null) {
+          currentDisplayFrameRef.current = savedFrame;
+          setCurrentFrame(savedFrame);
+          sessionStorage.setItem("frameId", String(savedFrame));
+        }
+        if (Number.isFinite(saved.zoom)) {
+          const zoom = Math.min(10, Math.max(1, saved.zoom as number));
+          setCurrentZoom(zoom);
+          setStageScale({ x: zoom, y: zoom });
+        }
+        if (saved.pan && Number.isFinite(saved.pan.x) && Number.isFinite(saved.pan.y)) {
+          setStagePos({ x: saved.pan.x, y: saved.pan.y });
+        }
+        if (savedVisibleFrames !== null) {
+          setHalfWindow(Math.floor(savedVisibleFrames / 2));
+          setTotalVisibleInput(String(savedVisibleFrames));
+        }
+      } catch {
+        // Ignore an invalid saved view and use the defaults.
+      }
+    }
+    viewStateLoadedRef.current = true;
+  }, [mounted, projectId]);
+
+  useEffect(() => {
+    if (!mounted || !projectId || !viewStateLoadedRef.current) return;
+    sessionStorage.setItem(`video-view-state-${projectId}`, JSON.stringify({
+      frame: currentFrame,
+      zoom: currentZoom,
+      pan: stagePos,
+      visibleFrames: halfWindow * 2,
+    }));
+  }, [mounted, projectId, currentFrame, currentZoom, stagePos, halfWindow]);
+
   const [stageWidth, setStageWidth] = useState(900);
   const [stageHeight, setStageHeight] = useState(700);
   const rootContainerRef = useRef<HTMLDivElement>(null);
@@ -1038,7 +1085,13 @@ export default function DynamicVideo({
       ...bulkSelection.pending,
       ...bulkSelection.rejected.filter(id => {
         const reason = bulkSelection.rejectedReasons[id];
-        return !reason?.startsWith('Trajectory extends beyond') && reason !== 'Trajectory data is incomplete or unavailable.';
+        // Bulk Delete may reject a trajectory only because the live interval
+        // has not reached its full range yet. It must be rescanned as the
+        // user advances frame-by-frame.
+        const temporaryIntervalRejection = bulkSelection.mode === 'delete' &&
+          (reason === 'Trajectory is outside the selected frame interval.' ||
+            reason?.includes('is outside selected interval'));
+        return !temporaryIntervalRejection && !reason?.startsWith('Trajectory extends beyond') && reason !== 'Trajectory data is incomplete or unavailable.';
       }),
       ...bulkSelection.excluded,
       ...bulkSelection.overlapping,
@@ -1969,9 +2022,17 @@ export default function DynamicVideo({
     setFrameInput("");
   };
 
+  useEffect(() => {
+    const handleBulkFrameJump = (event: Event) => {
+      const frame = (event as CustomEvent<number>).detail;
+      if (Number.isInteger(frame)) void handleFrameJump(frame);
+    };
+    window.addEventListener('bulk-frame-jump', handleBulkFrameJump);
+    return () => window.removeEventListener('bulk-frame-jump', handleBulkFrameJump);
+  }, [handleFrameJump]);
+
   const handleSeek = async (time: number) => {
     if (!video || !Number.isFinite(video.duration) || !Number.isFinite(time)) return;
-    setPendingAnimalFocus(null);
     focusedAnimalFrameRef.current = null;
     const safeTime = Math.min(Math.max(time, 0), video.duration);
     const lastFrame = Math.max(0, Math.ceil(video.duration * stableFpsRef.current) - 1);
@@ -2477,22 +2538,20 @@ export default function DynamicVideo({
   }, [mounted, annotationsReady, panToSelectedObject]);
 
   useLayoutEffect(() => {
-    if (!pendingAnimalFocus || pendingAnimalFocus.projectId !== Number(projectId) ||
-        currentFrame !== pendingAnimalFocus.frame || !annotationsReady) return;
-    const annotation = annotationMap.get(`${pendingAnimalFocus.objectId}-${pendingAnimalFocus.frame}`);
-    if (!annotation) return;
-    const focus = getAnimalFocus(annotation.coordinates, {
-      width: stageWidth, height: stageHeight, scale, offsetX, offsetY, bboxScale,
+    const pending = pendingConfusionPanRef.current;
+    if (!pending || pending.frame !== currentFrame || !annotationsReady || stageWidth <= 0 || stageHeight <= 0) return;
+    const annotation = annotationMap.get(`${pending.objectId}-${pending.frame}`);
+    if (!annotation?.coordinates.length || stageScale.x <= 0) return;
+    const xs = annotation.coordinates.map(([x]) => offsetX + x * scale);
+    const ys = annotation.coordinates.map(([, y]) => offsetY + y * scale);
+    const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    setStagePos({
+      x: stageWidth / 2 - centerX * stageScale.x,
+      y: stageHeight / 2 - centerY * stageScale.y,
     });
-    if (!focus) return;
-    focusedAnimalFrameRef.current = currentFrame;
-    setStageScale({ x: focus.zoom, y: focus.zoom });
-    setCurrentZoom(focus.zoom);
-    setStagePos({ x: focus.x, y: focus.y });
-    setPendingAnimalFocus(null);
-    showZoomIndicator();
-  }, [pendingAnimalFocus, projectId, currentFrame, annotationsReady, annotationMap,
-    stageWidth, stageHeight, scale, offsetX, offsetY, bboxScale, showZoomIndicator]);
+    pendingConfusionPanRef.current = null;
+  }, [annotationMap, annotationsReady, currentFrame, offsetX, offsetY, scale, stageHeight, stageScale.x, stageWidth]);
 
   // ===== Responsive stage sizing =====
   const updateStageSize = useCallback(() => {
@@ -2621,9 +2680,15 @@ export default function DynamicVideo({
           setInitialLoadComplete(false);
           const storedFrame = sessionStorage.getItem("frameId");
           const initialFrame = storedFrame ? parseInt(storedFrame, 10) : 0;
-          setCurrentFrame(initialFrame);
-          currentDisplayFrameRef.current = initialFrame;
-          chunkMutation.mutate({ start: 0, end: 150 });
+          const safeInitialFrame = Number.isFinite(initialFrame)
+            ? Math.max(0, Math.min(initialFrame, Math.max(0, Math.floor(vid.duration * lockedFps) - 1)))
+            : 0;
+          pendingFrameRef.current = safeInitialFrame;
+          isSeekingRef.current = true;
+          vid.currentTime = Math.min(safeInitialFrame / lockedFps, vid.duration);
+          setCurrentFrame(safeInitialFrame);
+          currentDisplayFrameRef.current = safeInitialFrame;
+          setCurrentTime(vid.currentTime);
         };
         vid.onerror = () => safeToast({ title: "Error loading video", variant: "destructive", duration: 1500 });
         setVideo(vid);
@@ -2961,8 +3026,8 @@ export default function DynamicVideo({
         if (sourceProjectId !== Number(projectId) || !Number.isInteger(frame) || frame < 0) return;
         handleFrameJump(frame);
         if (Number.isInteger(objectId) && objectId >= 0) {
+          pendingConfusionPanRef.current = { frame, objectId };
           setSelectedObjects([{ object_id: objectId, frame_id: frame }]);
-          setPendingAnimalFocus({ frame, objectId, projectId: Number(projectId) });
         }
       }
     };
@@ -3939,6 +4004,19 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="control-track"
+                    onClick={() => setShowTrajectory(!showTrajectory)}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      showTrajectory
+                        ? "bg-teal-50 text-teal-700 hover:bg-teal-100"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span className="text-lg">〰</span>
+                    <span>Track {showTrajectory ? "ON" : "OFF"}</span>
+                  </button>
+
+                  <button
                     data-system-guide="menu-auto-interpolation"
                     onClick={() => {
                       setAutoInterpolation(!autoInterpolation);
@@ -4161,10 +4239,6 @@ export default function DynamicVideo({
             <Button data-system-guide="control-zoom-in" size="icon" variant="ghost" onClick={handleZoomIn}>
               <ZoomIn className="w-3 h-3" />
             </Button>
-            <Button data-system-guide="control-track" size="sm" variant={showTrajectory ? "default" : "ghost"} onClick={() => setShowTrajectory(!showTrajectory)} className="px-2 text-xs font-semibold">
-              Track
-            </Button>
-
             {/* Speed popup */}
             <div className="relative">
               <button data-system-guide="control-speed" className="flex items-center gap-1 text-xs px-2 py-1 rounded" onClick={() => setShowSpeed(v=>!v)}>
