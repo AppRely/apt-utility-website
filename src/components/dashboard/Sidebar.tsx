@@ -60,7 +60,7 @@ const formatVideoDuration = (value: string | null) => {
 
 const formatTrajectoryLength = (startFrame?: number, endFrame?: number) =>
   startFrame !== undefined && endFrame !== undefined
-    ? endFrame - startFrame
+    ? endFrame - startFrame + 1
     : "—";
 
 export default function Sidebar({
@@ -984,7 +984,7 @@ export default function Sidebar({
             const trajectoryLength = rangeQueries[i]?.isSuccess &&
               obj.start_frame !== undefined &&
               obj.end_frame !== undefined
-                ? obj.end_frame - obj.start_frame
+                ? obj.end_frame - obj.start_frame + 1
                 : null;
             return (
               <div key={i} className="p-2 mt-2 border border-[#D9D9D9] bg-white shadow-sm rounded-[7px] flex justify-between items-start gap-1 text-xs" style={{ borderLeft: `5px solid ${color}` }}>
@@ -1345,7 +1345,7 @@ export default function Sidebar({
                 <p>
                   <strong>Trajectory Length:</strong>{" "}
                   {selectedObjects[0].start_frame !== undefined && selectedObjects[0].end_frame !== undefined
-                    ? selectedObjects[0].end_frame - selectedObjects[0].start_frame
+                    ? selectedObjects[0].end_frame - selectedObjects[0].start_frame + 1
                     : "—"}
                 </p>
                 <p className="text-yellow-600 mt-2">Current ID will be deleted.</p>
