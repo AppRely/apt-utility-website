@@ -18,13 +18,29 @@ function TrajectoryTable({ title, items, tone, reasons, onRemove, busy, videoCol
   busy: boolean;
   videoColorTheme: VideoColorTheme;
 }) {
-  const [idAscending, setIdAscending] = useState<boolean | null>(null);
+  const [sortKey, setSortKey] = useState<'object_id' | 'start_frame' | 'end_frame' | 'length' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const visibleItems = useMemo(() => [...items].sort((a, b) => {
-      if (idAscending === null) return 0;
-      return (a.object_id - b.object_id) * (idAscending ? 1 : -1);
-    }), [idAscending, items]);
-  const changeIdSort = () => setIdAscending(value => value === null ? true : null);
+      if (!sortKey || !sortDirection) return 0;
+      const left = sortKey === 'length' ? a.end_frame - a.start_frame + 1 : a[sortKey];
+      const right = sortKey === 'length' ? b.end_frame - b.start_frame + 1 : b[sortKey];
+      return (left - right) * (sortDirection === 'asc' ? 1 : -1);
+    }), [items, sortDirection, sortKey]);
+  const changeSort = (key: Exclude<typeof sortKey, null>) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDirection('asc');
+    } else if (sortDirection === 'asc') {
+      setSortDirection('desc');
+    } else {
+      setSortKey(null);
+      setSortDirection(null);
+    }
+  };
+  const sortIndicator = (key: Exclude<typeof sortKey, null>) => sortKey === key
+    ? sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : ''
+    : '';
   const styles = {
     selected: 'border-teal-200 bg-white',
     active: 'border-sky-200 bg-sky-50',
@@ -50,8 +66,7 @@ function TrajectoryTable({ title, items, tone, reasons, onRemove, busy, videoCol
       <Table className="w-full min-w-0 table-fixed text-left text-[10px]">
         <colgroup><col style={{ width: onRemove ? '25%' : '30%' }} /><col style={{ width: onRemove ? '19%' : '22%' }} /><col style={{ width: onRemove ? '19%' : '22%' }} /><col style={{ width: onRemove ? '27%' : '26%' }} />{onRemove && <col style={{ width: '10%' }} />}</colgroup>
         <TableHeader><TableRow className="bg-black/[0.03] text-[10px] uppercase tracking-wide text-slate-500">
-          <TableHead className="h-8 px-1.5"><button className="font-semibold" onClick={changeIdSort}>ID {idAscending === true ? '↑' : idAscending === null ? '' : '↺'}</button></TableHead>
-          <TableHead className="h-8 px-1.5 font-semibold">Start</TableHead><TableHead className="h-8 px-1.5 font-semibold">End</TableHead><TableHead className="h-8 px-1.5 font-semibold">Length</TableHead>{onRemove && <TableHead className="h-8 px-0" />}
+          {([['object_id', 'ID'], ['start_frame', 'Start'], ['end_frame', 'End'], ['length', 'Length']] as const).map(([key, label]) => <TableHead key={key} className="h-8 px-1.5"><button className="font-semibold" onClick={() => changeSort(key)}>{label} {sortIndicator(key)}</button></TableHead>)}{onRemove && <TableHead className="h-8 px-0" />}
         </TableRow></TableHeader>
         <TableBody>{visibleItems.map(item => <Fragment key={item.object_id}><TableRow className={reasons?.[item.object_id] ? 'border-b-0' : undefined}>
           <TableCell className="px-1.5 py-2 font-medium text-slate-800"><span className="flex min-w-0 items-center gap-1"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getObjectColor(item.object_id, videoColorTheme) }} /><button className="min-w-0 truncate text-teal-800 underline-offset-2 hover:underline" title={`Jump to frame ${item.start_frame}`} onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.start_frame }))}>{item.object_id}</button></span></TableCell>
