@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, type Dispatch, type 
 import { getFrameData } from "@/lib/api/getFrameData";
 import { useMutation } from "@tanstack/react-query";
 import { getActiveObjectRange } from "@/lib/api/getObjectData";
+import { getValidTrajectoryOverlap } from "@/lib/api/getValidTrajectoryOverlap";
 import { linkObjects } from "@/lib/api/linkObjects";
 import { swapObjects } from "@/lib/api/swapObjects";
 import { breakObjects } from "@/lib/api/breakObjects";
@@ -60,7 +61,7 @@ const formatVideoDuration = (value: string | null) => {
 
 const formatTrajectoryLength = (startFrame?: number, endFrame?: number) =>
   startFrame !== undefined && endFrame !== undefined
-    ? endFrame - startFrame
+    ? endFrame - startFrame + 1
     : "—";
 
 export default function Sidebar({
@@ -156,6 +157,19 @@ export default function Sidebar({
     return range ? { ...object, start_frame: range.start_frame, end_frame: range.end_frame } : object;
   });
   const rangesReady = rangeQueries.every(query => query.isSuccess && !query.isFetching);
+  const overlapFirst = selectedObjects[0];
+  const overlapSecond = selectedObjects[1];
+  const metadataOverlap = Boolean(
+    overlapFirst?.start_frame !== undefined && overlapFirst?.end_frame !== undefined &&
+    overlapSecond?.start_frame !== undefined && overlapSecond?.end_frame !== undefined &&
+    Math.max(overlapFirst.start_frame, overlapSecond.start_frame) <= Math.min(overlapFirst.end_frame, overlapSecond.end_frame),
+  );
+  const validOverlapQuery = useQuery({
+    queryKey: ["valid-trajectory-overlap", projectId, overlapFirst?.object_id, overlapFirst?.start_frame, overlapFirst?.end_frame, overlapSecond?.object_id, overlapSecond?.start_frame, overlapSecond?.end_frame],
+    queryFn: () => getValidTrajectoryOverlap(Number(projectId), overlapFirst!, overlapSecond!),
+    enabled: Boolean(linkDialogOpen && rangesReady && selectedObjects.length === 2 && metadataOverlap && projectId),
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     setDisplayActiveObjectCount(activeObjectCount);
@@ -984,7 +998,7 @@ export default function Sidebar({
             const trajectoryLength = rangeQueries[i]?.isSuccess &&
               obj.start_frame !== undefined &&
               obj.end_frame !== undefined
-                ? obj.end_frame - obj.start_frame
+                ? obj.end_frame - obj.start_frame + 1
                 : null;
             return (
               <div key={i} className="p-2 mt-2 border border-[#D9D9D9] bg-white shadow-sm rounded-[7px] flex justify-between items-start gap-1 text-xs" style={{ borderLeft: `5px solid ${color}` }}>
@@ -1256,6 +1270,37 @@ export default function Sidebar({
                 <p><strong>Trajectory Length:</strong> {formatTrajectoryLength(linkOrderRef.current.obj2.start_frame, linkOrderRef.current.obj2.end_frame)}</p>
               </div>
             )}
+            {linkOrderRef.current && metadataOverlap && (
+              <div className="mt-2 rounded-md border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-[#334155]">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">Overlap information</p>
+                  {validOverlapQuery.data && validOverlapQuery.data.overlapCount > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-[#15803D]">Valid overlap</span>}
+                </div>
+                {validOverlapQuery.isLoading ? (
+                  <p className="mt-1 text-[11px] text-[#64748B]">Checking valid overlapping frames…</p>
+                ) : validOverlapQuery.isError ? (
+                  <p className="mt-1 text-[11px] text-[#64748B]">Could not calculate the overlap.</p>
+                ) : validOverlapQuery.data?.overlapCount === 0 ? (
+                  <><p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-[#64748B]">Valid overlapping frames</p><p className="text-xl font-semibold text-[#334155]">0 <span className="text-xs font-normal">frames</span></p><p className="text-[11px] text-[#64748B]">Frames containing detections in both trajectories.</p></>
+                ) : (
+                  <>
+                    <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-[#64748B]">Valid overlapping frames</p>
+                    <p className="text-xl font-semibold text-[#334155]">{validOverlapQuery.data?.overlapCount.toLocaleString()} <span className="text-xs font-normal">frames</span></p>
+                    <p className="text-[11px] text-[#64748B]">Frames containing detections in both trajectories.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-md bg-[#EFF6FF] px-2.5 py-2 text-[#1D4ED8]">
+                        <p className="text-[19px] font-semibold">{((validOverlapQuery.data!.overlapCount / validOverlapQuery.data!.firstTrajectoryLength) * 100).toFixed(1)}%</p>
+                        <p className="text-[11px] text-[#64748B]">Object 1 overlap coverage</p>
+                      </div>
+                      <div className="rounded-md bg-[#EFF6FF] px-2.5 py-2 text-[#1D4ED8]">
+                        <p className="text-[19px] font-semibold">{((validOverlapQuery.data!.overlapCount / validOverlapQuery.data!.secondTrajectoryLength) * 100).toFixed(1)}%</p>
+                        <p className="text-[11px] text-[#64748B]">Object 2 overlap coverage</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         }
       />
@@ -1345,7 +1390,7 @@ export default function Sidebar({
                 <p>
                   <strong>Trajectory Length:</strong>{" "}
                   {selectedObjects[0].start_frame !== undefined && selectedObjects[0].end_frame !== undefined
-                    ? selectedObjects[0].end_frame - selectedObjects[0].start_frame
+                    ? selectedObjects[0].end_frame - selectedObjects[0].start_frame + 1
                     : "—"}
                 </p>
                 <p className="text-yellow-600 mt-2">Current ID will be deleted.</p>
