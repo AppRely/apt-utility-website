@@ -4022,14 +4022,19 @@ export default function DynamicVideo({
                       setAutoInterpolation(!autoInterpolation);
                       safeToast({ title: `Auto-interpolation ${!autoInterpolation ? "enabled" : "disabled"}`, duration: 1000 });
                     }}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    className={`flex items-center gap-3 px-3 py-3.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                       autoInterpolation 
                         ? "bg-amber-50 text-amber-700 hover:bg-amber-100" 
                         : "hover:bg-slate-100 text-slate-700"
                     }`}
                   >
                     <span className="text-lg">⟳</span>
-                    <span>Auto Interpolation {autoInterpolation ? "ON" : "OFF"}</span>
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span className="whitespace-nowrap text-left leading-tight">Auto Interpolation<br />Linking</span>
+                      <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold leading-none ${autoInterpolation ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                        {autoInterpolation ? "ON" : "OFF"}
+                      </span>
+                    </span>
                   </button>
 
                   <div className="border-t border-slate-200 my-1" />
