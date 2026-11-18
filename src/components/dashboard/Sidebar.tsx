@@ -83,6 +83,7 @@ export default function Sidebar({
   const [breakDialogOpen, setBreakDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clipDialogOpen, setClipDialogOpen] = useState(false);
+  const [isClipCapturing, setIsClipCapturing] = useState(false);
   const [isConfusionRunning, setIsConfusionRunning] = useState(false);
   const [breakType, setBreakType] = useState<'before' | 'after'>('after');
 
@@ -385,6 +386,7 @@ export default function Sidebar({
     onSuccess: (response) => {
       toast({ title: "Clip", description: response?.message || "Object clipped successfully", duration: 3000, className: "text-green-600" });
       setClipDialogOpen(false);
+      setIsClipCapturing(false);
       setClipStartFrame(null);
       setClipEndFrame(null);
       window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: Number(frameId) } }));
@@ -672,10 +674,10 @@ export default function Sidebar({
     clipMutation.mutate({ objectId: selected.object_id, startFrame: effectiveClipStart, endFrame: effectiveClipEnd });
   };
 
-  const handleOpenClipDialog = () => {
+  const handleOpenClipDialog = (endFrameOverride?: number) => {
     if (!selectedClipObject || clipStartFrame === null) return;
 
-    const currentClipEnd = clipEndFrame ?? Number(frameId);
+    const currentClipEnd = endFrameOverride ?? clipEndFrame ?? Number(frameId);
     const rangeStart = Math.min(clipStartFrame, currentClipEnd);
     const rangeEnd = Math.max(clipStartFrame, currentClipEnd);
     const objectStart = selectedClipObject.start_frame;
@@ -691,7 +693,7 @@ export default function Sidebar({
       return;
     }
 
-    if (clipEndFrame === null) {
+    if (clipEndFrame === null && endFrameOverride === undefined) {
       toast({
         title: "Clip range incomplete",
         description: "Press Ctrl+C again to capture the end frame.",
@@ -708,7 +710,26 @@ export default function Sidebar({
     setClipStartFrame(null);
     setClipEndFrame(null);
     setClipDialogOpen(false);
+    setIsClipCapturing(false);
   }, [setClipEndFrame, setClipStartFrame]);
+
+  const startClipCapture = () => {
+    if (!selectedClipObject) {
+      toast({ title: "Select an object", description: "Select one object before clipping.", variant: "destructive", duration: 3000 });
+      return;
+    }
+    setClipStartFrame(Number(frameId));
+    setClipEndFrame(null);
+    setIsClipCapturing(true);
+    toast({ title: "Clip start captured", description: `Start frame: ${frameId}`, duration: 2000 });
+  };
+
+  const endClipCapture = () => {
+    const endFrame = Number(frameId);
+    setClipEndFrame(endFrame);
+    setIsClipCapturing(false);
+    handleOpenClipDialog(endFrame);
+  };
 
   // Ctrl+C captures the start frame first and the end frame second.
   useEffect(() => {
@@ -735,15 +756,18 @@ export default function Sidebar({
       if (clipStartFrame === null || clipEndFrame !== null) {
         setClipStartFrame(currentFrame);
         setClipEndFrame(null);
+        setIsClipCapturing(true);
         toast({ title: "Clip start captured", description: `Start frame: ${currentFrame}`, duration: 2000 });
       } else {
         setClipEndFrame(currentFrame);
+        setIsClipCapturing(false);
         toast({ title: "Clip end captured", description: `End frame: ${currentFrame}`, duration: 2000 });
+        handleOpenClipDialog(currentFrame);
       }
     };
     window.addEventListener("keydown", handleClipShortcut);
     return () => window.removeEventListener("keydown", handleClipShortcut);
-  }, [projectId, clipEndFrame, clipStartFrame, frameId, isAnyDialogOpen, selectedObjects.length, setClipEndFrame, setClipStartFrame, toast]);
+  }, [projectId, clipEndFrame, clipStartFrame, frameId, handleOpenClipDialog, isAnyDialogOpen, selectedObjects.length, setClipEndFrame, setClipStartFrame, toast]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1055,21 +1079,40 @@ export default function Sidebar({
         <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
           <Image src="/images/delete.png" alt="Delete" width={22} height={22} className="shrink-0" />{deleteMutation.isPending ? "Deleting..." : "Delete"}
         </Button>
-        <Button data-system-guide="sidebar-interpolate" className="min-w-0 w-full bg-blue-700 hover:bg-blue-800 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={![1, 2].includes(selectedObjects.length) || interpolateMutation.isPending} onClick={() => handleInterpolate()}>
-          <Image src="/images/interpolate.svg" alt="Interpolate" width={18} height={18} className="shrink-0" />{interpolateMutation.isPending ? "Interpolating..." : "Interpolate"}
-        </Button>
         <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-1.5" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
           <Image src="/images/refresh.svg" alt="Confusion" width={18} height={18} className="shrink-0" />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
         </Button>
-        <Button
-          data-system-guide="sidebar-clip"
-          className="min-w-0 w-full bg-cyan-700 hover:bg-cyan-800 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5"
-          disabled={!selectedClipObject || clipStartFrame === null || clipMutation.isPending}
-          onClick={handleOpenClipDialog}
-        >
-          <Crop className="h-4 w-4" />
-          {clipMutation.isPending ? "Clipping..." : "Clip"}
-        </Button>
+        {!isClipCapturing ? (
+          <Button
+            data-system-guide="sidebar-clip"
+            title="Start clipping (Ctrl+C captures the start frame)"
+            className="min-w-0 w-full bg-cyan-700 hover:bg-cyan-800 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5"
+            disabled={!selectedClipObject || clipMutation.isPending}
+            onClick={startClipCapture}
+          >
+            <Crop className="h-4 w-4" />
+            {clipMutation.isPending ? "Clipping..." : "Clip"}
+          </Button>
+        ) : (
+          <div className="flex w-full gap-2">
+            <Button
+              data-system-guide="sidebar-clip-cancel"
+              title="Cancel clipping and clear the captured range"
+              className="min-w-0 flex-1 bg-slate-500 hover:bg-slate-600 text-white h-9 px-2 py-1 text-xs leading-tight rounded-lg shadow-sm transition-colors"
+              onClick={clearClipRange}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-system-guide="sidebar-clip-end"
+              title="End clipping and review the captured range"
+              className="min-w-0 flex-1 bg-cyan-700 hover:bg-cyan-800 text-white h-9 px-2 py-1 text-xs leading-tight rounded-lg shadow-sm transition-colors"
+              onClick={endClipCapture}
+            >
+              End
+            </Button>
+          </div>
+        )}
       </CardContent>
 
       <BulkLinkPanel projectId={Number(projectId)} videoColorTheme={videoColorTheme} onDeleteSuccess={response => {

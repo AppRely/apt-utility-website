@@ -45,6 +45,7 @@ import {
   TrajectoryLinkingSuggestion,
 } from "@/lib/api/getTrajectoryLinkingSuggestions";
 import { getBulkLinkCandidates } from "@/lib/api/getBulkLinkCandidates";
+import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
 import {
   getCoordinateDistance,
   NEXT_LINK_MAX_DISTANCE_PX,
@@ -478,6 +479,35 @@ export default function DynamicVideo({
   const safeToast = useCallback((...args: Parameters<typeof toast>) => {
     setTimeout(() => toast(...args), 0);
   }, [toast]);
+  const [isFillingTrajectoryGaps, setIsFillingTrajectoryGaps] = useState(false);
+
+  const fillSelectedTrajectoryGaps = useCallback(async () => {
+    const selected = selectedObjects.length === 1 ? selectedObjects[0] : null;
+    if (!selected || !projectId) {
+      safeToast({ title: "Select one trajectory", description: "Select an object before filling trajectory gaps.", variant: "destructive", duration: 2000 });
+      return;
+    }
+
+    setIsFillingTrajectoryGaps(true);
+    safeToast({ title: "Filling trajectory gaps...", duration: 10000, className: "text-black" });
+    try {
+      const response = await interpolateTrajectory(Number(projectId), {
+        object_id: selected.object_id,
+        start_frame: selected.start_frame,
+        end_frame: selected.end_frame ?? selected.start_frame,
+      });
+      if (response?.data?.interpolation_required === false) {
+        safeToast({ title: "Interpolation", description: "No missing frames found in the selected trajectory.", duration: 2500 });
+      } else {
+        safeToast({ title: "Success", description: "Trajectory gaps filled successfully.", duration: 2000, className: "text-green-600" });
+        window.dispatchEvent(new CustomEvent("operationComplete", { detail: { frameId: currentDisplayFrameRef.current } }));
+      }
+    } catch (error) {
+      safeToast({ title: "Interpolation failed", description: error instanceof Error ? error.message : "Unable to fill trajectory gaps.", variant: "destructive", duration: 2500 });
+    } finally {
+      setIsFillingTrajectoryGaps(false);
+    }
+  }, [currentDisplayFrameRef, projectId, safeToast, selectedObjects]);
 
   const [clipSuggestions, setClipSuggestions] = useState<TrajectoryClipSuggestion[]>([]);
   const [areClipSuggestionsLoading, setAreClipSuggestionsLoading] = useState(false);
@@ -4022,14 +4052,29 @@ export default function DynamicVideo({
                       setAutoInterpolation(!autoInterpolation);
                       safeToast({ title: `Auto-interpolation ${!autoInterpolation ? "enabled" : "disabled"}`, duration: 1000 });
                     }}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    className={`flex items-center gap-3 px-3 py-3.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                       autoInterpolation 
                         ? "bg-amber-50 text-amber-700 hover:bg-amber-100" 
                         : "hover:bg-slate-100 text-slate-700"
                     }`}
                   >
                     <span className="text-lg">⟳</span>
-                    <span>Auto Interpolation {autoInterpolation ? "ON" : "OFF"}</span>
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span className="whitespace-nowrap text-left leading-tight">Auto Interpolation<br />Linking</span>
+                      <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold leading-none ${autoInterpolation ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                        {autoInterpolation ? "ON" : "OFF"}
+                      </span>
+                    </span>
+                  </button>
+
+                  <button
+                    data-system-guide="menu-fill-selected-gaps"
+                    onClick={fillSelectedTrajectoryGaps}
+                    disabled={selectedObjects.length !== 1 || isFillingTrajectoryGaps}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="text-lg">↗</span>
+                    <span className="flex-1 text-left">{isFillingTrajectoryGaps ? "Filling trajectory gaps..." : "Fill gaps for current trajectory"}</span>
                   </button>
 
                   <div className="border-t border-slate-200 my-1" />
