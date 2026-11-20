@@ -4060,7 +4060,7 @@ export default function DynamicVideo({
                   >
                     <span className="text-lg">⟳</span>
                     <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                      <span className="whitespace-nowrap text-left leading-tight">Auto Interpolation<br />Linking</span>
+                      <span className="text-left leading-tight">Interpolate when<br />Linking</span>
                       <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold leading-none ${autoInterpolation ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
                         {autoInterpolation ? "ON" : "OFF"}
                       </span>
