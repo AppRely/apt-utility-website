@@ -234,10 +234,10 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
         const intervalStart = current.captureStart ?? start_frame;
         const intervalEnd = current.captureEnd ?? current.captureFrame ?? intervalStart;
         let rejectionReason: string | null = null;
-        const overlapsResolvedTrajectory = Object.values(current.resolvedRanges).some(object =>
-          object.object_id !== id && start_frame <= object.end_frame && end_frame >= object.start_frame
-        );
-        if (current.objects.some(object => start_frame <= object.end_frame && end_frame >= object.start_frame) || overlapsResolvedTrajectory) {
+        // Only currently accepted bulk-link trajectories participate in
+        // overlap checks. `resolvedRanges` also contains candidates rejected
+        // for other reasons, such as being outside the selected interval.
+        if (current.objects.some(object => start_frame <= object.end_frame && end_frame >= object.start_frame)) {
           rejectionReason = `Trajectory ${start_frame}–${end_frame} overlaps another trajectory and cannot be bulk linked.`;
         } else if (start_frame < Math.min(intervalStart, intervalEnd) || end_frame > Math.max(intervalStart, intervalEnd)) {
           rejectionReason = `Trajectory ${start_frame}–${end_frame} is outside selected interval ${Math.min(intervalStart, intervalEnd)}–${Math.max(intervalStart, intervalEnd)}.`;
