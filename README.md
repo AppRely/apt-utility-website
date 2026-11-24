@@ -20,7 +20,7 @@ This repository contains the Next.js frontend and requires the APT video-process
 | Media support | FFmpeg WebAssembly |
 | Packaging | pnpm, Docker, standalone Next.js output |
 
-## Quick start
+## Installation and startup
 
 ### Prerequisites
 
@@ -29,7 +29,7 @@ This repository contains the Next.js frontend and requires the APT video-process
 - A running APT backend providing the `/api/v1/videos/...` endpoints.
 - A modern browser with JavaScript enabled.
 
-### Installation
+### Frontend only
 
 ```bash
 git clone <repository-url>
@@ -50,6 +50,47 @@ pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### Recommended: start frontend and backend with one command
+
+For the complete local application, keep the three repositories as sibling
+directories under one parent directory:
+
+```text
+APT_Setup/
+├── apt-utility-website/
+├── apt-utility-server/
+└── apt-utility-launcher/
+```
+
+Install Docker Engine, Docker Compose, Git, curl, and Bash. Configure
+`apt-utility-server/.env` from `.env.dist` if it does not already exist,
+then run this single command from any shell:
+
+```bash
+cd ~/Documents/APT_Setup/apt-utility-launcher && ./start-apt.sh
+```
+
+The launcher prepares both repositories on the `beta` branch, validates
+their Compose configuration, builds and starts the backend, waits for the
+backend Swagger endpoint, then builds and starts this frontend. It opens
+<http://localhost:3000> automatically when a desktop opener is available.
+
+To update both repositories from `origin/beta` before starting:
+
+```bash
+cd ~/Documents/APT_Setup/apt-utility-launcher && ./start-apt.sh --pull
+```
+
+Stop the application with:
+
+```bash
+cd ~/Documents/APT_Setup/apt-utility-launcher && ./stop-apt.sh
+```
+
+The launcher keeps startup diagnostics in `../apt-utility-launcher/logs/`.
+The backend is available at <http://localhost:8002>, with Swagger at
+<http://localhost:8002/swagger/>.
 
 ## Commands
 
