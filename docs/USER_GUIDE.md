@@ -341,7 +341,7 @@ Bulk Delete removes each listed object's full trajectory. Review the list before
 
 Use `Y` to show or hide suggestions, `E` to select the top continuation at the selected object's end, and `L` to link to the selected or suggested continuation. Click a different trajectory or clip suggestion to choose it; individual suggestion ranks do not have number-key shortcuts (numbers select visible objects).
 
-See [shortcut review for Mayank](SHORTCUT_REVIEW.md) for the new mappings awaiting review.
+See [shortcut review ](SHORTCUT_REVIEW.md) for the new mappings awaiting review.
 
 ## Exporting data
 

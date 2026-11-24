@@ -8,16 +8,19 @@ import { bulkLinkObjects, type BulkLinkResult } from '@/lib/api/bulkLinkObjects'
 import { getObjectColor, type VideoColorTheme } from '@/lib/objectColors';
 import type { BulkLinkObject } from '@/lib/api/bulkLinkObjects';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Plus } from 'lucide-react';
 
-function TrajectoryTable({ title, items, tone, reasons, onRemove, busy, videoColorTheme }: {
+function TrajectoryTable({ title, items, tone, reasons, onRemove, onAdd, busy, videoColorTheme }: {
   title: string;
   items: BulkLinkObject[];
   tone: 'selected' | 'active' | 'rejected';
   reasons?: Record<number, string>;
   onRemove?: (id: number) => void;
+  onAdd?: (id: number) => void;
   busy: boolean;
   videoColorTheme: VideoColorTheme;
 }) {
+  const hasAction = Boolean(onRemove || onAdd);
   const [sortKey, setSortKey] = useState<'object_id' | 'start_frame' | 'end_frame' | 'length' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -64,15 +67,15 @@ function TrajectoryTable({ title, items, tone, reasons, onRemove, busy, videoCol
     {!collapsed && (items.length === 0 ? <p className="px-3 py-3 text-xs text-slate-500">No trajectories</p> : <>
       <div className="max-h-56 w-full overflow-x-hidden overflow-y-auto">
       <Table className="w-full min-w-0 table-fixed text-left text-[10px]">
-        <colgroup><col style={{ width: onRemove ? '25%' : '30%' }} /><col style={{ width: onRemove ? '19%' : '22%' }} /><col style={{ width: onRemove ? '19%' : '22%' }} /><col style={{ width: onRemove ? '27%' : '26%' }} />{onRemove && <col style={{ width: '10%' }} />}</colgroup>
+        <colgroup><col style={{ width: hasAction ? '25%' : '30%' }} /><col style={{ width: hasAction ? '19%' : '22%' }} /><col style={{ width: hasAction ? '19%' : '22%' }} /><col style={{ width: hasAction ? '27%' : '26%' }} />{hasAction && <col style={{ width: '10%' }} />}</colgroup>
         <TableHeader><TableRow className="bg-black/[0.03] text-[10px] uppercase tracking-wide text-slate-500">
-          {([['object_id', 'ID'], ['start_frame', 'Start'], ['end_frame', 'End'], ['length', 'Length']] as const).map(([key, label]) => <TableHead key={key} className="h-8 px-1.5"><button className="font-semibold" onClick={() => changeSort(key)}>{label} {sortIndicator(key)}</button></TableHead>)}{onRemove && <TableHead className="h-8 px-0" />}
+          {([['object_id', 'ID'], ['start_frame', 'Start'], ['end_frame', 'End'], ['length', 'Length']] as const).map(([key, label]) => <TableHead key={key} className="h-8 px-1.5"><button className="font-semibold" onClick={() => changeSort(key)}>{label} {sortIndicator(key)}</button></TableHead>)}{hasAction && <TableHead className="h-8 px-0" />}
         </TableRow></TableHeader>
         <TableBody>{visibleItems.map(item => <Fragment key={item.object_id}><TableRow className={reasons?.[item.object_id] ? 'border-b-0' : undefined}>
           <TableCell className="px-1.5 py-2 font-medium text-slate-800"><span className="flex min-w-0 items-center gap-1"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getObjectColor(item.object_id, videoColorTheme) }} /><button className="min-w-0 truncate text-teal-800 underline-offset-2 hover:underline" title={`Jump to frame ${item.start_frame}`} onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.start_frame }))}>{item.object_id}</button></span></TableCell>
           <TableCell className="px-1.5 py-2 text-slate-600"><button className="underline-offset-2 hover:underline" onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.start_frame }))}>{item.start_frame}</button></TableCell><TableCell className="px-1.5 py-2 text-slate-600"><button className="underline-offset-2 hover:underline" onClick={() => window.dispatchEvent(new CustomEvent('bulk-frame-jump', { detail: item.end_frame }))}>{item.end_frame}</button></TableCell><TableCell className="px-1.5 py-2 text-slate-600">{item.end_frame - item.start_frame + 1}</TableCell>
-          {onRemove && <TableCell className="px-0 py-1 text-center"><button disabled={busy} onClick={() => onRemove(item.object_id)} aria-label={`Remove object ${item.object_id}`} className="h-7 w-7 rounded border border-red-200 text-base leading-none text-red-700 hover:bg-red-100 disabled:opacity-50">×</button></TableCell>}
-        </TableRow>{reasons?.[item.object_id] && <TableRow className="border-b hover:bg-transparent"><TableCell colSpan={onRemove ? 5 : 4} className="border-b px-1.5 py-0.5 text-[10px] text-amber-800"><details><summary className="cursor-pointer text-amber-700">Reason</summary><span className="block break-words pb-1">{reasons[item.object_id]}</span></details></TableCell></TableRow>}</Fragment>)}</TableBody>
+          {hasAction && <TableCell className="px-0 py-1 text-center">{onRemove ? <button disabled={busy} onClick={() => onRemove(item.object_id)} aria-label={`Remove object ${item.object_id}`} className="h-7 w-7 rounded border border-red-200 text-base leading-none text-red-700 hover:bg-red-100 disabled:opacity-50">×</button> : onAdd && <button disabled={busy} onClick={() => onAdd(item.object_id)} aria-label="Add to Selected" title="Add to Selected" className="inline-flex h-7 w-7 items-center justify-center rounded border border-green-200 text-green-700 hover:bg-green-100 disabled:opacity-50"><Plus className="h-4 w-4" aria-hidden="true" /></button>}</TableCell>}
+        </TableRow>{reasons?.[item.object_id] && <TableRow className="border-b hover:bg-transparent"><TableCell colSpan={hasAction ? 5 : 4} className="border-b px-1.5 py-0.5 text-[10px] text-amber-800"><details><summary className="cursor-pointer text-amber-700">Reason</summary><span className="block break-words pb-1">{reasons[item.object_id]}</span></details></TableCell></TableRow>}</Fragment>)}</TableBody>
       </Table>
       </div>
     </>)}
@@ -181,9 +184,9 @@ export function BulkLinkPanel({ projectId, videoColorTheme, onSuccess, onDeleteS
       <h3 className="font-semibold" title={state.mode === 'link' ? 'Only full trajectories inside the box and frame range are selected.' : undefined}>{state.objects.length} selected</h3>
       <p className="mt-1 text-xs">{state.capturePhase === 'ready' ? `Frames ${state.captureStart}–${state.captureEnd}` : state.capturePhase === 'capturing' ? `Frames ${state.captureStart}-${state.captureFrame ?? state.captureStart} · Ctrl+C: end` : state.mode === 'link' ? 'Draw a rectangle to select trajectories.' : 'Draw box or select object.'}</p>
       <TrajectoryTable title="Selected" items={state.objects} tone="selected" onRemove={state.remove} busy={state.busy} videoColorTheme={videoColorTheme} />
-      <TrajectoryTable title="Rejected" items={state.rejected.map(id => state.resolvedRanges[id] ?? { object_id: id, start_frame: 0, end_frame: 0 })} tone="rejected" reasons={state.rejectedReasons} busy={state.busy} videoColorTheme={videoColorTheme} />
+      <TrajectoryTable title="Rejected" items={state.rejected.map(id => state.resolvedRanges[id] ?? { object_id: id, start_frame: 0, end_frame: 0 })} tone="rejected" reasons={state.rejectedReasons} onAdd={state.mode === 'link' ? state.addRejectedToSelected : undefined} busy={state.busy} videoColorTheme={videoColorTheme} />
       {state.pending.length > 0 && <p role="status" className="text-xs mt-2">Loading…</p>}
-      {state.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
+      {state.error && !state.error.toLowerCase().includes('overlap') && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
       <Button className="mt-3 w-full" disabled={state.capturePhase !== 'ready' || state.objects.length < (state.mode === 'delete' ? 1 : 2) || state.pending.length > 0 || state.busy}
         onClick={submitBulkAction}>
         {state.busy ? (state.mode === 'delete' ? 'Deleting…' : 'Linking…') : `${state.mode === 'delete' ? 'Delete' : 'Link'} ${state.objects.length} objects (Enter)`}

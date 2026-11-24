@@ -15,6 +15,7 @@ const ranges = {
   3: { start_frame: 21, end_frame: 30 },
   4: { start_frame: 15, end_frame: 25 }, // Overlaps 2.
   5: { start_frame: 31, end_frame: 40 }, // Leaves the rectangle.
+  6594: { start_frame: 1059, end_frame: 1064 },
 };
 vm.runInNewContext(implementation, {
   create: initialize => {
@@ -28,7 +29,7 @@ vm.runInNewContext(implementation, {
     if (deferred) await deferred;
     return { object_id: id, ...ranges[id] };
   },
-  isBulkTrajectoryInside: async (_, object) => object.object_id !== 5,
+  getBulkTrajectoryRejectionReason: async (_, object) => object.object_id === 5 ? 'Trajectory leaves the selection rectangle.' : null,
 });
 const ids = () => Array.from(state.objects, object => object.object_id);
 const rectangle = { left: 0, right: 100, top: 0, bottom: 100 };
@@ -90,6 +91,20 @@ const rectangle = { left: 0, right: 100, top: 0, bottom: 100 };
   await state.select(1, 2, 20, 'rectangle');
   state.updateCaptureFrame(10);
   assert.deepStrictEqual(ids(), [2]); // Reverse interval is inclusive.
+
+  // A trajectory rejected for being outside the selected interval must not
+  // block a later eligible trajectory whose range overlaps it.
+  state.start(1);
+  state.armCapture(rectangle);
+  state.beginCapture(1048);
+  state.updateCaptureFrame(1060);
+  await state.select(1, 4, 1048, 'rectangle');
+  assert(state.rejected.includes(4));
+  assert.strictEqual(state.rejectedReasons[4], 'Trajectory 15–25 is outside selected interval 1048–1060.');
+  await state.select(1, 6594, 1059, 'rectangle');
+  assert.deepStrictEqual(ids(), [6594]);
+  assert(!state.rejected.includes(6594));
+
   state.reset();
   assert.strictEqual(state.parent, null);
   assert.strictEqual(state.rectangle, null);

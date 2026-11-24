@@ -37,6 +37,7 @@ type BulkLinkState = {
   reset: () => void;
   retryRejected: () => void;
   remove: (id: number) => void;
+  addRejectedToSelected: (id: number) => void;
   select: (projectId: number, id: number, frame: number, source?: 'manual' | 'rectangle', knownObject?: BulkLinkObject) => Promise<void>;
   queueCandidates: (objects: BulkLinkObject[]) => void;
 };
@@ -80,7 +81,6 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
         ? [...retryIds]
             .map(id => state.resolvedRanges[id])
             .filter((object): object is BulkLinkObject => Boolean(object) && object.start_frame >= start && object.end_frame <= end)
-            .filter(object => !state.objects.some(existing => object.start_frame <= existing.end_frame && object.end_frame >= existing.start_frame))
         : [];
       if (intervalObjects.length === 0) return;
       if (linkRetryInFlight) return;
@@ -97,7 +97,22 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
         linkRetryInFlight = false;
       }
       if (get().generation !== state.generation) return;
-      const retriedObjects = validation.filter(item => !item.rejectionReason).map(item => item.object);
+      const validObjects = validation.filter(item => !item.rejectionReason).map(item => item.object);
+      const conflicts = validObjects.map(object => ({
+        object,
+        existing: state.objects.find(existing => object.start_frame <= existing.end_frame && object.end_frame >= existing.start_frame),
+      })).filter(item => item.existing);
+      if (conflicts.length > 0) {
+        const conflict = conflicts[0];
+        const reason = `Trajectory #${conflict.object.object_id} (${conflict.object.start_frame}–${conflict.object.end_frame}) overlaps with Trajectory #${conflict.existing!.object_id} (${conflict.existing!.start_frame}–${conflict.existing!.end_frame}) and cannot be bulk linked.`;
+        set(current => ({
+          error: `Bulk link stopped: ${reason}`,
+          rejectedReasons: { ...current.rejectedReasons, ...Object.fromEntries(conflicts.map(item => [item.object.object_id, `Trajectory #${item.object.object_id} (${item.object.start_frame}–${item.object.end_frame}) overlaps with Trajectory #${item.existing!.object_id} (${item.existing!.start_frame}–${item.existing!.end_frame}) and cannot be bulk linked.`])) },
+          generation: current.generation + 1,
+        }));
+        return;
+      }
+      const retriedObjects = validObjects;
       set(current => ({
         objects: [...current.objects, ...retriedObjects]
           .sort((a, b) => a.start_frame - b.start_frame || a.object_id - b.object_id),
@@ -177,6 +192,19 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
       selectionOrder: state.selectionOrder.filter(id => state.pending.includes(id) || objects.some(object => object.object_id === id)) });
   },
   remove: id => { if (!get().busy) { set(state => { const object = state.objects.find(item => item.object_id === id) ?? state.resolvedRanges[id]; return { excluded: [...new Set([...state.excluded, id])], objects: state.objects.filter(obj => obj.object_id !== id), selectionOrder: state.selectionOrder.filter(value => value !== id), rejected: [...new Set([...state.rejected, id])], rejectedReasons: { ...state.rejectedReasons, [id]: 'Manually removed from selected trajectories.' }, resolvedRanges: object ? { ...state.resolvedRanges, [id]: object } : state.resolvedRanges }; }); if (get().mode !== 'link') reconcileLinkSelection(); } },
+  addRejectedToSelected: id => set(state => {
+    if (state.busy || state.mode !== 'link' || state.objects.some(object => object.object_id === id)) return state;
+    const object = state.resolvedRanges[id];
+    if (!object || !state.rejected.includes(id)) return state;
+    return {
+      ...state,
+      objects: [...state.objects, object].sort((a, b) => a.start_frame - b.start_frame || a.object_id - b.object_id),
+      rejected: state.rejected.filter(value => value !== id),
+      rejectedReasons: Object.fromEntries(Object.entries(state.rejectedReasons).filter(([key]) => Number(key) !== id)),
+      selectionOrder: [...state.selectionOrder, id],
+      generation: state.generation + 1,
+    };
+  }),
   select: async (projectId, id, frame, source = 'manual', knownObject) => {
     const state = get();
     if (!state.active || state.projectId !== projectId || state.busy) return;
@@ -234,15 +262,17 @@ export const useBulkLinkStore = create<BulkLinkState>((set, get) => ({
         const intervalStart = current.captureStart ?? start_frame;
         const intervalEnd = current.captureEnd ?? current.captureFrame ?? intervalStart;
         let rejectionReason: string | null = null;
-        const overlapsResolvedTrajectory = Object.values(current.resolvedRanges).some(object =>
-          object.object_id !== id && start_frame <= object.end_frame && end_frame >= object.start_frame
-        );
-        if (current.objects.some(object => start_frame <= object.end_frame && end_frame >= object.start_frame) || overlapsResolvedTrajectory) {
-          rejectionReason = `Trajectory ${start_frame}–${end_frame} overlaps another trajectory and cannot be bulk linked.`;
-        } else if (start_frame < Math.min(intervalStart, intervalEnd) || end_frame > Math.max(intervalStart, intervalEnd)) {
+        // Only currently accepted bulk-link trajectories participate in
+        // overlap checks. `resolvedRanges` also contains candidates rejected
+        // for other reasons, such as being outside the selected interval.
+        if (start_frame < Math.min(intervalStart, intervalEnd) || end_frame > Math.max(intervalStart, intervalEnd)) {
           rejectionReason = `Trajectory ${start_frame}–${end_frame} is outside selected interval ${Math.min(intervalStart, intervalEnd)}–${Math.max(intervalStart, intervalEnd)}.`;
         } else if (current.rectangle) {
           rejectionReason = await getBulkTrajectoryRejectionReason(projectId, candidate, current.rectangle);
+        }
+        if (!rejectionReason) {
+          const overlappingObject = current.objects.find(object => start_frame <= object.end_frame && end_frame >= object.start_frame);
+          if (overlappingObject) rejectionReason = `Trajectory #${object_id} (${start_frame}–${end_frame}) overlaps with Trajectory #${overlappingObject.object_id} (${overlappingObject.start_frame}–${overlappingObject.end_frame}) and cannot be bulk linked.`;
         }
         if (rejectionReason) {
           if (rejectionReason.includes('overlaps')) {
@@ -332,16 +362,14 @@ function reconcileLinkSelection(update: Partial<BulkLinkState> = {}) {
   const boundary = state.captureEnd ?? state.captureFrame ?? state.captureStart;
   const start = Math.min(state.captureStart, boundary);
   const end = Math.max(state.captureStart, boundary);
-  const objects: BulkLinkObject[] = [];
+  // Candidates are suggestions only. They have not necessarily passed the
+  // asynchronous interval/rectangle/overlap checks in select(), so they must
+  // never be promoted into Selected by reconciliation.
+  const objects = state.objects.filter(object =>
+    !state.excluded.includes(object.object_id) &&
+    object.start_frame >= start && object.end_frame <= end
+  );
   const overlapping: number[] = [];
-  for (const candidate of [...state.candidates].sort((a, b) => a.start_frame - b.start_frame || a.object_id - b.object_id)) {
-    if (state.excluded.includes(candidate.object_id) || candidate.start_frame < start || candidate.end_frame > end) continue;
-    if (objects.some(object => candidate.start_frame <= object.end_frame && candidate.end_frame >= object.start_frame)) {
-      overlapping.push(candidate.object_id);
-      continue;
-    }
-    objects.push(candidate);
-  }
   if (Object.keys(update).length === 0 && objects.length === state.objects.length && objects.every((object, index) => object.object_id === state.objects[index].object_id) &&
       overlapping.length === state.overlapping.length && overlapping.every((id, index) => id === state.overlapping[index])) return;
   useBulkLinkStore.setState({ ...update, objects, overlapping, selectionOrder: objects.map(object => object.object_id) });

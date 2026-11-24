@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/hooks/use-toast";
-import { ConfirmDialog } from "@/components/annotation/ConfirmDialog";
+import { BulkLinkOverlapDialog } from "@/components/dashboard/BulkLinkOverlapDialog";
 import { Loader2 } from "lucide-react";
 import {
   Play, Pause, SkipBack, SkipForward, Clock, ChevronRight,
@@ -1084,14 +1084,7 @@ export default function DynamicVideo({
     const bulk = useBulkLinkStore.getState();
     bulk.updateCaptureFrame(currentFrame);
     const updated = useBulkLinkStore.getState();
-    if (updated.mode === 'link' && updated.rejected.length > 0 &&
-        updated.captureStart !== null && updated.captureFrame !== null) {
-      const latestRejectedEnd = Math.max(...updated.rejected
-        .map(id => updated.resolvedRanges[id]?.end_frame ?? -1));
-      if (latestRejectedEnd >= 0 && updated.captureFrame >= latestRejectedEnd) {
-        void updated.retryRejected();
-      }
-    }
+    if (updated.mode === 'link' && updated.rejected.length > 0) void updated.retryRejected();
   }, [isBulkSelectionActive, currentFrame, bulkSelection.captureStart, bulkSelection.generation]);
 
   // A saved rectangle is a live selection area. When playback reaches a
@@ -2800,15 +2793,7 @@ export default function DynamicVideo({
         }
       }
       const bulk = useBulkLinkStore.getState();
-      if (bulk.active && bulk.projectId === Number(projectId) && bulk.mode === 'link' &&
-          bulk.rejected.length > 0 && bulk.captureStart !== null &&
-          bulk.captureFrame !== null) {
-        const latestRejectedEnd = Math.max(...bulk.rejected
-          .map(id => bulk.resolvedRanges[id]?.end_frame ?? -1));
-        if (latestRejectedEnd >= 0 && bulk.captureFrame >= latestRejectedEnd) {
-          bulk.retryRejected();
-        }
-      }
+      if (bulk.active && bulk.projectId === Number(projectId) && bulk.mode === 'link' && bulk.rejected.length > 0) bulk.retryRejected();
     };
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => {
@@ -4060,7 +4045,7 @@ export default function DynamicVideo({
                   >
                     <span className="text-lg">⟳</span>
                     <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                      <span className="whitespace-nowrap text-left leading-tight">Auto Interpolation<br />Linking</span>
+                      <span className="text-left leading-tight">Interpolate when<br />Linking</span>
                       <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold leading-none ${autoInterpolation ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
                         {autoInterpolation ? "ON" : "OFF"}
                       </span>
@@ -4755,13 +4740,10 @@ export default function DynamicVideo({
           </div>
         </div>
       )}
-      <ConfirmDialog
+      <BulkLinkOverlapDialog
         open={bulkOverlapDialog !== null}
+        message={bulkOverlapDialog}
         onOpenChange={open => { if (!open) setBulkOverlapDialog(null); }}
-        title="Overlapping trajectories detected"
-        description={<p>{bulkOverlapDialog ?? 'Two or more trajectories overlap. They cannot be bulk linked together.'}</p>}
-        confirmText="OK"
-        onConfirm={() => setBulkOverlapDialog(null)}
       />
     </>
   );
