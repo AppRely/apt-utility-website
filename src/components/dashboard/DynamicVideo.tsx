@@ -46,6 +46,8 @@ import {
 } from "@/lib/api/getTrajectoryLinkingSuggestions";
 import { getBulkLinkCandidates } from "@/lib/api/getBulkLinkCandidates";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
+import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
+import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 import {
   getCoordinateDistance,
   NEXT_LINK_MAX_DISTANCE_PX,
@@ -828,8 +830,8 @@ export default function DynamicVideo({
   const [timelinePoints, setTimelinePoints] = useState<Array<{ frame: number; x: number; y: number; objectId: number }>>([]);
   const timelineAbortRef = useRef<AbortController | null>(null);
   const timelineRangeRef = useRef<{ start: number; end: number; key: string } | null>(null);
-  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy">("x");
-  const isSkeletonCoordinateMode = coordinateMode.startsWith("skeleton-");
+  const [coordinateMode, setCoordinateMode] = useState<"x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy" | "all-speed">("x");
+  const isSkeletonCoordinateMode = coordinateMode.startsWith("skeleton-") || coordinateMode === "all-speed";
   const [skeletonTimelinePoints, setSkeletonTimelinePoints] = useState<Array<{
     frame: number;
     objectId: number;
@@ -1549,6 +1551,35 @@ export default function DynamicVideo({
     onSettled: () => setIsUndoRedoLoading(false),
   });
 
+  const [isConfusionRunning, setIsConfusionRunning] = useState(false);
+  const recalculateMutation = useMutation({
+    mutationFn: () => recalculateConfusion(Number(projectId)),
+    onSuccess: () => {
+      safeToast({ title: "Success", description: "Confusion recalculation started", duration: 3000, className: "text-green-600" });
+      setIsConfusionRunning(true);
+      const interval = setInterval(async () => {
+        try {
+          const response = await getConfusionStatus(Number(projectId));
+          const status = response.confusion_status;
+          console.log("Confusion Status:", status);
+          if (status === "COMPLETED") {
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+            safeToast({ title: "Completed", description: "Confusion recalculation completed successfully", duration: 5000, className: "text-green-600" });
+          } else if (status === "FAILED") {
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+            safeToast({ title: "Failed", description: "Confusion recalculation failed", variant: "destructive" });
+          }
+        } catch {
+          clearInterval(interval);
+          setIsConfusionRunning(false);
+          safeToast({ title: "Error", description: "Failed to check confusion status", variant: "destructive" });
+        }
+      }, 8000);
+    },
+  });
+
   // ===== REFRESH FUNCTION =====
   const handleRefresh = useCallback(() => {
     // Invalidate React Query caches
@@ -1861,16 +1892,40 @@ export default function DynamicVideo({
   }, [skeletonTimelinePoints]);
 
   const skeletonChartData = useMemo(() => {
-    const rows = new Map<number, Record<string, number>>();
+    const rows = new Map<number, Record<string, number | null>>();
+
+    // Fast lookup map for frame-to-frame velocity: objectId -> (frame -> coordinates)
+    const coordsLookup = new Map<number, Map<number, [number, number][]>>();
+    skeletonTimelinePoints.forEach(p => {
+      let objectMap = coordsLookup.get(p.objectId);
+      if (!objectMap) {
+        objectMap = new Map();
+        coordsLookup.set(p.objectId, objectMap);
+      }
+      objectMap.set(p.frame, p.coordinates);
+    });
+
     skeletonTimelinePoints.forEach(point => {
       if (point.frame < minFrame || point.frame > maxFrame) return;
       const row = rows.get(point.frame) ?? { frame: point.frame };
+      const nextFrameCoords = coordsLookup.get(point.objectId)?.get(point.frame + 1);
+
       point.coordinates.forEach(([x, y], pointIndex) => {
         row[`obj_${point.objectId}_point_${pointIndex}_x`] = x;
         row[`obj_${point.objectId}_point_${pointIndex}_y`] = y;
+
+        // Velocity (displacement in px) to the next frame
+        if (nextFrameCoords && nextFrameCoords[pointIndex]) {
+          const [nextX, nextY] = nextFrameCoords[pointIndex];
+          const speed = Math.hypot(nextX - x, nextY - y);
+          row[`obj_${point.objectId}_point_${pointIndex}_speed`] = Number(speed.toFixed(2));
+        } else {
+          row[`obj_${point.objectId}_point_${pointIndex}_speed`] = null;
+        }
       });
       rows.set(point.frame, row);
     });
+
     return Array.from(rows.values()).sort((a, b) => a.frame - b.frame);
   }, [maxFrame, minFrame, skeletonTimelinePoints]);
 
@@ -4047,6 +4102,26 @@ export default function DynamicVideo({
                   </button>
 
                   <button
+                    data-system-guide="menu-confusion"
+                    disabled={!projectId || recalculateMutation.isPending || isConfusionRunning}
+                    onClick={() => recalculateMutation.mutate()}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      isConfusionRunning
+                        ? "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "text-slate-700 hover:bg-slate-100"
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isConfusionRunning ? "animate-spin" : ""}`} />
+                    <span>
+                      {isConfusionRunning
+                        ? "Calculating..."
+                        : recalculateMutation.isPending
+                        ? "Starting..."
+                        : "Confusion"}
+                    </span>
+                  </button>
+
+                  <button
                     data-system-guide="menu-auto-interpolation"
                     onClick={() => {
                       setAutoInterpolation(!autoInterpolation);
@@ -4457,16 +4532,15 @@ export default function DynamicVideo({
               <div className="flex items-center gap-2">
                 <select
                   value={coordinateMode}
-                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "xy" | "skeleton-x" | "skeleton-y" | "skeleton-xy")}
+                  onChange={(e) => setCoordinateMode(e.target.value as "x" | "y" | "skeleton-x" | "skeleton-y" | "all-speed")}
                   className="bg-gray-800 text-white text-xs rounded-md px-2 py-1 border border-gray-600"
                   disabled={timelineObjects.length === 0}
                 >
-                  <option value="x">X Axis</option>
-                  <option value="y">Y Axis</option>
-                  <option value="xy">X + Y</option>
-                  <option value="skeleton-x">Skeleton X</option>
-                  <option value="skeleton-y">Skeleton Y</option>
-                  <option value="skeleton-xy">Skeleton X + Y</option>
+                  <option value="x">Mean X</option>
+                  <option value="y">Mean Y</option>
+                  <option value="skeleton-x">All X</option>
+                  <option value="skeleton-y">All Y</option>
+                  <option value="all-speed">All Speed</option>
                 </select>
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-gray-400">Visible frames:</span>
@@ -4576,7 +4650,7 @@ export default function DynamicVideo({
                           tick={{ fill: '#ccc', fontSize: 8 }}
                           domain={[0, 'auto']}
                           label={{
-                            value: coordinateMode === 'x' ? 'X' : coordinateMode === 'y' ? 'Y' : coordinateMode === 'skeleton-x' ? 'Points X' : coordinateMode === 'skeleton-y' ? 'Points Y' : 'X/Y',
+                            value: coordinateMode === 'x' ? 'Mean X' : coordinateMode === 'y' ? 'Mean Y' : coordinateMode === 'skeleton-x' ? 'All X' : coordinateMode === 'skeleton-y' ? 'All Y' : coordinateMode === 'all-speed' ? 'Speed (px/frame)' : 'Coordinates',
                             angle: -90,
                             position: 'insideLeft',
                             fill: '#aaa',
@@ -4643,6 +4717,20 @@ export default function DynamicVideo({
                               strokeDasharray="3 2"
                               dot={false}
                               isAnimationActive={false}
+                            />);
+                          }
+                          if (coordinateMode === "all-speed") {
+                            lines.push(<RechartsLine
+                              key={`${objectId}-${pointIndex}-speed`}
+                              type="linear"
+                              dataKey={`obj_${objectId}_point_${pointIndex}_speed`}
+                              name={`Object ${objectId} Point ${pointIndex + 1} Speed`}
+                              stroke={color}
+                              strokeWidth={1.5}
+                              dot={false}
+                              activeDot={{ r: 4, fill: color }}
+                              isAnimationActive={false}
+                              connectNulls={false}
                             />);
                           }
                           return lines;

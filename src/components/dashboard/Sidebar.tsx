@@ -1079,9 +1079,6 @@ export default function Sidebar({
         <Button data-system-guide="sidebar-delete" className="min-w-0 w-full bg-red-600 hover:bg-red-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5" disabled={selectedObjects.length !== 1 || deleteMutation.isPending} variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
           <Image src="/images/delete.png" alt="Delete" width={22} height={22} className="shrink-0" />{deleteMutation.isPending ? "Deleting..." : "Delete"}
         </Button>
-        <Button data-system-guide="sidebar-confusion" className="min-w-0 w-full bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white h-9 px-2 py-1 text-xs leading-tight whitespace-normal rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-1.5" disabled={recalculateMutation.isPending || isConfusionRunning} onClick={() => recalculateMutation.mutate()}>
-          <Image src="/images/refresh.svg" alt="Confusion" width={18} height={18} className="shrink-0" />{isConfusionRunning ? "Calculating..." : recalculateMutation.isPending ? "Starting..." : "Confusion"}
-        </Button>
         {!isClipCapturing ? (
           <Button
             data-system-guide="sidebar-clip"
