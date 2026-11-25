@@ -46,6 +46,8 @@ import {
 } from "@/lib/api/getTrajectoryLinkingSuggestions";
 import { getBulkLinkCandidates } from "@/lib/api/getBulkLinkCandidates";
 import { interpolateTrajectory } from "@/lib/api/interpolateTrajectory";
+import { recalculateConfusion } from "@/lib/api/recalculateConfusion";
+import { getConfusionStatus } from "@/lib/api/getConfusionStatus";
 import {
   getCoordinateDistance,
   NEXT_LINK_MAX_DISTANCE_PX,
@@ -1547,6 +1549,35 @@ export default function DynamicVideo({
     },
     onError: () => safeToast({ title: "Redo failed", variant: "destructive", duration: 1500 }),
     onSettled: () => setIsUndoRedoLoading(false),
+  });
+
+  const [isConfusionRunning, setIsConfusionRunning] = useState(false);
+  const recalculateMutation = useMutation({
+    mutationFn: () => recalculateConfusion(Number(projectId)),
+    onSuccess: () => {
+      safeToast({ title: "Success", description: "Confusion recalculation started", duration: 3000, className: "text-green-600" });
+      setIsConfusionRunning(true);
+      const interval = setInterval(async () => {
+        try {
+          const response = await getConfusionStatus(Number(projectId));
+          const status = response.confusion_status;
+          console.log("Confusion Status:", status);
+          if (status === "COMPLETED") {
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+            safeToast({ title: "Completed", description: "Confusion recalculation completed successfully", duration: 5000, className: "text-green-600" });
+          } else if (status === "FAILED") {
+            clearInterval(interval);
+            setIsConfusionRunning(false);
+            safeToast({ title: "Failed", description: "Confusion recalculation failed", variant: "destructive" });
+          }
+        } catch {
+          clearInterval(interval);
+          setIsConfusionRunning(false);
+          safeToast({ title: "Error", description: "Failed to check confusion status", variant: "destructive" });
+        }
+      }, 8000);
+    },
   });
 
   // ===== REFRESH FUNCTION =====
@@ -4044,6 +4075,26 @@ export default function DynamicVideo({
                   >
                     <span className="text-lg">〰</span>
                     <span>Track {showTrajectory ? "ON" : "OFF"}</span>
+                  </button>
+
+                  <button
+                    data-system-guide="menu-confusion"
+                    disabled={!projectId || recalculateMutation.isPending || isConfusionRunning}
+                    onClick={() => recalculateMutation.mutate()}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      isConfusionRunning
+                        ? "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "text-slate-700 hover:bg-slate-100"
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isConfusionRunning ? "animate-spin" : ""}`} />
+                    <span>
+                      {isConfusionRunning
+                        ? "Calculating..."
+                        : recalculateMutation.isPending
+                        ? "Starting..."
+                        : "Confusion"}
+                    </span>
                   </button>
 
                   <button
